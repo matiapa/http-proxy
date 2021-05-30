@@ -1,0 +1,1 @@
+int ssend(int socket, char *message);
