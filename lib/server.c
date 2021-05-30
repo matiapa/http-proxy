@@ -182,6 +182,12 @@ void handle_new_connections(int masterSocket, connection connections[], fd_set *
             if(connections[i].src_socket == 0 ) {
                 connections[i].src_socket = clientSocket;
                 connections[i].dst_socket = targetSocket;
+
+                // Create connection buffers
+
+                buffer_init(&(connections[i].src_dst_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
+                buffer_init(&(connections[i].dst_src_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
+
                 break;
             }
         }
@@ -203,17 +209,25 @@ void handle_writes(connection connections[], fd_set *writefds) {
 
         // For target
 
-        if (FD_ISSET(conn->dst_socket, writefds) && conn->src_dst_buffer.size > 0) {
-            int sentBytes = ssend(conn->dst_socket, conn->src_dst_buffer.data);
-            conn->src_dst_buffer.size -= sentBytes;
+        if (FD_ISSET(conn->dst_socket, writefds) && buffer_can_read(&(conn->src_dst_buffer))) {
+            size_t len;
+            uint8_t *bytes = buffer_read_ptr(&(conn->src_dst_buffer), &len);
+
+            int sentBytes = bsend(conn->dst_socket, bytes, len);
+
+            buffer_read_adv(&(conn->src_dst_buffer), sentBytes);
             FD_CLR(conn->dst_socket, writefds);
         }
 
         // For client
 
-        if (FD_ISSET(conn->src_socket, writefds) && conn->dst_src_buffer.size > 0) {
-            int sentBytes = ssend(conn->src_socket, conn->dst_src_buffer.data);
-            conn->dst_src_buffer.size -= sentBytes;
+        if (FD_ISSET(conn->src_socket, writefds) && buffer_can_read(&(conn->dst_src_buffer))) {
+            size_t len;
+            uint8_t *bytes = buffer_read_ptr(&(conn->dst_src_buffer), &len);
+
+            int sentBytes = bsend(conn->src_socket, bytes, len);
+
+            buffer_read_adv(&(conn->dst_src_buffer), sentBytes);
             FD_CLR(conn->src_socket, writefds);
         }
     }
@@ -231,10 +245,14 @@ void handle_reads(connection connections[], fd_set *readfds, fd_set *writefds) {
 
         // From client
             
-        if (FD_ISSET(conn->src_socket , readfds)) {
+        if (FD_ISSET(conn->src_socket , readfds) && buffer_can_write(&(conn->src_dst_buffer))) {
 
-            int readBytes = read(conn->src_socket, conn->src_dst_buffer.data, CONN_BUFFER);
-            conn->src_dst_buffer.data[readBytes] = '\0';
+            size_t space;
+            uint8_t *ptr = buffer_write_ptr(&(conn->src_dst_buffer), &space);
+
+            int readBytes = read(conn->src_socket, ptr, space);
+
+            buffer_write_adv(&(conn->src_dst_buffer), readBytes);
 
             if (readBytes == 0) {
 
@@ -245,6 +263,11 @@ void handle_reads(connection connections[], fd_set *readfds, fd_set *writefds) {
                                         
                 close(conn->src_socket);
                 close(conn->dst_socket);
+
+                // Release connection buffers
+
+                free(conn->src_dst_buffer.data);
+                free(conn->dst_src_buffer.data);
 
                 // Remove connection from the list
 
@@ -259,17 +282,19 @@ void handle_reads(connection connections[], fd_set *readfds, fd_set *writefds) {
 
                 FD_SET(conn->dst_socket, writefds);
 
-                conn->src_dst_buffer.size = readBytes;
-
             }
         }
 
         // From target
 
-        if (FD_ISSET(conn->dst_socket , readfds)) {
+        if (FD_ISSET(conn->dst_socket , readfds) && buffer_can_write(&(conn->dst_src_buffer))) {
 
-            int readBytes = read(conn->dst_socket, conn->dst_src_buffer.data, CONN_BUFFER);
-            conn->dst_src_buffer.data[readBytes] = '\0';
+            size_t space;
+            uint8_t *ptr = buffer_write_ptr(&(conn->dst_src_buffer), &space);
+
+            int readBytes = read(conn->dst_socket, ptr, space);
+
+            buffer_write_adv(&(conn->dst_src_buffer), readBytes);
 
             if (readBytes == 0) {
 
@@ -293,8 +318,6 @@ void handle_reads(connection connections[], fd_set *readfds, fd_set *writefds) {
                 log(DEBUG, "Received %d bytes from socket %d\n", readBytes, conn->dst_socket);
 
                 FD_SET(conn->src_socket, writefds);
-
-                conn->dst_src_buffer.size = readBytes;
 
             }
         }

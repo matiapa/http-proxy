@@ -4,17 +4,12 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <sys/socket.h>
+#include "./buffer.h"
 
 #define CONN_BUFFER 1024
 #define MAX_CLIENTS 500
 #define MAX_CONNECTIONS MAX_CLIENTS * 2 + 1
 
-typedef struct buffer {
-    char data[CONN_BUFFER];
-    size_t size;
-} buffer;
-
-typedef enum conn_type { CLIENT, SERVER } conn_type;
 
 typedef struct connection {
     int src_socket;
@@ -22,7 +17,6 @@ typedef struct connection {
 
     buffer src_dst_buffer;
     buffer dst_src_buffer;
-    conn_type conn_type;
 } connection;
 
 char *targetHost, *targetPort;

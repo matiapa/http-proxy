@@ -11,3 +11,12 @@ int ssend(int socket, char *message){
     
     return sentBytes;
 }
+
+int bsend(int socket, uint8_t *bytes, int len){
+    int sentBytes = send(socket, bytes, len, 0);
+
+    if(sentBytes != len)
+        log(FATAL, "Failed to send message")
+    
+    return sentBytes;
+}
