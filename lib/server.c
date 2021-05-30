@@ -8,10 +8,11 @@
 #include "../include/logger.h"
 #include "../include/address.h"
 #include "../include/server.h"
+#include "../include/client.h"
+#include "../include/io.h"
 
 #define MAX_PENDING_CONN 5
 #define MAX_ADDR_BUFFER 128
-#define MAX_CLIENTS 500
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 
@@ -37,7 +38,6 @@ int setupServerSocket(const char *service) {
 	int getaddr = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
 	if (getaddr != 0) {
 		log(FATAL, "getaddrinfo() failed %s", gai_strerror(getaddr));
-		return -1;
 	}
 
 	// Try to bind to an address and to start listening on it
@@ -49,7 +49,7 @@ int setupServerSocket(const char *service) {
 
 		servSock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 		if (servSock < 0){
-			log(FATAL, "Creating passive socket");
+			log(ERROR, "Creating passive socket");
 			continue;
 		}
 
@@ -60,14 +60,14 @@ int setupServerSocket(const char *service) {
 
 		int bindRes = bind(servSock, addr->ai_addr, addr->ai_addrlen);
 		if(bindRes < 0){
-			log(FATAL, "Binding to server socket");
+			log(ERROR, "Binding to server socket");
 			close(servSock);
 			servSock = -1;
 		}
 
 		int listenRes = listen(servSock, MAX_PENDING_CONN);
 		if(listenRes < 0){
-			log(FATAL, "Listening to server socket");
+			log(ERROR, "Listening to server socket");
 			close(servSock);
 			servSock = -1;
 		}
@@ -96,38 +96,43 @@ int setupServerSocket(const char *service) {
    when a new connection is available
 -------------------------------------------------- */
 
-void handleClients(int passiveSocket, void (*conn_handler)(int), int (*io_handler)(int)) {
+void handleConnections(int passiveSocket, int (*read_handler)(int), int (*write_handler)(int)) {
 
     // Accept the incoming connection
 
-    int client_sockets[MAX_CLIENTS] = {0};
-    fd_set readfds;
-
     struct sockaddr_in address;
     int addrlen = sizeof(address);
+
+    fd_set readfds;
+    fd_set writefds;
+
+    FD_ZERO(&writefds);
      
     while(1) {
-        // Clean socket set an add master socket fd
+        // Clean read socket set an add passive socket fd
 
         FD_ZERO(&readfds);
         FD_SET(passiveSocket, &readfds);
          
         // Add child sockets fds and get max_sd
 
-        int max_sd = passiveSocket;
-        for (int i = 0 ; i < MAX_CLIENTS ; i++) {
-            int sd = client_sockets[i];
+        int max_socket = passiveSocket;
+        for (int i = 0; i < MAX_CONNECTIONS; i++) {
+            connection conn = connections[i];
+            int socket = conn.src_socket;
 
-            if(sd > 0)
-                FD_SET( sd , &readfds);
+            if(socket == 0)
+                continue;
+
+            FD_SET(socket , &readfds);
              
-            if(sd > max_sd)
-                max_sd = sd;
+            if(socket > max_socket)
+                max_socket = socket;
         }
   
         // Wait for an activity on one of the sockets, timeout is NULL so wait indefinitely
 
-        int activity = select(max_sd + 1 , &readfds , NULL , NULL , NULL);
+        int activity = select(max_socket + 1, &readfds, &writefds, NULL, NULL);
         if ((activity < 0) && (errno != EINTR)) {
             log(FATAL, "On select")
         }
@@ -144,43 +149,100 @@ void handleClients(int passiveSocket, void (*conn_handler)(int), int (*io_handle
                 exit(EXIT_FAILURE);
             }
 
-            printf("New connection - FD: %d - IP: %s - Port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+            log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
-            // Add new socket to array of sockets
+            // Add new socket to array of sockets and initiate a new connection to target
 
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if(client_sockets[i] == 0 ) {
-                    client_sockets[i] = new_socket;
-                    printf("Adding to list of sockets as %d\n" , i);
+            for (int i = 0; i < MAX_CONNECTIONS; i++) {
+                if(connections[i].src_socket == 0 ) {
+                    int targetSocket = setupClientSocket(targetHost, targetPort);
+                    if (targetSocket < 0) {
+                        log(ERROR, "Failed to connect to target")
+                    }
+
+                    connections[i].src_socket = new_socket;
+                    connections[i].dst_socket = targetSocket;
+
+                    log(INFO, "Adding to list of sockets as %d\n" , i);
                     break;
                 }
             }
-                  
-            conn_handler(new_socket);
-                            
+                                              
         }
+
+        // Check for available writes
+
+        // for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        //     connection conn = connections[i];
+
+        //     if (FD_ISSET(conn.dst_socket, &writefds)) {
+        //         handleWrite(conn.dst_socket, conn.buffer.buffer, &writefds);
+        //     }
+        // }
           
         // Otherwise is some IO operation on a child socket
 
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            int sd = client_sockets[i];
+        for (int i = 0; i < MAX_CONNECTIONS; i++) {
+            connection con = connections[i];
               
-            if (FD_ISSET(sd , &readfds)) {
+            if (FD_ISSET(con.src_socket , &readfds)) {
 
-                int readBytes = io_handler(sd);
+                printf("OK3");
+
+                int readBytes = read(con.src_socket, con.buffer.buffer, CONN_BUFFER);
+                con.buffer.buffer[readBytes] = '\0';
 
                 if (readBytes == 0) {
                     // Client disconnected, get his details and print
-                    getpeername(sd, (struct sockaddr*) &address, (socklen_t*) &addrlen);
-                    printf("Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-                      
-                    // Close the socket and mark as 0 in list for reuse
-                    close(sd);
-                    client_sockets[i] = 0;
-                    continue;
+
+                    getpeername(con.src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+                    log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+                        
+                    // Close the client src and dest socket
+                    
+                    close(con.src_socket);
+                    close(con.dst_socket);
+
+                    // Remove connection from the list
+
+                    memset((void *)(connections + i), 0, sizeof(connections[i]));
+                    FD_CLR(con.src_socket, &writefds);
+                } else {
+
+                    // Prepare for writing to dst socket
+
+                    printf("OK2");
+
+                    FD_SET(con.dst_socket, &writefds);
                 }
             }
         }
     }
 
+}
+
+
+void handleWrite(int socket, buffer *buffer, fd_set *writefds) {
+    printf("OK");
+    size_t bytesToSend = buffer->len - buffer->from;
+    if (bytesToSend > 0) {
+        log(INFO, "Trying to send %zu bytes to socket %d\n", bytesToSend, socket);
+
+        size_t bytesSent = send(socket, buffer->buffer + buffer->from, bytesToSend, MSG_DONTWAIT);
+
+        log(INFO, "Sent %zu bytes\n", bytesSent);
+
+        if (bytesSent < 0) {
+            log(FATAL, "Error sending to socket %d", socket);
+        } else {
+            size_t bytesLeft = bytesSent - bytesToSend;
+
+            if (bytesLeft == 0) {
+                buffer->from = buffer->len = 0;
+                FD_CLR(socket, writefds);
+            } else {
+                buffer->from += bytesSent;
+            }
+        }
+    }
 }

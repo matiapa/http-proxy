@@ -10,7 +10,7 @@
 
 #define MAX_ADDR_BUFFER 128
 
-int tcpClientSocket(const char *host, const char *service) {
+int setupClientSocket(const char *host, const char *service) {
 
 	// Create address criteria
 

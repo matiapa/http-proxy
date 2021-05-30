@@ -1,2 +1,2 @@
 all:
-	gcc proxy.c lib/*.c -o bin/proxy
+	gcc httpd/*.c lib/*.c -o bin/httpd
