@@ -1,2 +1,2 @@
 all:
-	gcc httpd/*.c lib/*.c -o bin/httpd
+	gcc -g httpd/*.c lib/*.c -o bin/httpd

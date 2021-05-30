@@ -27,7 +27,7 @@ int setupServerSocket(const char *service) {
 	struct addrinfo addrCriteria;
 	memset(&addrCriteria, 0, sizeof(addrCriteria));
 
-	addrCriteria.ai_family = AF_UNSPEC;
+	addrCriteria.ai_family = AF_INET;
 	addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
@@ -96,7 +96,9 @@ int setupServerSocket(const char *service) {
    when a new connection is available
 -------------------------------------------------- */
 
-void handleConnections(int passiveSocket, int (*read_handler)(int), int (*write_handler)(int)) {
+void handleConnections(int masterSocket, int (*read_handler)(int), int (*write_handler)(int)) {
+
+    connection *connections = calloc(MAX_CONNECTIONS, sizeof(connection));
 
     // Accept the incoming connection
 
@@ -108,62 +110,64 @@ void handleConnections(int passiveSocket, int (*read_handler)(int), int (*write_
 
     FD_ZERO(&writefds);
      
-    while(1) {
-        // Clean read socket set an add passive socket fd
+    while (1) {
+
+        // Add master socket to read set
 
         FD_ZERO(&readfds);
-        FD_SET(passiveSocket, &readfds);
+        FD_SET(masterSocket, &readfds);
          
-        // Add child sockets fds and get max_sd
+        // Add child sockets to read set
 
-        int max_socket = passiveSocket;
+        int maxSocket = masterSocket;
         for (int i = 0; i < MAX_CONNECTIONS; i++) {
             connection conn = connections[i];
-            int socket = conn.src_socket;
 
-            if(socket == 0)
+            // This represents an empty space
+            if(conn.src_socket == 0)
                 continue;
+                        
+            FD_SET(conn.src_socket, &readfds);
+            FD_SET(conn.dst_socket, &readfds);
 
-            FD_SET(socket , &readfds);
-             
-            if(socket > max_socket)
-                max_socket = socket;
+            int localMax = conn.src_socket > conn.dst_socket ? conn.src_socket : conn.dst_socket;
+            maxSocket = localMax > maxSocket ? localMax : maxSocket;
         }
   
-        // Wait for an activity on one of the sockets, timeout is NULL so wait indefinitely
+        // Wait for activity on one of the sockets
 
-        int activity = select(max_socket + 1, &readfds, &writefds, NULL, NULL);
+        int activity = select(maxSocket + 1, &readfds, &writefds, NULL, NULL);
         if ((activity < 0) && (errno != EINTR)) {
             log(FATAL, "On select")
         }
           
         // If something happened on the master socket, then its an incoming connection
 
-        if (FD_ISSET(passiveSocket, &readfds)) {
+        if (FD_ISSET(masterSocket, &readfds)) {
 
-            // Accept the connection
+            // Accept the client connection
 
-            int new_socket = accept(passiveSocket, (struct sockaddr *) &address, (socklen_t*) &addrlen);
-            if (new_socket < 0){
+            int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t*) &addrlen);
+            if (clientSocket < 0){
                 log(FATAL, "Accepting new connection")
                 exit(EXIT_FAILURE);
             }
 
-            log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+            log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
-            // Add new socket to array of sockets and initiate a new connection to target
+            // Initiate a connection to target
+
+            int targetSocket = setupClientSocket(targetHost, targetPort);
+            if (targetSocket < 0) {
+                log(ERROR, "Failed to connect to target")
+            }
+
+            // Store the connection with its sockets
 
             for (int i = 0; i < MAX_CONNECTIONS; i++) {
                 if(connections[i].src_socket == 0 ) {
-                    int targetSocket = setupClientSocket(targetHost, targetPort);
-                    if (targetSocket < 0) {
-                        log(ERROR, "Failed to connect to target")
-                    }
-
-                    connections[i].src_socket = new_socket;
+                    connections[i].src_socket = clientSocket;
                     connections[i].dst_socket = targetSocket;
-
-                    log(INFO, "Adding to list of sockets as %d\n" , i);
                     break;
                 }
             }
@@ -172,77 +176,58 @@ void handleConnections(int passiveSocket, int (*read_handler)(int), int (*write_
 
         // Check for available writes
 
-        // for (int i = 0; i < MAX_CONNECTIONS; i++) {
-        //     connection conn = connections[i];
+        for (int i = 0; i < MAX_CONNECTIONS; i++) {
+            connection conn = connections[i];
 
-        //     if (FD_ISSET(conn.dst_socket, &writefds)) {
-        //         handleWrite(conn.dst_socket, conn.buffer.buffer, &writefds);
-        //     }
-        // }
+            if(conn.src_socket == 0)
+                continue;
+
+            if (FD_ISSET(conn.dst_socket, &writefds)) {
+                ssend(conn.dst_socket, conn.buffer);
+                FD_CLR(conn.dst_socket, &writefds);
+            }
+        }
           
-        // Otherwise is some IO operation on a child socket
+        // Check for available reads
 
         for (int i = 0; i < MAX_CONNECTIONS; i++) {
-            connection con = connections[i];
+            connection *conn = connections + i;
               
-            if (FD_ISSET(con.src_socket , &readfds)) {
+            if (FD_ISSET(conn->src_socket , &readfds)) {
 
-                printf("OK3");
-
-                int readBytes = read(con.src_socket, con.buffer.buffer, CONN_BUFFER);
-                con.buffer.buffer[readBytes] = '\0';
+                int readBytes = read(conn->src_socket, conn->buffer, CONN_BUFFER);
+                conn->buffer[readBytes] = '\0';
 
                 if (readBytes == 0) {
+
                     // Client disconnected, get his details and print
 
-                    getpeername(con.src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+                    getpeername(conn->src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
                     log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
                         
-                    // Close the client src and dest socket
+                    // Close the client and target sockets
                     
-                    close(con.src_socket);
-                    close(con.dst_socket);
+                    close(conn->src_socket);
+                    close(conn->dst_socket);
 
                     // Remove connection from the list
 
                     memset((void *)(connections + i), 0, sizeof(connections[i]));
-                    FD_CLR(con.src_socket, &writefds);
+                    FD_CLR(conn->src_socket, &writefds);
+
                 } else {
 
-                    // Prepare for writing to dst socket
+                    log(DEBUG, "Received %d bytes from socket %d\n", readBytes, conn->src_socket);
 
-                    printf("OK2");
+                    log(DEBUG, "Saving at %p: %s\n", conn->buffer, conn->buffer)
 
-                    FD_SET(con.dst_socket, &writefds);
+                    // ssend(conn.dst_socket, conn.buffer.buffer);
+
+                    FD_SET(conn->dst_socket, &writefds);
+                    
                 }
             }
         }
     }
 
-}
-
-
-void handleWrite(int socket, buffer *buffer, fd_set *writefds) {
-    printf("OK");
-    size_t bytesToSend = buffer->len - buffer->from;
-    if (bytesToSend > 0) {
-        log(INFO, "Trying to send %zu bytes to socket %d\n", bytesToSend, socket);
-
-        size_t bytesSent = send(socket, buffer->buffer + buffer->from, bytesToSend, MSG_DONTWAIT);
-
-        log(INFO, "Sent %zu bytes\n", bytesSent);
-
-        if (bytesSent < 0) {
-            log(FATAL, "Error sending to socket %d", socket);
-        } else {
-            size_t bytesLeft = bytesSent - bytesToSend;
-
-            if (bytesLeft == 0) {
-                buffer->from = buffer->len = 0;
-                FD_CLR(socket, writefds);
-            } else {
-                buffer->from += bytesSent;
-            }
-        }
-    }
 }
