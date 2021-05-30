@@ -9,13 +9,19 @@
 #define MAX_CLIENTS 500
 #define MAX_CONNECTIONS MAX_CLIENTS * 2 + 1
 
+typedef struct buffer {
+    char data[CONN_BUFFER];
+    size_t size;
+} buffer;
+
 typedef enum conn_type { CLIENT, SERVER } conn_type;
 
 typedef struct connection {
     int src_socket;
     int dst_socket;
 
-    char buffer[CONN_BUFFER];
+    buffer src_dst_buffer;
+    buffer dst_src_buffer;
     conn_type conn_type;
 } connection;
 
