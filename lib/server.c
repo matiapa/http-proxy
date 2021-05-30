@@ -16,6 +16,12 @@
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 
+void handle_new_connections(int masterSocket, connection connections[], fd_set *readfds);
+
+void handle_writes(connection connections[], fd_set *writefds);
+
+void handle_reads(connection connections[], fd_set *readfds, fd_set *writefds);
+
 /* --------------------------------------------------
    Resolves address and creates passive socket
 -------------------------------------------------- */
@@ -100,11 +106,6 @@ void handleConnections(int masterSocket, int (*read_handler)(int), int (*write_h
 
     connection *connections = calloc(MAX_CONNECTIONS, sizeof(connection));
 
-    // Accept the incoming connection
-
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
-
     fd_set readfds;
     fd_set writefds;
 
@@ -112,18 +113,15 @@ void handleConnections(int masterSocket, int (*read_handler)(int), int (*write_h
      
     while (1) {
 
-        // Add master socket to read set
+        // Add sockets to read set
 
         FD_ZERO(&readfds);
         FD_SET(masterSocket, &readfds);
          
-        // Add child sockets to read set
-
         int maxSocket = masterSocket;
         for (int i = 0; i < MAX_CONNECTIONS; i++) {
             connection conn = connections[i];
 
-            // This represents an empty space
             if(conn.src_socket == 0)
                 continue;
                         
@@ -140,138 +138,164 @@ void handleConnections(int masterSocket, int (*read_handler)(int), int (*write_h
         if ((activity < 0) && (errno != EINTR)) {
             log(FATAL, "On select")
         }
+        
+        // Handle new connections, writes and reads
+        
+        handle_new_connections(masterSocket, connections, &readfds);
+        
+        handle_writes(connections, &writefds);
           
-        // If something happened on the master socket, then its an incoming connection
+        handle_reads(connections, &readfds, &writefds);
+        
+    }
 
-        if (FD_ISSET(masterSocket, &readfds)) {
+}
 
-            // Accept the client connection
 
-            int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t*) &addrlen);
-            if (clientSocket < 0) {
-                log(FATAL, "Accepting new connection")
-                exit(EXIT_FAILURE);
-            }
+void handle_new_connections(int masterSocket, connection connections[], fd_set *readfds) {
 
-            log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+    struct sockaddr_in address;
+    int addrlen = sizeof(struct sockaddr_in);
 
-            // Initiate a connection to target
+    if (FD_ISSET(masterSocket, readfds)) {
 
-            int targetSocket = setupClientSocket(targetHost, targetPort);
-            if (targetSocket < 0) {
-                log(ERROR, "Failed to connect to target")
-            }
+        // Accept the client connection
 
-            // Store the connection with its sockets
-
-            for (int i = 0; i < MAX_CONNECTIONS; i++) {
-                if(connections[i].src_socket == 0 ) {
-                    connections[i].src_socket = clientSocket;
-                    connections[i].dst_socket = targetSocket;
-                    break;
-                }
-            }
-                                              
+        int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t*) &addrlen);
+        if (clientSocket < 0) {
+            log(FATAL, "Accepting new connection")
+            exit(EXIT_FAILURE);
         }
 
-        // Check for available writes
+        log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+        // Initiate a connection to target
+
+        int targetSocket = setupClientSocket(targetHost, targetPort);
+        if (targetSocket < 0) {
+            log(ERROR, "Failed to connect to target")
+        }
+
+        // Store the connection with its sockets
 
         for (int i = 0; i < MAX_CONNECTIONS; i++) {
-            connection conn = connections[i];
-
-            if(conn.src_socket == 0)
-                continue;
-
-            // For target
-
-            if (FD_ISSET(conn.dst_socket, &writefds) && conn.src_dst_buffer.size > 0) {
-                int sentBytes = ssend(conn.dst_socket, conn.src_dst_buffer.data);
-                conn.src_dst_buffer.size -= sentBytes;
-                FD_CLR(conn.dst_socket, &writefds);
-            }
-
-            // For client
-
-            if (FD_ISSET(conn.src_socket, &writefds) && conn.dst_src_buffer.size > 0) {
-                int sentBytes = ssend(conn.src_socket, conn.dst_src_buffer.data);
-                conn.dst_src_buffer.size -= sentBytes;
-                FD_CLR(conn.src_socket, &writefds);
+            if(connections[i].src_socket == 0 ) {
+                connections[i].src_socket = clientSocket;
+                connections[i].dst_socket = targetSocket;
+                break;
             }
         }
-          
-        // Check for available reads
-
-        for (int i = 0; i < MAX_CONNECTIONS; i++) {
-            connection *conn = connections + i;
-
-            // From client
-              
-            if (FD_ISSET(conn->src_socket , &readfds)) {
-
-                int readBytes = read(conn->src_socket, conn->src_dst_buffer.data, CONN_BUFFER);
-                conn->src_dst_buffer.data[readBytes] = '\0';
-
-                if (readBytes == 0) {
-
-                    // Client disconnected, close the client and target sockets
-
-                    getpeername(conn->src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
-                    log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
                                             
-                    close(conn->src_socket);
-                    close(conn->dst_socket);
+    }
 
-                    // Remove connection from the list
+}
 
-                    memset((void *)(connections + i), 0, sizeof(connections[i]));
-                    
-                    FD_CLR(conn->src_socket, &writefds);
-                    FD_CLR(conn->dst_socket, &writefds);
 
-                } else {
+void handle_writes(connection connections[], fd_set *writefds) {
 
-                    log(DEBUG, "Received %d bytes from socket %d\n", readBytes, conn->src_socket);
+    // Check for available writes
 
-                    FD_SET(conn->dst_socket, &writefds);
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        connection *conn = connections + i;
 
-                    conn->src_dst_buffer.size = readBytes;
+        if(conn->src_socket == 0)
+            continue;
 
-                }
+        // For target
+
+        if (FD_ISSET(conn->dst_socket, writefds) && conn->src_dst_buffer.size > 0) {
+            int sentBytes = ssend(conn->dst_socket, conn->src_dst_buffer.data);
+            conn->src_dst_buffer.size -= sentBytes;
+            FD_CLR(conn->dst_socket, writefds);
+        }
+
+        // For client
+
+        if (FD_ISSET(conn->src_socket, writefds) && conn->dst_src_buffer.size > 0) {
+            int sentBytes = ssend(conn->src_socket, conn->dst_src_buffer.data);
+            conn->dst_src_buffer.size -= sentBytes;
+            FD_CLR(conn->src_socket, writefds);
+        }
+    }
+
+}
+
+
+void handle_reads(connection connections[], fd_set *readfds, fd_set *writefds) {
+
+    struct sockaddr_in address;
+    int addrlen = sizeof(struct sockaddr_in);
+
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        connection *conn = connections + i;
+
+        // From client
+            
+        if (FD_ISSET(conn->src_socket , readfds)) {
+
+            int readBytes = read(conn->src_socket, conn->src_dst_buffer.data, CONN_BUFFER);
+            conn->src_dst_buffer.data[readBytes] = '\0';
+
+            if (readBytes == 0) {
+
+                // Client disconnected, close the client and target sockets
+
+                getpeername(conn->src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+                log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+                                        
+                close(conn->src_socket);
+                close(conn->dst_socket);
+
+                // Remove connection from the list
+
+                memset((void *)(connections + i), 0, sizeof(connections[i]));
+                
+                FD_CLR(conn->src_socket, writefds);
+                FD_CLR(conn->dst_socket, writefds);
+
+            } else {
+
+                log(DEBUG, "Received %d bytes from socket %d\n", readBytes, conn->src_socket);
+
+                FD_SET(conn->dst_socket, writefds);
+
+                conn->src_dst_buffer.size = readBytes;
+
             }
+        }
 
-            // From target
+        // From target
 
-            if (FD_ISSET(conn->dst_socket , &readfds)) {
+        if (FD_ISSET(conn->dst_socket , readfds)) {
 
-                int readBytes = read(conn->dst_socket, conn->dst_src_buffer.data, CONN_BUFFER);
-                conn->dst_src_buffer.data[readBytes] = '\0';
+            int readBytes = read(conn->dst_socket, conn->dst_src_buffer.data, CONN_BUFFER);
+            conn->dst_src_buffer.data[readBytes] = '\0';
 
-                if (readBytes == 0) {
+            if (readBytes == 0) {
 
-                    // Target disconnected, close the client and target sockets
+                // Target disconnected, close the client and target sockets
 
-                    getpeername(conn->dst_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
-                    log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-                                            
-                    close(conn->dst_socket);
-                    close(conn->src_socket);
+                getpeername(conn->dst_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+                log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+                                        
+                close(conn->dst_socket);
+                close(conn->src_socket);
 
-                    // Remove connection from the list
+                // Remove connection from the list
 
-                    memset((void *)(connections + i), 0, sizeof(connections[i]));
+                memset((void *)(connections + i), 0, sizeof(connections[i]));
 
-                    FD_CLR(conn->dst_socket, &writefds);
-                    FD_CLR(conn->src_socket, &writefds);
+                FD_CLR(conn->dst_socket, writefds);
+                FD_CLR(conn->src_socket, writefds);
 
-                } else {
+            } else {
 
-                    log(DEBUG, "Received %d bytes from socket %d\n", readBytes, conn->dst_socket);
+                log(DEBUG, "Received %d bytes from socket %d\n", readBytes, conn->dst_socket);
 
-                    FD_SET(conn->src_socket, &writefds);
+                FD_SET(conn->src_socket, writefds);
 
-                    conn->dst_src_buffer.size = readBytes;
+                conn->dst_src_buffer.size = readBytes;
 
-                }
             }
         }
     }
