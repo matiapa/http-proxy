@@ -76,7 +76,7 @@ void handle_reads_main(struct selector_key *key) {
 void handle_create_main(struct selector_key *key) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    int masterSocket = key->s->fds->src_socket;
+    int masterSocket = key->s->fds[0].src_socket;
     int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t *) &addrlen);
     if (clientSocket < 0) {
         log(FATAL, "Accepting new connection")

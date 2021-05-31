@@ -8,17 +8,12 @@
 #include <errno.h>  // :)
 #include <pthread.h>
 
-#include <arpa/inet.h>
-
 #include <stdint.h> // SIZE_MAX
 #include <fcntl.h>
-#include <sys/socket.h>
 #include <sys/select.h>
 #include <signal.h>
 #include "../include/selector.h"
 #include "../include/logger.h"
-#include "../include/server.h"
-#include "../include/client.h"
 #include "../include/io.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
@@ -429,25 +424,33 @@ selector_set_interest_key(struct selector_key *key, fd_interest i) {
  */
 static void
 handle_iteration(fd_selector s) {
-    int masterSocket = s->fds->src_socket;
+    int masterSocket = s->fds[0].src_socket;
     int n = s->max_fd;
     struct selector_key key = {
         .s = s,
     };
 
+    if (FD_ISSET(masterSocket, &s->slave_r)) {
+        for (int i = 0; i < MAX_CONN; i++) {
+            struct item *item = s->fds + i;
+
+            if (ITEM_USED(item))
+                continue;
+
+            key.item = item;
+            s->handlers.handle_create(&key);
+            item->handler = &(s->handlers);
+            item->interest = OP_READ + OP_WRITE;
+            s->max_fd = item->src_socket > item->dst_socket ? item->src_socket : item->dst_socket;
+            FD_CLR(masterSocket, &s->slave_r);
+            break;
+        }
+    }
+
     for (int i = 0; i <= n; i++) {
         struct item *item = s->fds + i; // devuelve el items[i]
-        if(ITEM_USED(item)) { // si el item esta en uso
-
-            // Caso en el que se crea una nueva conexión
-            if (FD_ISSET(masterSocket, &s->slave_r)) {
-                key.item = item;
-                s->handlers.handle_create(&key);
-                s->max_fd = item->src_socket > item->dst_socket ? item->src_socket : item->dst_socket;
-                FD_CLR(masterSocket, &s->slave_r);
-                continue;
-            }
-
+        // Caso en el que se crea una nueva conexión
+        if (ITEM_USED(item)) { // si el item esta en uso
             key.s = s;
             key.src_socket   = item->src_socket;
             key.dst_socket = item->dst_socket;
@@ -565,7 +568,7 @@ selector_select(fd_selector s) {
     FD_SET(masterSocket, &s->slave_r);
 
     int maxSocket = masterSocket;
-    for (int i = 0; i < MAX_CONN; i++) {
+    for (int i = 1; i < MAX_CONN; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))
@@ -580,7 +583,7 @@ selector_select(fd_selector s) {
 
 
     s->selector_thread = pthread_self();
-    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &s->slave_t, &emptyset); // sacar el NULL despues
+    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, NULL, &emptyset); // sacar el NULL despues
 
     if(-1 == fds) { // entra si hubo un error
         switch(errno) {
@@ -604,36 +607,6 @@ selector_select(fd_selector s) {
                 ret = SELECTOR_IO;
                 goto finally;
 
-        }
-    } else if (FD_ISSET(masterSocket, &s->slave_r)) { // si el master socket tiene read = 1 => crea un nuevo item
-        log(INFO, "Creating new client\n")
-        for (int i = 0; i <= MAX_CONN; i++) {
-            struct item *item = s->fds + i; // devuelve el items[i]
-            if (!ITEM_USED(item)) {
-                struct sockaddr_in address;
-                int addrlen = sizeof(struct sockaddr_in);
-                int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t *) &addrlen);
-                if (clientSocket < 0) {
-                    log(FATAL, "Accepting new connection")
-                    exit(EXIT_FAILURE);
-                }
-
-                log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
-                    ntohs(address.sin_port));
-                int targetSocket = setupClientSocket(s->targetHost, s->targetPort);
-                if (targetSocket < 0) {
-                    log(ERROR, "Failed to connect to target")
-                }
-                item->src_socket = clientSocket;
-                item->interest = OP_READ + OP_WRITE;
-                item->handler = &(s->handlers);
-                item->dst_socket = targetSocket;
-                buffer_init(&(item->src_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
-                buffer_init(&(item->dst_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
-                s->max_fd = item->src_socket > item->dst_socket ? item->src_socket : item->dst_socket;
-                FD_CLR(masterSocket, &s->slave_r);
-                break;
-            }
         }
     } else {
         log(INFO, "Entered in iteration\n")
