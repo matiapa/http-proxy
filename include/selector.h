@@ -249,4 +249,9 @@ struct fdselector {
     fd_handler handlers;
 };
 
+/**
+ * Mata al item
+ */
+void item_kill(fd_selector s, struct item * item);
+
 #endif

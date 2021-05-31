@@ -63,9 +63,8 @@ void handle_reads_main(struct selector_key *key) {
 
         buffer_write_adv(key->src_buffer, readBytes);
 
-        if (readBytes == 0) {
-            selector_unregister_fd(key->s, key->src_socket);
-            selector_unregister_fd(key->s, key->dst_socket);
+        if (readBytes <= 0) {
+            item_kill(key->s, key->item);
         } else {
             log(DEBUG, "Received %d bytes from socket %d\n", readBytes, key->src_socket);
             FD_SET(key->dst_socket, &(key->s)->slave_w);

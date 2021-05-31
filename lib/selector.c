@@ -7,6 +7,8 @@
 #include <assert.h> // :)
 #include <errno.h>  // :)
 #include <pthread.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 
 #include <stdint.h> // SIZE_MAX
 #include <fcntl.h>
@@ -15,6 +17,8 @@
 #include "../include/selector.h"
 #include "../include/logger.h"
 #include "../include/io.h"
+#include "../include/io.h"
+
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -168,6 +172,28 @@ items_init(fd_selector s, const size_t last) {
     for(size_t i = last; i < s->fd_size; i++) {
         item_init(s->fds + i);
     }
+}
+
+/**
+ * Mata el item
+ */
+void item_kill(fd_selector s, struct item * item) {
+    struct sockaddr_in address;
+    int addrlen = sizeof(struct sockaddr_in);
+    item->src_socket = -1;
+    getpeername(item->src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+    log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+    close(item->src_socket);
+    close(item->dst_socket);
+
+    // Release connection buffers
+
+    free(item->src_buffer.data);
+    free(item->dst_buffer.data);
+
+    FD_CLR(item->src_socket, &s->slave_r);
+    FD_CLR(item->dst_socket, &s->slave_w);
 }
 
 /**
@@ -449,6 +475,7 @@ handle_iteration(fd_selector s) {
 
     for (int i = 0; i <= n; i++) {
         struct item *item = s->fds + i; // devuelve el items[i]
+        key.item = item;
         // Caso en el que se crea una nueva conexión
         if (ITEM_USED(item)) { // si el item esta en uso
             key.s = s;
