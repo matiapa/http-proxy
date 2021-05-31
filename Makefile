@@ -1,2 +1,2 @@
 all:
-	gcc -g httpd/*.c lib/*.c -o bin/httpd
+	gcc -D_DEBUG -g httpd/main.c lib/*.c -o bin/main
