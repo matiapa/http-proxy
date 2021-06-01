@@ -5,6 +5,7 @@
 #include <logger.h>
 #include <client.h>
 #include <io.h>
+#include <args.h>
 
 
 static void sigterm_handler(const int signal);
@@ -20,14 +21,11 @@ int main(int argc, char **argv) {
 
     // Read arguments and close stdin
 
-    if(argc != 4){
-        printf("Usage: %s <LISTEN_PORT> <TARGET_HOST> <TARGET_PORT>\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    char *listenPort = argv[1];
-    targetHost = argv[2];
-    targetPort = argv[3];
+    struct proxy_args args;
+    parse_args(argc, argv, &args);
+    
+    targetHost = "localhost";
+    targetPort = "8081";
 
     close(0);
 
@@ -37,6 +35,9 @@ int main(int argc, char **argv) {
     signal(SIGINT,  sigterm_handler);
 
     // Start accepting connections
+
+    char listenPort[6] = {0};
+    snprintf(listenPort, 6, "%d", args.proxy_port);
       
     int serverSocket = create_server_socket(listenPort);
     if(serverSocket < 0) {
@@ -58,7 +59,6 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
     
 }
-
 
 
 void handle_writes(struct selector_key *key) {

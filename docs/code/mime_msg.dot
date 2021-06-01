@@ -1,0 +1,37 @@
+digraph g {
+    //rankdir=LR;
+    //size= "8.27,11.69";
+    size="8.27,11.69" ratio="compress"
+    margin=0;
+    node                 [shape = circle];
+
+    FIELD_NAME0          [label = "NAME0", shape = doublecircle];
+    FIELD_NAME           [label = "NAME"];
+    ERROR                [shape = doublecircle];
+
+    FIELD_VALUE          [label = "VALUE"];
+    FIELD_VALUE_FOLD     [label = "FOLD"];
+    FIELD_VALUE_CR       [label = "VALUE\nCR"];
+    FIELD_VALUE_CRLF     [label = "VALUE\nCRLF"];
+    FIELD_VALUE_CRLF_CR  [label = "VALUE\nCRLF\nCR"];
+    BODY                 [shape = doublecircle];
+    FIELD_NAME0         -> FIELD_NAME           [label="CHAR\nname(c)"]
+    FIELD_NAME0         -> ERROR                [label="':', SP, CTLs\nunexpected(c)"]
+    FIELD_NAME          -> FIELD_NAME           [label="CHAR\nname(c)"];
+    FIELD_NAME          -> FIELD_VALUE          [label="':'\nname_end(':')"];
+    FIELD_NAME          -> ERROR                [label="SP, CTLs\nunexpected(c)"]
+    FIELD_VALUE         -> FIELD_VALUE          [label="ANY\nvalue(c)"];
+    FIELD_VALUE         -> FIELD_VALUE_CR       [label="CR\nwait()"];
+    FIELD_VALUE_CR      -> FIELD_VALUE_CRLF     [label="LF\nwait()"];
+    FIELD_VALUE_CR      -> FIELD_VALUE          [label="ANY\nvalue('\\r')\nvalue(c)"];
+    FIELD_VALUE_CRLF    -> FIELD_VALUE_FOLD     [label="LWSP-char\nvalue_fold('\\r','\\n', c)"];
+    FIELD_VALUE_FOLD    -> FIELD_VALUE_FOLD     [label="LWSP-char\nvalue_fold(c)"];
+    FIELD_VALUE_FOLD    -> FIELD_VALUE          [label="ANY\nvalue(c)"];
+    FIELD_VALUE_CRLF    -> FIELD_NAME           [label="CHAR\nval_end('\\r','\\n')\nname(c)"]
+    FIELD_VALUE_CRLF    -> ERROR                [label="':', CTLs\nval_end('\\r','\\n')\nunexpected(c)"]
+    FIELD_VALUE_CRLF    -> FIELD_VALUE_CRLF_CR  [label="CR\nwait()"];
+    FIELD_VALUE_CRLF_CR -> BODY                 [label="LF\nval_end('\\r','\\n')\nbody_start('\\r','\\n')"];
+    FIELD_VALUE_CRLF_CR -> ERROR                [label="ANY\nval_end('\\r','\\n')\nunexpected(c)"];
+    BODY                -> BODY                 [label="ANY\nbody(c)"];
+    ERROR               -> ERROR                [label="ANY\nunexpect(c)"];
+}

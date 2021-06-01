@@ -1,0 +1,28 @@
+digraph g {
+    rankdir=LR;
+    size= "8.27,11.69";
+    ratio="compress"
+    center="true"
+    NEWLINE             [shape=doublecircle, label="NEW\nLINE"]
+
+    NEWLINE  -> DOT     [label="'.'\nwait()"]
+    NEWLINE  -> BYTE    [label="ANY\nbyte(c)"]
+
+    BYTE     -> CR      [label="CR\nwait()"]
+    BYTE     -> BYTE    [label="ANY\nbyte(c)\n"]
+
+    
+    CR       -> NEWLINE [label="LF\nbyte(CR)\nbyte(c)"]
+    CR       -> BYTE    [label="ANY\nbyte(CR)\nbyte(c)"]
+
+
+
+    DOT      -> DOT_CR  [label="CR\nwait()"]
+    DOT      -> BYTE    [label="ANY\nbyte(c)"]
+
+    DOT_CR   -> FIN     [label="LF\nfin()"]
+    DOT_CR   -> BYTE    [label="ANY\nbyte(CR)\nbyte(c)"]
+
+
+    FIN                 [shape=doublecircle]
+}
