@@ -1,0 +1,17 @@
+# Project related
+docs/
+bin/
+*.log
+
+# IDEs related
+.idea/*
+.vscode/*
+.gdb_history
+cmake_install.cmake
+CMakeFiles/*
+CMakeCache.txt
+CMakeLists.txt
+
+# OS related
+.DS_Store
+Thumbs.db
