@@ -24,8 +24,6 @@
 
 #define ERROR_DEFAULT_MSG "something failed"
 
-#define CONN_BUFFER 1024 // tamaño del buffer
-
 #define MAX_CONN 1000
 
 /** retorna una descripción humana del fallo */

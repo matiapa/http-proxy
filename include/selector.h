@@ -43,6 +43,9 @@
  *  - esperar algún evento: `selector_iteratate'
  *  - destruir los recursos de la librería `selector_close'
  */
+
+#define CONN_BUFFER 1024
+
 typedef struct fdselector * fd_selector;
 
 /** valores de retorno. */
