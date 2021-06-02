@@ -141,3 +141,4 @@ static void sigterm_handler(const int signal) {
     exit(EXIT_SUCCESS);
 
 }
+

@@ -1,7 +1,9 @@
 # Project related
-docs/
-bin/
+docs/*
+bin/*
 *.log
+*.o
+Testing/*
 
 # IDEs related
 .idea/*
