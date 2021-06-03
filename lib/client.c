@@ -10,7 +10,7 @@
 
 #define MAX_ADDR_BUFFER 128
 
-int tcpClientSocket(const char *host, const char *service) {
+int setupClientSocket(const char *host, const char *service) {
 
 	// Create address criteria
 
@@ -18,7 +18,7 @@ int tcpClientSocket(const char *host, const char *service) {
 	struct addrinfo addrCriteria;
 	memset(&addrCriteria, 0, sizeof(addrCriteria));
 
-	addrCriteria.ai_family = AF_UNSPEC;
+	addrCriteria.ai_family = AF_INET;
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
 
