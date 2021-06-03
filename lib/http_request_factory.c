@@ -39,7 +39,8 @@ char * request_factory(struct request * request) {
     }
 
     if (request->headers != NULL) position += headersSection(string + position, request->headers, request->header_count);
-    else position += copy(string + position, "\n");
+
+    position += copy(string + position, "\n");
 
     if (request->body != NULL) position += copy(string + position, request->body);
 
@@ -55,9 +56,7 @@ int requestFirstLine(char * string, struct request * request) {
         position += copy(string + position, request->url);
     } else if (request->method == GET || request->method == POST) {
         position += copy(string + position, "/");
-        if (request->method == GET) {
-            position += copy(string + position, request->file);
-        }
+        position += copy(string + position, request->file);
     } else {
         return -1;
     }
