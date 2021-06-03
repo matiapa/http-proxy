@@ -52,7 +52,7 @@ selector_error(const selector_status status) {
     return msg;
 }
 
-
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 static void
 wake_handler(const int signal) {
     // nada que hacer. está solo para interrumpir el select
