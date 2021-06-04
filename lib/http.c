@@ -1,4 +1,4 @@
-#include <http_request_factory.h>
+#include <http.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,7 +25,7 @@ char * methods_strings[3] = {"GET", "POST", "CONNECT"};
  *  BODY...
  */
 
-char * request_factory(struct request * request) {
+char * create_request(struct request * request) {
     char * string = (char *) malloc(STRING_SIZE);
     memset(string, 0, STRING_SIZE);
     int position = 0;
@@ -77,7 +77,7 @@ int requestFirstLine(char * string, struct request * request) {
  *  BODY...
  */
 
-char * response_factory(struct response * response) {
+char * create_response(struct response * response) {
 
     char * string = (char *) malloc(STRING_SIZE);
     memset(string, 0, STRING_SIZE);
