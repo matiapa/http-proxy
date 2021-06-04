@@ -1,11 +1,14 @@
 #include <signal.h>
 #include <arpa/inet.h>
+#include <string.h>
+#include <pthread.h>
 
-#include <server.h>
+#include <tcp_utils.h>
 #include <logger.h>
 #include <client.h>
 #include <io.h>
 #include <args.h>
+#include <monitor.h>
 
 
 static void sigterm_handler(const int signal);
@@ -34,12 +37,20 @@ int main(int argc, char **argv) {
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
 
+    // Start monitor on another thread
+
+    char mng_port[6] = {0};
+    snprintf(mng_port, 6, "%d", args.mng_port);
+
+    pthread_t thread_id;
+    pthread_create(&thread_id, NULL, start_monitor, mng_port);
+
     // Start accepting connections
 
-    char listenPort[6] = {0};
-    snprintf(listenPort, 6, "%d", args.proxy_port);
+    char proxy_port[6] = {0};
+    snprintf(proxy_port, 6, "%d", args.proxy_port);
       
-    int serverSocket = create_server_socket(listenPort);
+    int serverSocket = create_tcp_server(proxy_port);
     if(serverSocket < 0) {
         log(ERROR, "Creating passive socket");
         exit(EXIT_FAILURE);
@@ -68,10 +79,10 @@ void handle_writes(struct selector_key *key) {
         size_t len;
         uint8_t *bytes = buffer_read_ptr(key->src_buffer, &len);
 
-        int sentBytes = bsend(key->dst_socket, bytes, len);
+        int sentBytes = bsend(key->target_socket, bytes, len);
 
         buffer_read_adv(key->src_buffer, sentBytes);
-        FD_CLR(key->dst_socket, &(key->s)->slave_w);
+        FD_CLR(key->target_socket, &(key->s)->slave_w);
 
     }
 
@@ -85,15 +96,15 @@ void handle_reads(struct selector_key *key) {
         size_t space;
         uint8_t *ptr = buffer_write_ptr(key->src_buffer, &space);
 
-        int readBytes = read(key->src_socket, ptr, space);
+        int readBytes = read(key->client_socket, ptr, space);
 
         buffer_write_adv(key->src_buffer, readBytes);
 
         if (readBytes <= 0) {
             item_kill(key->s, key->item);
         } else {
-            log(DEBUG, "Received %d bytes from socket %d\n", readBytes, key->src_socket);
-            FD_SET(key->dst_socket, &(key->s)->slave_w);
+            log(DEBUG, "Received %d bytes from socket %d\n", readBytes, key->client_socket);
+            FD_SET(key->target_socket, &(key->s)->slave_w);
         }
 
     }
@@ -106,7 +117,7 @@ void handle_creates(struct selector_key *key) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
 
-    int masterSocket = key->s->fds[0].src_socket;
+    int masterSocket = key->s->fds[0].client_socket;
 
     // Accept the client connection
 
@@ -119,6 +130,12 @@ void handle_creates(struct selector_key *key) {
     log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
         ntohs(address.sin_port));
 
+    if (strstr(proxy_conf.clientBlacklist, inet_ntoa(address.sin_addr)) != NULL) {
+        log(INFO, "Kicking %s due to blacklist", inet_ntoa(address.sin_addr));
+        item_kill(key->s, key->item);
+        log(INFO, "Kicked %s due to blacklist", inet_ntoa(address.sin_addr));
+    }
+
     // Initiate a connection to target
 
     int targetSocket = setupClientSocket(key->s->targetHost, key->s->targetPort);
@@ -126,8 +143,8 @@ void handle_creates(struct selector_key *key) {
         log(ERROR, "Failed to connect to target")
     }
 
-    key->item->src_socket = clientSocket;
-    key->item->dst_socket = targetSocket;
+    key->item->client_socket = clientSocket;
+    key->item->target_socket = targetSocket;
 
     buffer_init(&(key->item->src_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
     buffer_init(&(key->item->dst_buffer), CONN_BUFFER, malloc(CONN_BUFFER));

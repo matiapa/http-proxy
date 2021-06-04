@@ -4,9 +4,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include "../include/address.h"
-#include "../include/logger.h"
-#include "../include/client.h"
+#include <address.h>
+#include <logger.h>
+#include <client.h>
 
 #define MAX_ADDR_BUFFER 128
 

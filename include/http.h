@@ -1,13 +1,15 @@
-#ifndef PC_2021A_06_HTTP_REQUEST_FACTORY_H
-#define PC_2021A_06_HTTP_REQUEST_FACTORY_H
+#ifndef HTTP_H
+#define HTTP_H
 
 #define HEADER_COLUMNS 2
 
 typedef enum {GET, POST, CONNECT} methods;
 
+typedef enum {READY, PENDING, FAILED} parse_state;
+
 /* REQUEST STRUCTURE */
 struct request {
-    methods method; // usar enum methods
+    methods method;
     char *** headers;
     int header_count;
     char * body;
@@ -25,12 +27,18 @@ struct response {
 };
 
 /* REQUEST FACTORY */
-char * request_factory(struct request * request);
+char * create_request(struct request * request);
 
 /* RESPONSE FACTORY */
-char * response_factory(struct response * response);
+char * create_response(struct response * response);
 
-#endif //PC_2021A_06_HTTP_REQUEST_FACTORY_H
+/* REQUEST PARSER */
+parse_state parse_request(char *rawReq, struct request parsedReq);
+
+/* RESPONSE PARSER */
+parse_state parse_response(char *rawRes, struct response parsedRes);
+
+#endif
 
 
 /* EJEMPLO ARMADO DE HEADER
@@ -49,7 +57,7 @@ char * response_factory(struct response * response);
             .headers = headers,
             .header_count = header_count
     };
-    char * string = request_factory(&request);
+    char * string = create_request(&request);
     printf("%s\n", string);
     free(string);
     free(headers);
@@ -62,7 +70,7 @@ char * response_factory(struct response * response);
             .headers = headers,
             .header_count = header_count
     };
-    char * string = response_factory(&response);
+    char * string = create_response(&response);
     printf("%s\n", string);
     free(string);
     free(headers);
