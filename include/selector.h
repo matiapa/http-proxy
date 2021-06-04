@@ -119,9 +119,9 @@ struct selector_key {
     /** el selector que dispara el evento */
     fd_selector s;
     /** el file descriptor del cliente */
-    int         src_socket;
+    int         client_socket;
     /** el file descriptor del target */
-    int         dst_socket;
+    int         target_socket;
     /** el buffer del cliente */
     buffer * src_buffer;
     /** el buffer del target */
@@ -203,11 +203,11 @@ selector_notify_block(fd_selector s,
 
 // estructuras internas item_def
 struct item {
-    int                 src_socket;
+    int                 client_socket;
     fd_interest         interest;
     const fd_handler   *handler;
     void *              data; // no se usa
-    int                 dst_socket;
+    int                 target_socket;
     buffer              src_buffer;
     buffer              dst_buffer;
 };

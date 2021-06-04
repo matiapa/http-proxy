@@ -119,11 +119,11 @@ struct blocking_job {
     struct blocking_job *next;
 };
 
-/** marca para usar en item->src_socket para saber que no está en uso */
+/** marca para usar en item->client_socket para saber que no está en uso */
 static const int FD_UNUSED = -1;
 
 /** verifica si el item está usado */
-#define ITEM_USED(i) ( ( FD_UNUSED != (i)->src_socket) )
+#define ITEM_USED(i) ( ( FD_UNUSED != (i)->client_socket) )
 
 
 /** cantidad máxima de file descriptors que la plataforma puede manejar */
@@ -155,7 +155,7 @@ size_t next_capacity(const size_t n) {
 
 static inline void
 item_init(struct item *item) {
-    item->src_socket = FD_UNUSED;
+    item->client_socket = FD_UNUSED;
 }
 
 /**
@@ -176,20 +176,20 @@ items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    item->src_socket = -1;
-    getpeername(item->src_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+    item->client_socket = -1;
+    getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
     log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
-    close(item->src_socket);
-    close(item->dst_socket);
+    close(item->client_socket);
+    close(item->target_socket);
 
     // Release connection buffers
 
     free(item->src_buffer.data);
     free(item->dst_buffer.data);
 
-    FD_CLR(item->src_socket, &s->slave_r);
-    FD_CLR(item->dst_socket, &s->slave_w);
+    FD_CLR(item->client_socket, &s->slave_r);
+    FD_CLR(item->target_socket, &s->slave_w);
 }
 
 /**
@@ -201,8 +201,8 @@ items_max_fd(fd_selector s) {
     for(int i = 0; i <= s->max_fd; i++) {
         struct item *item = s->fds + i;
         if(ITEM_USED(item)) {
-            if(item->src_socket > max) {
-                max = item->src_socket;
+            if(item->client_socket > max) {
+                max = item->client_socket;
             }
         }
     }
@@ -212,16 +212,16 @@ items_max_fd(fd_selector s) {
 // configura los atributos del item, setea los readfds y writefds adecuadamente
 static void
 items_update_fdset_for_fd(fd_selector s, const struct item * item) {
-    FD_CLR(item->src_socket, &s->master_r);
-    FD_CLR(item->src_socket, &s->master_w);
+    FD_CLR(item->client_socket, &s->master_r);
+    FD_CLR(item->client_socket, &s->master_w);
 
     if(ITEM_USED(item)) {
         if(item->interest & OP_READ) {
-            FD_SET(item->src_socket, &(s->master_r));
+            FD_SET(item->client_socket, &(s->master_r));
         }
 
         if(item->interest & OP_WRITE) {
-            FD_SET(item->src_socket, &(s->master_w));
+            FD_SET(item->client_socket, &(s->master_w));
         }
     }
 }
@@ -351,7 +351,7 @@ selector_register(fd_selector        s,
         ret = SELECTOR_FDINUSE;
         goto finally;
     } else {
-        item->src_socket       = fd;
+        item->client_socket       = fd;
         item->handler  = handler;
         item->interest = interest;
         item->data     = data;
@@ -391,7 +391,7 @@ selector_unregister_fd(fd_selector       s,
     if(item->handler->handle_close != NULL) {
         struct selector_key key = {
             .s    = s,
-            .src_socket   = item->src_socket,
+            .client_socket   = item->client_socket,
             //.data = item->data,
         };
         item->handler->handle_close(&key);
@@ -431,10 +431,10 @@ selector_status
 selector_set_interest_key(struct selector_key *key, fd_interest i) {
     selector_status ret;
 
-    if(NULL == key || NULL == key->s || INVALID_FD(key->src_socket)) {
+    if(NULL == key || NULL == key->s || INVALID_FD(key->client_socket)) {
         ret = SELECTOR_IARGS;
     } else {
-        ret = selector_set_interest(key->s, key->src_socket, i);
+        ret = selector_set_interest(key->s, key->client_socket, i);
     }
 
     return ret;
@@ -446,7 +446,7 @@ selector_set_interest_key(struct selector_key *key, fd_interest i) {
  */
 static void
 handle_iteration(fd_selector s) {
-    int masterSocket = s->fds[0].src_socket;
+    int masterSocket = s->fds[0].client_socket;
     int n = s->max_fd;
     struct selector_key key = {
         .s = s,
@@ -463,7 +463,7 @@ handle_iteration(fd_selector s) {
             s->handlers.handle_create(&key);
             item->handler = &(s->handlers);
             item->interest = OP_READ + OP_WRITE;
-            s->max_fd = item->src_socket > item->dst_socket ? item->src_socket : item->dst_socket;
+            s->max_fd = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
             FD_CLR(masterSocket, &s->slave_r);
             break;
         }
@@ -475,12 +475,12 @@ handle_iteration(fd_selector s) {
         // Caso en el que se crea una nueva conexión
         if (ITEM_USED(item)) { // si el item esta en uso
             key.s = s;
-            key.src_socket   = item->src_socket;
-            key.dst_socket = item->dst_socket;
+            key.client_socket   = item->client_socket;
+            key.target_socket = item->target_socket;
             key.src_buffer = &(item->src_buffer);
             key.dst_buffer = &(item->dst_buffer);
             // operaciones que van de src -> dst
-            if(FD_ISSET(item->src_socket, &s->slave_r)) {
+            if(FD_ISSET(item->client_socket, &s->slave_r)) {
                 if(OP_READ & item->interest) {
                     if(0 == item->handler->handle_read) {
                         assert(("OP_READ arrived but no handler. bug!" == 0));
@@ -489,7 +489,7 @@ handle_iteration(fd_selector s) {
                     }
                 }
             }
-            if(FD_ISSET(item->dst_socket, &s->slave_w)) {
+            if(FD_ISSET(item->target_socket, &s->slave_w)) {
                 if(OP_WRITE & item->interest) {
                     if(0 == item->handler->handle_write) {
                         assert(("OP_WRITE arrived but no handler. bug!" == 0));
@@ -500,12 +500,12 @@ handle_iteration(fd_selector s) {
             }
 
 
-            key.dst_socket   = item->src_socket;
-            key.src_socket = item->dst_socket;
+            key.target_socket   = item->client_socket;
+            key.client_socket = item->target_socket;
             key.dst_buffer = &(item->src_buffer);
             key.src_buffer = &(item->dst_buffer);
             // operaciones que van de dst -> src
-            if(FD_ISSET(item->dst_socket, &s->slave_r)) {
+            if(FD_ISSET(item->target_socket, &s->slave_r)) {
                 if(OP_READ & item->interest) {
                     if(0 == item->handler->handle_read) {
                         assert(("OP_READ arrived but no handler. bug!" == 0));
@@ -514,7 +514,7 @@ handle_iteration(fd_selector s) {
                     }
                 }
             }
-            if(FD_ISSET(item->src_socket, &s->slave_w)) {
+            if(FD_ISSET(item->client_socket, &s->slave_w)) {
                 if(OP_WRITE & item->interest) {
                     if(0 == item->handler->handle_write) {
                         assert(("OP_WRITE arrived but no handler. bug!" == 0));
@@ -539,7 +539,7 @@ handle_block_notifications(fd_selector s) {
 
         struct item *item = s->fds + j->fd;
         if(ITEM_USED(item)) {
-            key.src_socket   = item->src_socket;
+            key.client_socket   = item->client_socket;
             // key.data = item->data;
             item->handler->handle_block(&key);
         }
@@ -586,7 +586,7 @@ selector_select(fd_selector s) {
     memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
     memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
-    int masterSocket = s->fds[0].src_socket;
+    int masterSocket = s->fds[0].client_socket;
     FD_ZERO(&s->slave_r);
     FD_SET(masterSocket, &s->slave_r);
 
@@ -597,10 +597,10 @@ selector_select(fd_selector s) {
         if(!ITEM_USED(item))
             continue;
 
-        FD_SET(item->src_socket, &s->slave_r);
-        FD_SET(item->dst_socket, &s->slave_r);
+        FD_SET(item->client_socket, &s->slave_r);
+        FD_SET(item->target_socket, &s->slave_r);
 
-        int localMax = item->src_socket > item->dst_socket ? item->src_socket : item->dst_socket;
+        int localMax = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
         maxSocket = localMax > maxSocket ? localMax : maxSocket;
     }
 
