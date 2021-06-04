@@ -11,6 +11,8 @@ void setLogLevel(LOG_LEVEL newLevel);
 
 char * levelDescription(LOG_LEVEL level);
 
+int descriptionLevel(char * description);
+
 #define log(level, ...)   { \
 	if (level >= current_level) { \
 		fprintf(stderr, "%s: %s:%d, ", levelDescription(level), __FILE__, __LINE__); \

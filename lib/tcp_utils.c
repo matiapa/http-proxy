@@ -5,13 +5,13 @@
 #include <address.h>
 #include <logger.h>
 #include <selector.h>
-#include <server.h>
+#include <tcp_utils.h>
 
 #define MAX_PENDING_CONN 5
 #define ADDR_BUFFER_SIZE 128
 
 
-int create_server_socket(const char *service) {
+int create_tcp_server(const char *port) {
 
 	// Create address criteria
 
@@ -26,7 +26,7 @@ int create_server_socket(const char *service) {
 	// Resolve service string for posible addresses
 
 	struct addrinfo *servAddr;
-	int getaddr = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
+	int getaddr = getaddrinfo(NULL, port, &addrCriteria, &servAddr);
 	if (getaddr != 0) {
 		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr));
         return -1;

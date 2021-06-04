@@ -1,11 +1,12 @@
 #include <signal.h>
 #include <arpa/inet.h>
 
-#include <server.h>
+#include <tcp_utils.h>
 #include <logger.h>
 #include <client.h>
 #include <io.h>
 #include <args.h>
+#include <monitor.h>
 
 
 static void sigterm_handler(const int signal);
@@ -34,12 +35,22 @@ int main(int argc, char **argv) {
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
 
+    // Start monitor on another process
+
+    int pid = fork();
+    if(pid == 0) {
+        start_monitor("8082");
+        log(FATAL, "Monitor process ended prematurely");
+    } else if(pid < 0) {
+        log(FATAL, "Failed to create monitor process");
+    }
+
     // Start accepting connections
 
     char listenPort[6] = {0};
     snprintf(listenPort, 6, "%d", args.proxy_port);
       
-    int serverSocket = create_server_socket(listenPort);
+    int serverSocket = create_tcp_server(listenPort);
     if(serverSocket < 0) {
         log(ERROR, "Creating passive socket");
         exit(EXIT_FAILURE);
