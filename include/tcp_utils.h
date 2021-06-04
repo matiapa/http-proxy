@@ -3,9 +3,6 @@
 
 #include <selector.h>
 
-#define MAX_CLIENTS 500
-#define MAX_CONNECTIONS MAX_CLIENTS * 2 + 1
-
 char *targetHost, *targetPort;
 
 // Create, bind, and listen a new TCP server socket

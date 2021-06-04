@@ -8,22 +8,36 @@
 #include <udp_utils.h>
 #include <strings.h>
 #include <config.h>
+#include <monitor.h>
 
 #define REQ_BUFF_SIZE 1024
 #define RES_BUFF_SIZE 1024
 #define PF proxy_conf
 
-void parse_package(char * command, char * response);
+void parse_request(char * command, char * response);
 
 void set_variable(char * command, char * response);
 
-int start_monitor(char *port) {
+Config proxy_conf = {
+    .maxClients = 1000,
+    .connectionTimeout = -1,
+
+    .statisticsEnabled = true,
+    .disectorsEnabled = true,
+
+    .viaProxyName = "",
+    .clientBlacklist = "",
+    .targetBlacklist = "",
+    .logLevel = 1
+};
+
+
+void * start_monitor(void * port) {
 
   int serverSocket = create_udp_server(port);
   if (serverSocket < 0)
     log(FATAL, "Creating server socket: %s ", strerror(errno))
 
-  
   char req[REQ_BUFF_SIZE];
   char res[RES_BUFF_SIZE];
 
@@ -38,8 +52,7 @@ int start_monitor(char *port) {
     ssize_t recvBytes = uread(serverSocket, req, REQ_BUFF_SIZE, (struct sockaddr *) &clientAddress, &clientAddressSize);
     if (recvBytes < 0) continue;
 
-    
-    parse_package(req, res);
+    parse_request(req, res);
 
     usend(serverSocket, res, strlen(res), (struct sockaddr *) &clientAddress, clientAddressSize);
 
@@ -49,7 +62,7 @@ int start_monitor(char *port) {
 
 
 
-void parse_package(char * command, char * response) {
+void parse_request(char * command, char * response) {
 
     for(int i=0; command[i] != 0; i++)
       if(command[i] == '\n'){
@@ -128,7 +141,7 @@ void set_variable(char * command, char * response) {
 
     int num = atoi(value);
     if (num > 0 && num <= 1000) {
-      proxy_conf.maxClients = num;
+      PF.maxClients = num;
       sprintf(response, "OK: Max clients set to %d\n", num);
     } else {
       sprintf(response, "ERROR: Value must be a natural n such that 0 < n <= 1000\n");
@@ -138,7 +151,7 @@ void set_variable(char * command, char * response) {
 
     int num = atoi(value);
     if (num > 0 || num == -1) {
-      proxy_conf.connectionTimeout = num;
+      PF.connectionTimeout = num;
       sprintf(response, "OK: Connection timeout set to %d\n", num);
     } else {
       sprintf(response, "ERROR: Value must be a natural n such that 0 < n or n = -1\n");
@@ -148,7 +161,7 @@ void set_variable(char * command, char * response) {
 
     int num = atoi(value);
     if (num == 0 || num == 1) {
-      proxy_conf.statisticsEnabled = num;
+      PF.statisticsEnabled = num;
       sprintf(response, "OK: Statistics %s\n", num ? "enabled" : "disabled");
     } else {
       sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
@@ -158,7 +171,7 @@ void set_variable(char * command, char * response) {
 
     int num = atoi(value);
     if (num == 0 || num == 1) {
-      proxy_conf.disectorsEnabled = num;
+      PF.disectorsEnabled = num;
       sprintf(response, "OK: Disectors %s\n", num ? "enabled" : "disabled");
     } else {
       sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
@@ -166,27 +179,27 @@ void set_variable(char * command, char * response) {
 
   } else if (strncmp(variable, "viaProxyName", 12) == 0) {
 
-    strncpy(proxy_conf.viaProxyName, value, VIA_PROXY_NAME_SIZE);
+    strncpy(PF.viaProxyName, value, VIA_PROXY_NAME_SIZE);
 
-    sprintf(response, "OK: Proxy name set to %s\n", proxy_conf.viaProxyName);
+    sprintf(response, "OK: Proxy name set to %s\n", PF.viaProxyName);
 
   } else if (strncmp(variable, "clientBlacklist", 15) == 0) {
 
-    strncpy(proxy_conf.clientBlacklist, value, BLACKLIST_SIZE);
+    strncpy(PF.clientBlacklist, value, BLACKLIST_SIZE);
 
-    sprintf(response, "OK: Client black list set to %s\n", proxy_conf.clientBlacklist);
+    sprintf(response, "OK: Client black list set to %s\n", PF.clientBlacklist);
 
   } else if (strncmp(variable, "targetBlacklist", 15) == 0) {
 
-    strncpy(proxy_conf.targetBlacklist, value, BLACKLIST_SIZE);
+    strncpy(PF.targetBlacklist, value, BLACKLIST_SIZE);
 
-    sprintf(response, "OK: Target black list set to %s\n", proxy_conf.targetBlacklist);
+    sprintf(response, "OK: Target black list set to %s\n", PF.targetBlacklist);
 
   } else if (strncmp(variable, "logLevel", 8) == 0) {
 
     int level = descriptionLevel(value);
     if (level >= 0) {
-      proxy_conf.logLevel = (LOG_LEVEL) level;
+      PF.logLevel = (LOG_LEVEL) level;
       sprintf(response, "OK: Log level set to %s\n", levelDescription(level));
     } else {
       sprintf(response, "ERROR: Value must be one of [DEBUG, INFO, ERROR, FATAL]\n");

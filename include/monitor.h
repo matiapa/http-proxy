@@ -3,6 +3,6 @@
 
 #include <selector.h>
 
-int start_monitor(char *port);
+void * start_monitor(void * port);
 
 #endif 

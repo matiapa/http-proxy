@@ -14,17 +14,15 @@
 #include <fcntl.h>
 #include <sys/select.h>
 #include <signal.h>
-#include "../include/selector.h"
-#include "../include/logger.h"
-#include "../include/io.h"
-#include "../include/io.h"
+#include <selector.h>
+#include <logger.h>
+#include <io.h>
+#include <config.h>
 
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
 #define ERROR_DEFAULT_MSG "something failed"
-
-#define MAX_CONN 1000
 
 /** retorna una descripción humana del fallo */
 const char *
@@ -455,7 +453,7 @@ handle_iteration(fd_selector s) {
     };
 
     if (FD_ISSET(masterSocket, &s->slave_r)) {
-        for (int i = 0; i < MAX_CONN; i++) {
+        for (int i = 0; i < proxy_conf.maxClients; i++) {
             struct item *item = s->fds + i;
 
             if (ITEM_USED(item))
@@ -593,7 +591,7 @@ selector_select(fd_selector s) {
     FD_SET(masterSocket, &s->slave_r);
 
     int maxSocket = masterSocket;
-    for (int i = 1; i < MAX_CONN; i++) {
+    for (int i = 1; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))

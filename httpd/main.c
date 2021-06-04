@@ -1,5 +1,7 @@
 #include <signal.h>
 #include <arpa/inet.h>
+#include <string.h>
+#include <pthread.h>
 
 #include <tcp_utils.h>
 #include <logger.h>
@@ -35,22 +37,20 @@ int main(int argc, char **argv) {
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
 
-    // Start monitor on another process
+    // Start monitor on another thread
 
-    int pid = fork();
-    if(pid == 0) {
-        start_monitor("8082");
-        log(FATAL, "Monitor process ended prematurely");
-    } else if(pid < 0) {
-        log(FATAL, "Failed to create monitor process");
-    }
+    char mng_port[6] = {0};
+    snprintf(mng_port, 6, "%d", args.mng_port);
+
+    pthread_t thread_id;
+    pthread_create(&thread_id, NULL, start_monitor, mng_port);
 
     // Start accepting connections
 
-    char listenPort[6] = {0};
-    snprintf(listenPort, 6, "%d", args.proxy_port);
+    char proxy_port[6] = {0};
+    snprintf(proxy_port, 6, "%d", args.proxy_port);
       
-    int serverSocket = create_tcp_server(listenPort);
+    int serverSocket = create_tcp_server(proxy_port);
     if(serverSocket < 0) {
         log(ERROR, "Creating passive socket");
         exit(EXIT_FAILURE);
@@ -129,6 +129,12 @@ void handle_creates(struct selector_key *key) {
 
     log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
         ntohs(address.sin_port));
+
+    if (strstr(proxy_conf.clientBlacklist, inet_ntoa(address.sin_addr)) != NULL) {
+        log(INFO, "Kicking %s due to blacklist", inet_ntoa(address.sin_addr));
+        item_kill(key->s, key->item);
+        log(INFO, "Kicked %s due to blacklist", inet_ntoa(address.sin_addr));
+    }
 
     // Initiate a connection to target
 
