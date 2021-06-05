@@ -56,7 +56,7 @@ int requestFirstLine(char * string, struct request * request) {
         position += copy(string + position, request->url);
     } else if (request->method == GET || request->method == POST) {
         position += copy(string + position, "/");
-        position += copy(string + position, request->file);
+        if (request->file != NULL) position += copy(string + position, request->file);
     } else {
         return -1;
     }
