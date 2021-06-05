@@ -9,6 +9,7 @@
 #include <io.h>
 #include <args.h>
 #include <monitor.h>
+#include <http_parser.h>
 
 
 static void sigterm_handler(const int signal);
@@ -112,8 +113,8 @@ void handle_reads(struct selector_key *key) {
         
         // item_state s = key->item->state;
 
-        // struct request req;
-        // parse_state result = parse_http_request(key.);
+         struct request req;
+         parse_http_request(ptr , &req);
 
     }
 

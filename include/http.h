@@ -37,10 +37,10 @@ char * create_request(struct request * request);
 char * create_response(struct response * response);
 
 /* REQUEST PARSER */
-parse_state parse_http_request(buffer * reqBuffer, struct request * parsedReq);
+//parse_state parse_http_request(buffer * reqBuffer, struct request * parsedReq);
 
 /* RESPONSE PARSER */
-parse_state parse_http_response(buffer * resBuffer, struct response * parsedRes);
+//parse_state parse_http_response(buffer * resBuffer, struct response * parsedRes);
 
 #endif
 
