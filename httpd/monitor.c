@@ -28,7 +28,7 @@ Config proxy_conf = {
     .viaProxyName = "",
     .clientBlacklist = "",
     .targetBlacklist = "",
-    .logLevel = 1
+    .logLevel = DEBUG
 };
 
 

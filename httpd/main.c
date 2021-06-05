@@ -74,15 +74,19 @@ int main(int argc, char **argv) {
 
 void handle_writes(struct selector_key *key) {
 
-    if (buffer_can_read(key->src_buffer)) {
+    log(DEBUG, "Entered handle_writes with src %d", key->src_socket);
+
+    if (buffer_can_read(&(key->item->conn_buffer))) {
 
         size_t len;
-        uint8_t *bytes = buffer_read_ptr(key->src_buffer, &len);
+        uint8_t *bytes = buffer_read_ptr(&(key->item->conn_buffer), &len);
 
-        int sentBytes = bsend(key->target_socket, bytes, len);
+        int sentBytes = bsend(key->dst_socket, bytes, len);
 
-        buffer_read_adv(key->src_buffer, sentBytes);
-        FD_CLR(key->target_socket, &(key->s)->slave_w);
+        buffer_read_adv(&(key->item->conn_buffer), sentBytes);
+        FD_CLR(key->dst_socket, &(key->s)->slave_w);
+
+        log(DEBUG, "Sent %d bytes to socket %d\n", sentBytes, key->dst_socket);
 
     }
 
@@ -91,21 +95,25 @@ void handle_writes(struct selector_key *key) {
 
 void handle_reads(struct selector_key *key) {
 
-    if (buffer_can_write(key->src_buffer)) {
+    if (buffer_can_write(&(key->item->conn_buffer))) {
 
         size_t space;
-        uint8_t *ptr = buffer_write_ptr(key->src_buffer, &space);
+        uint8_t *ptr = buffer_write_ptr(&(key->item->conn_buffer), &space);
 
-        int readBytes = read(key->client_socket, ptr, space);
+        int readBytes = read(key->src_socket, ptr, space);
 
-        buffer_write_adv(key->src_buffer, readBytes);
+        buffer_write_adv(&(key->item->conn_buffer), readBytes);
+        FD_SET(key->dst_socket, &(key->s)->slave_w);
 
-        if (readBytes <= 0) {
+        log(DEBUG, "Received %d bytes from socket %d\n", readBytes, key->src_socket);
+
+        if (readBytes <= 0)
             item_kill(key->s, key->item);
-        } else {
-            log(DEBUG, "Received %d bytes from socket %d\n", readBytes, key->client_socket);
-            FD_SET(key->target_socket, &(key->s)->slave_w);
-        }
+        
+        // item_state s = key->item->state;
+
+        // struct request req;
+        // parse_state result = parse_http_request(key.);
 
     }
 
@@ -118,6 +126,7 @@ void handle_creates(struct selector_key *key) {
     int addrlen = sizeof(struct sockaddr_in);
 
     int masterSocket = key->s->fds[0].client_socket;
+
 
     // Accept the client connection
 
@@ -136,19 +145,22 @@ void handle_creates(struct selector_key *key) {
         log(INFO, "Kicked %s due to blacklist", inet_ntoa(address.sin_addr));
     }
 
+
     // Initiate a connection to target
 
     int targetSocket = setupClientSocket(key->s->targetHost, key->s->targetPort);
     if (targetSocket < 0) {
-        log(ERROR, "Failed to connect to target")
+        log(ERROR, "Failed to connect to target");
     }
 
     key->item->client_socket = clientSocket;
     key->item->target_socket = targetSocket;
 
-    buffer_init(&(key->item->src_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
-    buffer_init(&(key->item->dst_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
+    key->item->client_interest = OP_READ | OP_WRITE;    // OP_READ
+    key->item->target_interest = OP_READ | OP_WRITE;    // OP_NOOP
+    key->item->state = CONNECT;
 
+    buffer_init(&(key->item->conn_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
 }
 
 

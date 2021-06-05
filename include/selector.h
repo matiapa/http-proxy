@@ -4,6 +4,7 @@
 #include <sys/time.h>
 #include <stdbool.h>
 #include "buffer.h"
+#include "http.h"
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -23,8 +24,8 @@
  *
  * Si el handler requiere bloquearse por alguna razón (por ejemplo realizar
  * una resolución de DNS utilizando getaddrinfo(3)), tiene la posiblidad de
- * descargar el trabajo en un hilo notificará al selector que el resultado del
- * trabajo está disponible y se le presentará a los handlers durante
+ * descargar el trabajo en un hilo que notificará al selector que el resultado
+ * del trabajo está disponible y se le presentará a los handlers durante
  * la iteración normal. Los handlers no se tienen que preocupar por la
  * concurrencia.
  *
@@ -118,15 +119,11 @@ typedef enum {
 struct selector_key {
     /** el selector que dispara el evento */
     fd_selector s;
-    /** el file descriptor del cliente */
-    int         client_socket;
-    /** el file descriptor del target */
-    int         target_socket;
-    /** el buffer del cliente */
-    buffer * src_buffer;
-    /** el buffer del target */
-    buffer * dst_buffer;
-    /** el item del cliente */
+    /** el file descriptor de la fuente */
+    int         src_socket;
+    /** el file descriptor del destino */
+    int         dst_socket;
+    /** el item de la conexion */
     struct item * item;
 };
 
@@ -204,12 +201,13 @@ selector_notify_block(fd_selector s,
 // estructuras internas item_def
 struct item {
     int                 client_socket;
-    fd_interest         interest;
-    const fd_handler   *handler;
-    void *              data; // no se usa
     int                 target_socket;
-    buffer              src_buffer;
-    buffer              dst_buffer;
+
+    fd_interest         client_interest;
+    fd_interest         target_interest;
+    
+    buffer              conn_buffer;
+    item_state          state;
 };
 
 struct fdselector {

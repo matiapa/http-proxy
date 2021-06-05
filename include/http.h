@@ -1,11 +1,15 @@
 #ifndef HTTP_H
 #define HTTP_H
 
+#include <buffer.h>
+
 #define HEADER_COLUMNS 2
 
 typedef enum {GET, POST, CONNECT} methods;
 
-typedef enum {READY, PENDING, FAILED} parse_state;
+typedef enum {CONNECTION, REQUEST, RESPONSE} item_state;
+
+typedef enum {SUCCESS, PENDING, FAILED} parse_state;
 
 /* REQUEST STRUCTURE */
 struct request {
@@ -33,10 +37,10 @@ char * create_request(struct request * request);
 char * create_response(struct response * response);
 
 /* REQUEST PARSER */
-parse_state parse_request(char *rawReq, struct request parsedReq);
+parse_state parse_http_request(buffer * reqBuffer, struct request * parsedReq);
 
 /* RESPONSE PARSER */
-parse_state parse_response(char *rawRes, struct response parsedRes);
+parse_state parse_http_response(buffer * resBuffer, struct response * parsedRes);
 
 #endif
 
