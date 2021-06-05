@@ -186,6 +186,8 @@ void item_kill(fd_selector s, struct item * item) {
     // Release connection buffers
 
     free(item->conn_buffer.data);
+    free(item->read_buffer.data);
+    free(item->write_buffer.data);
 
     FD_CLR(item->client_socket, &s->slave_r);
     FD_CLR(item->target_socket, &s->slave_w);

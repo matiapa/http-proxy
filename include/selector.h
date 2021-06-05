@@ -207,7 +207,11 @@ struct item {
     fd_interest         target_interest;
     
     buffer              conn_buffer;
+    buffer              read_buffer;
+    buffer              write_buffer;
     item_state          state;
+
+    void *              data;
 };
 
 struct fdselector {
