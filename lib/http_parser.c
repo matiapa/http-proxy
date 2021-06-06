@@ -200,83 +200,114 @@ static struct parser_definition definition = {
 };
 
 struct  parserData * http_request_parser_init(){
-
-
-    int valN = 0;
-    struct parser *parser = parser_init(init_char_class(), &definition);
-    char currentMethod [METHOD_LENGTH] = {'\0'};
-    char currentTarget [TARGET_LENGTH] = {'\0'};
-    char * header[HEADER_COLUMNS];
-    //char *** headers = malloc((sizeof (char *) * HEADER_COLUMNS) * MAXHEADERS);
-    char headers [MAXHEADERS][2][HEADER_NAME_VAL_LENGTH];
-    char currentHeader [HEADER_NAME_LENGTH] = {'\0'};
-    char currentHeaderValue [HEADER_NAME_VAL_LENGTH] = {'\0'};
+    parserData * data = malloc(sizeof(*data));
+    if(data != NULL){
+        data->valN = 0;
+        data->parser = parser_init(init_char_class(), &definition);
+        data->currentMethod = calloc(METHOD_LENGTH, sizeof(char));
+        data->currentTarget = calloc(TARGET_LENGTH, sizeof(char));
+        data->currentHeader = calloc(HEADER_NAME_LENGTH, sizeof(char));
+        data->currentHeaderValue = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char));
+        //data->header = malloc(sizeof(char *) * HEADER_COLUMNS );
+        data->headers = malloc(sizeof (&(data->header)) * MAXHEADERS);
+    }
+    return data;
+    /*parserData  data = {
+            .valN = 0,
+            .parser = parser_init(init_char_class(), &definition),
+            .currentMethod = calloc(METHOD_LENGTH, sizeof(char)),
+            .currentTarget = calloc(TARGET_LENGTH, sizeof(char)),
+            .currentHeader = calloc(HEADER_NAME_LENGTH, sizeof(char)),
+            .currentHeaderValue = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char)),
+            //.header = malloc(sizeof(char *) * HEADER_COLUMNS ),
+            .headers = malloc(sizeof (&(data.header)) * MAXHEADERS),
+    };
+    return data;*/
 }
 
-void parse_http_request(uint8_t * readBuffer, struct request *httpRequest, struct parser * parser, size_t readBytes) {
+void destroy_parser(parserData * data){
+    for(int j = 0; j < MAXHEADERS; j++){
+        for (int k = 0; k < HEADER_COLUMNS; k++){
+            free(data->headers[j][k]);
+        }
+        free(data->headers[j]);
+    }
+    free(data->headers);
+    free(data->currentMethod);
+    free(data->currentTarget);
+    free(data->currentHeader);
+    free(data->currentHeaderValue);
 
+    //antes de destroy tengo que estar seguro que dejaron de enviar y ya  pase al write deberia hacerlo afuera pero x ahora queda para no olvidarme
+    parser_destroy(data->parser);
+    free(data);
+}
+
+void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parserData * data ,size_t readBytes) {
+
+    /*int valN = 0;
+    struct parser * p = parser_init(init_char_class(), &definition);
+    char * currentMethod = calloc(METHOD_LENGTH, sizeof(char));
+    char * currentTarget = calloc(TARGET_LENGTH, sizeof(char));
+    char * currentHeader = calloc(HEADER_NAME_LENGTH, sizeof(char));
+    char * currentHeaderValue = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char));
+    char ** header ;
+    char *** headers = malloc(sizeof (&(header)) * MAXHEADERS);
+    httpRequest->header_count = 0;*/
     size_t i = 0;
 
     while( i < readBytes ){
-        const struct parser_event* e = parser_feed(parser, readBuffer[i]);
+        const struct parser_event* e = parser_feed(data->parser, readBuffer[i]);
         do {
             switch(e->type) {
                 case METHOD_NAME:
                     log(DEBUG, "METHOD_NAME %c",e->data[0]  );
-                    currentMethod[i] = e->data[0];
+                    data->currentMethod[data->valN++] = e->data[0];
                     break;
                 case METHOD_NAME_END:
                     log(DEBUG, "METHOD_NAME_END %c",e->data[0]  );
+                    data->valN = 0;
                     //get_method(currentMethod);
-                    //manejar los : y preparar siguiente
                     break;
                 case  TARGET_VAL:
                     log(DEBUG, "TARGET_VAL %c",e->data[0]  );
-                    currentTarget[valN++] = e->data[0];
+                    data->currentTarget[data->valN++] = e->data[0];
 
                     break;
                 case  TARGET_VAL_END:
                     log(DEBUG, "TARGET_VAL %c",e->data[0]  );
-                    httpRequest->url = currentTarget;
-                    valN = 0;
+                    httpRequest->url = data->currentTarget;
+                    data->valN = 0;
                     break;
                 case VERSION_VAL:
                     log(DEBUG, "VERSION_VAL %c",e->data[0]  );
                     break;
                 case HEADER_NAME_VAL:
                     log(DEBUG, "HEADER_NAME_VAL %c",e->data[0] );
-                    currentHeader[valN++] = e->data[0];
+                    data->currentHeader[data->valN++] = e->data[0];
                     break;
                 case HEADER_NAME_VAL_END:
-                    //header [0] = malloc(strlen(currentHeader));
-                    //strncpy(header[0], currentHeader, strlen(header[0]));
-                    valN = 0;
+                    data->header = malloc(sizeof(char *) * HEADER_COLUMNS );
+                    data->header [0] = calloc(HEADER_NAME_LENGTH, sizeof(char));
+                    strncpy(data->header[0], data->currentHeader, HEADER_NAME_LENGTH);
+                    data->valN = 0;
                     break;
                 case HEADER_VAL:
                 log(DEBUG, "HEADER_VAL %c",e->data[0]  );
-                    currentHeaderValue[valN++] = e->data[0];
+                    data->currentHeaderValue[data->valN++] = e->data[0];
                     break;
                 case HEADER_VAL_END:
                     log(DEBUG, "HEADER_VAL_END %c",e->data[0]  );
-                    //header [1] = malloc(strlen(currentHeaderValue));
-                   // strncpy(header[1], currentHeaderValue, strlen(header[1]));
+                    data->header [1] = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char));
+                    strncpy(data->header[1], data->currentHeaderValue, HEADER_NAME_VAL_LENGTH);
 
-                   // headers [httpRequest->header_count] [0]= malloc(HEADER_NAME_LENGTH);
-                   // headers [httpRequest->header_count] [1]= malloc(HEADER_NAME_VAL_LENGTH);
+                    data->headers [httpRequest->header_count++] = data->header;
 
-                    strncpy(headers [httpRequest->header_count][0],currentHeader, HEADER_NAME_LENGTH);
-                    strncpy(headers [httpRequest->header_count++][1],currentHeaderValue, HEADER_NAME_VAL_LENGTH);
-
-                    log(DEBUG,"headers name: %s value: % s", headers[httpRequest->header_count-1][0],headers[httpRequest->header_count-1][1]);
-
-                    //free(header[0]);
-                    //free(header[1]);
-                    //memset(header,0, sizeof(header));
-
-                    memset(currentHeaderValue, 0 , sizeof(currentHeader));
-                    memset(currentHeader, 0, sizeof(currentHeader));
-                    log(DEBUG,"headers name: %s value: % s", headers[httpRequest->header_count-1][0],headers[httpRequest->header_count-1][1]);
-                    valN = 0;
+                    memset(data->currentHeaderValue, 0 , sizeof(data->currentHeader));
+                    memset(data->currentHeader, 0, sizeof(data->currentHeader));
+                    log(DEBUG,"headers name: %s", data->headers[httpRequest->header_count-1][0]);
+                    log(DEBUG,"headers value: %s",data->headers[httpRequest->header_count-1][1]);
+                    data->valN = 0;
                     break;
                 case WAIT_MSG:
                 log(DEBUG, "WAIT_MSG %c",e->data[0]  );
@@ -292,7 +323,4 @@ void parse_http_request(uint8_t * readBuffer, struct request *httpRequest, struc
         } while (e != NULL);
         i++;
     }
-    //antes de destroy tengo que estar seguro que dejaron de enviar y ya  pase al write deberia hacerlo afuera pero x ahora queda para no olvidarme
-    parser_destroy(parser);
-
 }

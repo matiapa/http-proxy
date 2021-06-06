@@ -116,7 +116,8 @@ void handle_reads(struct selector_key *key) {
         size_t availableBytes;
         buffer_read_ptr(&(key->item->conn_buffer), &availableBytes);
          struct request req;
-         parse_http_request(ptr , &req, availableBytes);
+         parserData p;
+         parse_http_request(ptr , &req,&p, availableBytes);
 
     }
 
