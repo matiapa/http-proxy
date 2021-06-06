@@ -1,4 +1,5 @@
 #include <logger.h>
+#include <errno.h>
 #include <string.h>
 #include <buffer.h>
 #include <stm.h>
@@ -91,7 +92,36 @@ enum proxy_state {
     */
     RESPONSE_WRITE,
 
-    CLOSE_CONNECTION,
+    /*
+     * Sends Clients last messages and gracefully shuts down
+     *
+     * Interests:
+     *   - Client: OP_READ
+     *   - Target: OP_WRITE
+     *
+     * Transitions:
+     *  
+     *   - END      When response message is over
+     *   - ERROR_STATE            IO error
+    */
+
+    CLIENT_CLOSE_CONNECTION,
+    /*
+     * Sends Target last messages and gracefully shuts down
+     *
+     * Interests:
+     *   - Client: OP_WRITE
+     *   - Target: OP_READ 
+     *
+     * Transitions:
+     *  
+     *   - END      When response message is over
+     *   - ERROR_STATE            IO error
+    */
+
+    TARGET_CLOSE_CONNECTION,
+
+    END,
 
     ERROR_STATE,
 };
@@ -130,9 +160,18 @@ static unsigned response_read_ready(struct selector_key *key);
 static unsigned response_write_ready(struct selector_key *key);
 
 /* ------------------------------------------------------------
-  Closes the client and associated target connections.
+  Sends last messages from client to target then closes connection
 ------------------------------------------------------------ */
-static unsigned close_connection_arrival(const unsigned state, struct selector_key *key);
+static unsigned client_close_connection_arrival(const unsigned state, struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Sends last messages from target to client then closes connection
+------------------------------------------------------------ */
+static unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key);
+/* ------------------------------------------------------------
+  Trap state handler
+------------------------------------------------------------ */
+static unsigned end_arrival(const unsigned state, struct selector_key *key);
 
 /* ------------------------------------------------------------
   Handles proxy errors.
@@ -181,10 +220,22 @@ static const struct state_definition state_defs[] = {
         .on_write_ready   = response_write_ready,
     },
     {
-        .state            = CLOSE_CONNECTION,
+        .state            = CLIENT_CLOSE_CONNECTION,
+        .client_interest  = OP_READ,
+        .target_interest  = OP_WRITE,
+        .on_arrival       = client_close_connection_arrival
+    },
+    {
+        .state            = TARGET_CLOSE_CONNECTION,
+        .client_interest  = OP_WRITE,
+        .target_interest  = OP_READ,
+        .on_arrival       = target_close_connection_arrival
+    },
+    {
+        .state            = END,
         .client_interest  = OP_NOOP,
         .target_interest  = OP_NOOP,
-        .on_arrival       = close_connection_arrival
+        .on_arrival       = end_arrival
     },
     {
         .state            = ERROR_STATE,
@@ -230,7 +281,7 @@ static unsigned connect_read_ready(struct selector_key *key) {
     // TODO: Add parser and handle pending message case
 
     if (readBytes <= 0)
-        return CLOSE_CONNECTION;
+        return END;
 
     if(strcmp((char *) ptr, "CONNECT\n") != 0) {
         key->item->data = "Failed to parse message";
@@ -272,8 +323,15 @@ static unsigned connect_write_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->src_socket, ptr, size);
 
     if (sentBytes < 0) {
-        key->item->data = "Failed to write to src socket";
-        return ERROR_STATE;
+        switch(errno) {
+            case EBADF:
+                return END;
+                break;
+            default:
+                 key->item->data = "Failed to write to src socket";
+                return ERROR_STATE;
+        }
+       
     }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -320,7 +378,7 @@ static unsigned request_read_ready(struct selector_key *key) {
     // TODO: Add via header
 
     if (readBytes <= 0)
-        return CLOSE_CONNECTION;
+        return CLIENT_CLOSE_CONNECTION;
 
     // Write processed request bytes into write buffer
 
@@ -344,8 +402,14 @@ static unsigned request_write_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->dst_socket, ptr, size);
 
     if (sentBytes < 0) {
-        key->item->data = "Failed to write to dst socket";
-        return ERROR_STATE;
+        switch(errno) {
+            case EBADF:
+                return TARGET_CLOSE_CONNECTION;
+                break;
+            default:
+                key->item->data = "Failed to write to dst socket";
+                return ERROR_STATE;
+        }
     }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -385,7 +449,7 @@ static unsigned response_read_ready(struct selector_key *key) {
     // TODO: Add parser and handle pending message case
 
     if (readBytes <= 0)
-        return CLOSE_CONNECTION;
+        return TARGET_CLOSE_CONNECTION;
 
     // Write processed response bytes into write buffer
 
@@ -409,8 +473,15 @@ static unsigned response_write_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->src_socket, ptr, size);
 
     if (sentBytes < 0) {
-        key->item->data = "Failed to write to src socket";
-        return ERROR_STATE;
+        switch(errno) {
+            case EBADF:
+                return CLIENT_CLOSE_CONNECTION;
+                break;
+            default:
+                key->item->data = "Failed to write to src socket";
+                return ERROR_STATE;
+        }
+        
     }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -439,8 +510,52 @@ static unsigned error_arrival(const unsigned state, struct selector_key *key) {
 }
 
 
-static unsigned close_connection_arrival(const unsigned state, struct selector_key *key) {
-    // TODO: Implement
+static unsigned client_close_connection_arrival(const unsigned state, struct selector_key *key) {
+   log(DEBUG, "Client Closed connection from socket %d", key->src_socket);
 
-    return REQUEST_READ;
+    // Read last bytes from write buffer
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
+    ssize_t sentBytes = write(key->dst_socket, ptr, size);
+
+    if (sentBytes < 0) {
+        return END;
+    }
+
+    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->dst_socket);
+
+    if ((size_t) sentBytes < size)
+        return CLIENT_CLOSE_CONNECTION;
+
+    return END;
+}
+
+static unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key) {
+// Read last bytes from write buffer
+
+    log(DEBUG, "Target Closed connection from socket %d", key->dst_socket);
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
+    ssize_t sentBytes = write(key->src_socket, ptr, size);
+
+    if (sentBytes < 0) {
+        return END;
+    }
+
+    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->src_socket);
+
+    if ((size_t) sentBytes < size)
+        return TARGET_CLOSE_CONNECTION;
+
+    return END;
+}
+
+static unsigned end_arrival(const unsigned state, struct selector_key *key){
+    item_kill(key->s, key->item);
+    return END;
 }
