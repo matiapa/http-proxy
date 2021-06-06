@@ -176,9 +176,12 @@ items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    item->client_socket = -1;
+    
     getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
     log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+    buffer_reset(&(item->read_buffer));
+    buffer_reset(&(item->write_buffer));
 
     close(item->client_socket);
     close(item->target_socket);
@@ -190,6 +193,10 @@ void item_kill(fd_selector s, struct item * item) {
 
     FD_CLR(item->client_socket, &s->master_r);
     FD_CLR(item->target_socket, &s->master_w);
+
+
+    //marks item as unused
+    item->client_socket = -1;
 }
 
 /**
