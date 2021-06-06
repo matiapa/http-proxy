@@ -1,13 +1,13 @@
 #include<stdio.h>
 #include <stdlib.h>  // malloc
 #include <string.h>  // memset
+#include <ctype.h> //toUpper
 
 
 #include <http_parser.h>
-#include <mime_chars.h>
+#include <http_chars.h>
 #include <parser.h>
 #include <logger.h>
-#include <parser_utils.h>
 
 
 
@@ -21,7 +21,9 @@ enum states {
     CHECK_IF_LAST_HEADER,
     IGNORE,
     UNEXPECTED,
+    END_CR,
     END,
+    BODY,
 };
 enum event_type{
     METHOD_NAME,
@@ -35,6 +37,7 @@ enum event_type{
     HEADER_VAL_END,
     WAIT_MSG,
     UNEXPECTED_VALUE,
+    BODY_START,
     FINAL_VAL,
 };
 
@@ -97,6 +100,11 @@ static void header_value_end(struct parser_event *ret, const uint8_t c) {
     ret->n       = 1;
     ret->data[0] = c;
 }
+static void body_start(struct parser_event *ret, const uint8_t c) {
+    ret->type    = BODY_START;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
 static void end(struct parser_event *ret, const uint8_t c) {
     ret->type    = FINAL_VAL;
     ret->n       = 1;
@@ -107,29 +115,29 @@ static void end(struct parser_event *ret, const uint8_t c) {
 
 static const struct parser_state_transition ST_METHOD [] =  {
         {.when = TOKEN_ALPHA,           .dest = METHOD,                       .act1 = method,},
-        {.when = TOKEN_SPECIAL,         .dest = UNEXPECTED,                   .act1 = error,},//casi seguro que especials son los ascci de especials
+        {.when = TOKEN_SPECIAL,         .dest = UNEXPECTED,                   .act1 = error,},
         {.when = TOKEN_DIGIT,           .dest = UNEXPECTED,                   .act1 = error,},
         {.when = ' ',                   .dest = TARGET,                       .act1 = method_end,},
 };
 static const struct parser_state_transition ST_TARGET [] =  {
         {.when = TOKEN_ALPHA,           .dest = TARGET,                       .act1 = target,},
-        {.when = TOKEN_SPECIAL,         .dest = TARGET,                       .act1 = target,},//casi seguro que especials son los ascci de especials
+        {.when = TOKEN_SPECIAL,         .dest = TARGET,                       .act1 = target,},
         {.when = TOKEN_DIGIT,           .dest = TARGET,                       .act1 = target,},
         {.when = ' ',                   .dest = VERSION,                      .act1 = target_end,},
 };
 static const struct parser_state_transition ST_VERSION [] =  {
         {.when = TOKEN_ALPHA,           .dest = VERSION,                      .act1 = version,},
-        {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},//casi seguro que especials son los ascci de especials
+        {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},
         {.when = TOKEN_DIGIT,           .dest = VERSION,                      .act1 = version,},
         {.when = '\r',                  .dest = HEADER_CR,                    .act1 = wait,},
 };
 static const struct parser_state_transition ST_HEADER_CR[] =  {
         {.when = '\n',                  .dest = CHECK_IF_LAST_HEADER,         .act1 = wait,},
-        {.when = ANY,                   .dest = ERROR,                        .act1 = error,},
+        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_HEADER_NAME [] =  {
-        {.when = TOKEN_ALPHA,           .dest =HEADER_NAME,                   .act1 = header_name,},
+        {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
         {.when = TOKEN_LWSP,            .dest = IGNORE,                       .act1 = wait,},
         {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
 };
@@ -140,8 +148,8 @@ static const struct parser_state_transition ST_HEADER_VALUE [] =  {
         {.when = '\r',                  .dest = HEADER_CR,                    .act1 = header_value_end,},
 };
 static const struct parser_state_transition ST_CHECK_IF_LAST_HEADER [] =  {
-        {.when = '\r',                  .dest = END,                          .act1 = end,},
-        {.when = TOKEN_ALPHA,           .dest =HEADER_NAME,                   .act1 = header_name,},
+        {.when = '\r',                  .dest = END_CR,                       .act1 = wait,},
+        {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
         {.when = TOKEN_LWSP,            .dest = IGNORE,                       .act1 = wait,},
         {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
@@ -153,8 +161,15 @@ static const struct parser_state_transition ST_IGNORE [] =  {
 static const struct parser_state_transition ST_UNEXPECTED [] =  {
         {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
-static const struct parser_state_transition ST_END [] =  {
+static const struct parser_state_transition ST_END_CR [] =  {
+        {.when = '\n',                  .dest = END,                          .act1 = end,},
         {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+};
+static const struct parser_state_transition ST_END [] =  {
+        {.when = ANY,                   .dest = BODY,                         .act1 = body_start,},
+};
+static const struct parser_state_transition ST_BODY [] =  {
+        {.when = ANY,                   .dest = BODY,                         .act1 = wait,},
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -170,7 +185,9 @@ static const struct parser_state_transition *states [] = {
         ST_CHECK_IF_LAST_HEADER,
         ST_IGNORE,
         ST_UNEXPECTED,
+        ST_END_CR,
         ST_END,
+        ST_BODY,
 };
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
@@ -185,7 +202,9 @@ static const size_t states_n [] = {
         N(ST_CHECK_IF_LAST_HEADER),
         N(ST_IGNORE),
         N(ST_UNEXPECTED),
+        N(ST_END_CR),
         N(ST_END),
+        N(ST_BODY),
 };
 
 static struct parser_definition definition = {
@@ -235,40 +254,20 @@ void destroy_parser(parserData * data){
     free(data->currentHeader);
     free(data->currentHeaderValue);
 
-    //antes de destroy tengo que estar seguro que dejaron de enviar y ya  pase al write deberia hacerlo afuera pero x ahora queda para no olvidarme
+    //antes de destroy tengo que estar seguro que dejaron de enviar y ya  pase al write
     parser_destroy(data->parser);
     free(data);
 }
 
-int equals(char * currentMethod, char * methodName) {
-    const struct parser_definition d = parser_utils_strcmpi("foo");
 
-    struct parser *parser = parser_init(parser_no_classes(), &d);
-    for (int i = 0; i < METHOD_LENGTH && currentMethod[i] == '\0'; ++i) {
-        const struct parser_event * e = parser_feed(parser, currentMethod[i]);
-        do {
-            switch(e->type) {
-                case STRING_CMP_MAYEQ:
-                    break;
-                case STRING_CMP_EQ:
-                    return 1;
-                    break;
-                case STRING_CMP_NEQ:
-                    return 0;
-                    break;
-            }
-            e = e->next;
-        } while (e != NULL);
-    }
-}
 
 int get_method(char * method){
 
-    if(equals(method, "GET"))
+    if(strcmp(method, "GET") == 0)
         return GET;
-    if(equals(method, "POST"))
+    if(strcmp(method, "POST") == 0)
         return POST;
-    if(equals(method, "CONNECT"))
+    if(strcmp(method, "CONNECT") == 0)
         return CONNECT;
 
     return OTHER;
@@ -293,7 +292,7 @@ void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parser
             switch(e->type) {
                 case METHOD_NAME:
                     log(DEBUG, "METHOD_NAME %c",e->data[0]  );
-                    data->currentMethod[data->valN++] = e->data[0];
+                    data->currentMethod[data->valN++] = toupper(e->data[0]);
                     break;
                 case METHOD_NAME_END:
                     log(DEBUG, "METHOD_NAME_END %c",e->data[0]  );
@@ -345,6 +344,9 @@ void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parser
                     break;
                 case UNEXPECTED_VALUE:
                 log(DEBUG, "UNEXPECTED_VALUE %c",e->data[0]  );
+                    break;
+                case BODY_START:
+                log(DEBUG, "BODY_START %c",e->data[0]  );
                     break;
                 case FINAL_VAL:
                 log(DEBUG, "FINAL_VAL %c",e->data[0]  );

@@ -2,7 +2,7 @@
 #define PC_2021A_06_HTTP_PARSER_H
 
 
-#include <mime_chars.h>
+#include <http_chars.h>
 #include <http.h>
 
 
