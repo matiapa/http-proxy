@@ -63,9 +63,11 @@ init_char_class(void) {
     classes['@']  |= TOKEN_SPECIAL;
     classes[',']  |= TOKEN_SPECIAL;
     classes[';']  |= TOKEN_SPECIAL;
-    classes[':']  |= TOKEN_SPECIAL;
+    classes['/']  |= TOKEN_SPECIAL;
     classes['\\'] |= TOKEN_SPECIAL;
     classes['"']  |= TOKEN_SPECIAL;
+    classes['*']  |= TOKEN_SPECIAL;
+    classes[':']  |= TOKEN_SPECIAL;
     classes['.']  |= TOKEN_SPECIAL;
     classes[']']  |= TOKEN_SPECIAL;
     classes['[']  |= TOKEN_SPECIAL;
@@ -139,6 +141,7 @@ init_char_class(void) {
     classes['<']  |= TOKEN_TSPECIAL;
     classes['>']  |= TOKEN_TSPECIAL;
     classes['@']  |= TOKEN_TSPECIAL;
+    classes['*']  |= TOKEN_TSPECIAL;
     classes[',']  |= TOKEN_TSPECIAL;
     classes[';']  |= TOKEN_TSPECIAL;
     classes[':']  |= TOKEN_TSPECIAL;

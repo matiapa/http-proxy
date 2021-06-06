@@ -15,6 +15,6 @@
 #include <http.h>
 
 
-void parse_http_request(uint8_t * readBuffer,struct request *httpRequest);
+void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, size_t readBytes);
 
 #endif //PC_2021A_06_HTTP_PARSER_H

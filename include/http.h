@@ -4,6 +4,11 @@
 #include <buffer.h>
 
 #define HEADER_COLUMNS 2
+#define METHOD_LENGTH 10
+#define TARGET_LENGTH 50
+#define MAXHEADERS 30
+#define HEADER_NAME_LENGTH 30
+#define HEADER_NAME_VAL_LENGTH 60
 
 typedef enum {GET, POST, CONNECT} methods;
 

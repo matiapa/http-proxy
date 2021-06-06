@@ -113,8 +113,10 @@ void handle_reads(struct selector_key *key) {
         
         // item_state s = key->item->state;
 
+        size_t availableBytes;
+        buffer_read_ptr(&(key->item->conn_buffer), &availableBytes);
          struct request req;
-         parse_http_request(ptr , &req);
+         parse_http_request(ptr , &req, availableBytes);
 
     }
 

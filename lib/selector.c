@@ -612,7 +612,7 @@ selector_select(fd_selector s) {
 
         }
     } else {
-        log(INFO, "Entered in iteration\n")
+        //log(INFO, "Entered in iteration\n")
         handle_iteration(s);
     }
     if(ret == SELECTOR_SUCCESS) {

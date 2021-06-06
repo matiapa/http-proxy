@@ -8,7 +8,7 @@ PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/client.o lib/http.o lib/io
 
 httpd: $(PROXY_OBJ)
 	$(CC) -pthread $(CFLAGS) $(PROXY_OBJ) -o bin/httpd
-	rm -rf $(PROXY_OBJ)
+	#rm -rf $(PROXY_OBJ)
 
 clean:
 	rm -rf $(PROXY_OBJ) bin/httpd
