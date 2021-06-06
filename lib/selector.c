@@ -176,20 +176,27 @@ items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    item->client_socket = -1;
+    
     getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
     log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+    buffer_reset(&(item->read_buffer));
+    buffer_reset(&(item->write_buffer));
 
     close(item->client_socket);
     close(item->target_socket);
 
     // Release connection buffers
 
-    free(item->src_buffer.data);
-    free(item->dst_buffer.data);
+    free(item->read_buffer.data);
+    free(item->write_buffer.data);
 
-    FD_CLR(item->client_socket, &s->slave_r);
-    FD_CLR(item->target_socket, &s->slave_w);
+    FD_CLR(item->client_socket, &s->master_r);
+    FD_CLR(item->target_socket, &s->master_w);
+
+
+    //marks item as unused
+    item->client_socket = -1;
 }
 
 /**
@@ -209,28 +216,7 @@ items_max_fd(fd_selector s) {
     return max;
 }
 
-// configura los atributos del item, setea los readfds y writefds adecuadamente
-static void
-items_update_fdset_for_fd(fd_selector s, const struct item * item) {
-    FD_CLR(item->client_socket, &s->master_r);
-    FD_CLR(item->client_socket, &s->master_w);
 
-    if(ITEM_USED(item)) {
-        if(item->interest & OP_READ) {
-            FD_SET(item->client_socket, &(s->master_r));
-        }
-
-        if(item->interest & OP_WRITE) {
-            FD_SET(item->client_socket, &(s->master_w));
-        }
-    }
-}
-
-/**
- * garantizar cierta cantidad de elemenos en `fds'.
- * Se asegura de que `n' sea un número que la plataforma donde corremos lo
- * soporta
- */
 static selector_status
 ensure_capacity(fd_selector s, const size_t n) {
     selector_status ret = SELECTOR_SUCCESS;
@@ -275,6 +261,7 @@ ensure_capacity(fd_selector s, const size_t n) {
     return ret;
 }
 
+
 fd_selector
 selector_new(const size_t initial_elements, const char * targetHost, const char * targetPost) {
     size_t size = sizeof(struct fdselector);
@@ -297,6 +284,7 @@ selector_new(const size_t initial_elements, const char * targetHost, const char 
     }
     return ret;
 }
+
 
 void
 selector_destroy(fd_selector s) {
@@ -323,20 +311,69 @@ selector_destroy(fd_selector s) {
 
 #define INVALID_FD(fd)  ((fd) < 0 || (fd) >= ITEMS_MAX_SIZE)
 
-// se usa para crear el socket master
+
+/***************************************************************
+  Configures fdset based on item permissions
+****************************************************************/
+void
+selector_update_fdset(fd_selector s, const struct item * item) {
+    if(ITEM_USED(item)) {
+
+        // Check that client socket is set
+
+        if (item->client_socket != 0) {
+            // log(DEBUG, "Updating fd_sets for client %d", item->client_socket)
+
+            FD_CLR(item->client_socket, &(s->master_r));
+            FD_CLR(item->client_socket, &(s->master_w));
+
+            if(item->client_interest & OP_READ)
+                FD_SET(item->client_socket, &(s->master_r));                 
+            
+            if(item->client_interest & OP_WRITE)
+                FD_SET(item->client_socket, &(s->master_w));  
+        }
+
+        // Check that target socket is set
+
+        if (item->target_socket != 0) {
+            // log(DEBUG, "Updating fd_sets for target %d", item->target_socket)
+
+            FD_CLR(item->target_socket, &(s->master_w));
+            FD_CLR(item->target_socket, &(s->master_r));
+
+            if(item->target_interest & OP_READ)
+                FD_SET(item->target_socket, &(s->master_r));             
+
+            if(item->target_interest & OP_WRITE)
+                FD_SET(item->target_socket, &(s->master_w));   
+        }
+
+        // log(DEBUG, "New sets: read_fd[0] = %d | read_fd[4] = %d | read_fd[5] = %d",
+        //     FD_ISSET(0, &(s->master_r)), FD_ISSET(4, &(s->master_r)), FD_ISSET(5, &(s->master_r)));
+        // log(DEBUG, "New sets: write_fd[0] = %d | write_fd[4] = %d | write_fd[5] = %d",
+        //     FD_ISSET(0, &(s->master_w)), FD_ISSET(4, &(s->master_w)), FD_ISSET(5, &(s->master_w)));
+
+    }
+}
+
+
+/***************************************************************
+  Registers a new fd, in the proxy case, the passive socket
+****************************************************************/
 selector_status
-selector_register(fd_selector        s,
-                     const int          fd,
-                     const fd_handler  *handler,
-                     const fd_interest  interest,
-                     void *data) {
+selector_register(
+    fd_selector s, const int fd, const fd_handler  *handler,
+    const fd_interest interest, void *data
+) {
+                         
     selector_status ret = SELECTOR_SUCCESS;
-    // 0. validación de argumentos
+
     if(s == NULL || INVALID_FD(fd) || handler == NULL) {
         ret = SELECTOR_IARGS;
         goto finally;
     }
-    // 1. tenemos espacio?
+
     size_t ufd = (size_t)fd;
     if(ufd > s->fd_size) {
         ret = ensure_capacity(s, ufd);
@@ -345,36 +382,45 @@ selector_register(fd_selector        s,
         }
     }
 
-    // 2. registración
     struct item * item = s->fds + ufd;
     if(ITEM_USED(item)) {
         ret = SELECTOR_FDINUSE;
         goto finally;
     } else {
-        item->client_socket       = fd;
-        item->handler  = handler;
-        item->interest = interest;
-        item->data     = data;
+        item->client_socket   = fd;
+        item->client_interest = interest;
+        item->data            = data;
 
-        // actualizo colaterales
+        log(DEBUG, "Registered socket %d with interests %d", fd, interest);
+
         if(fd > s->max_fd) {
             s->max_fd = fd;
         }
-        items_update_fdset_for_fd(s, item);
 
-        buffer_init(&(item->src_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
-        buffer_init(&(item->dst_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
+        FD_CLR(item->client_socket, &(s->master_r));
+        FD_CLR(item->client_socket, &(s->master_w));
+
+        if(item->client_interest & OP_READ)
+            FD_SET(item->client_socket, &(s->master_r));                 
+        
+        if(item->client_interest & OP_WRITE)
+            FD_SET(item->client_socket, &(s->master_w));  
     }
-    // guardo los handlers
+    
     s->handlers = *handler;
 
 finally:
     return ret;
+
 }
 
+
+/***************************************************************
+  Unregisters a fd, in the proxy case, the passive socket
+****************************************************************/
 selector_status
-selector_unregister_fd(fd_selector       s,
-                       const int         fd) {
+selector_unregister_fd(fd_selector s, const int fd) {
+
     selector_status ret = SELECTOR_SUCCESS;
 
     if(NULL == s || INVALID_FD(fd)) {
@@ -388,17 +434,16 @@ selector_unregister_fd(fd_selector       s,
         goto finally;
     }
 
-    if(item->handler->handle_close != NULL) {
+    if(s->handlers.handle_close != NULL) {
         struct selector_key key = {
             .s    = s,
-            .client_socket   = item->client_socket,
-            //.data = item->data,
+            .dst_socket   = item->client_socket,
         };
-        item->handler->handle_close(&key);
+        s->handlers.handle_close(&key);
     }
 
-    item->interest = OP_NOOP;
-    items_update_fdset_for_fd(s, item);
+    item->client_interest = OP_NOOP;
+    selector_update_fdset(s, item);
 
     memset(item, 0x00, sizeof(*item));
     item_init(item);
@@ -406,53 +451,27 @@ selector_unregister_fd(fd_selector       s,
 
 finally:
     return ret;
+
 }
 
-selector_status
-selector_set_interest(fd_selector s, int fd, fd_interest i) {
-    selector_status ret = SELECTOR_SUCCESS;
 
-    if(NULL == s || INVALID_FD(fd)) {
-        ret = SELECTOR_IARGS;
-        goto finally;
-    }
-    struct item *item = s->fds + fd;
-    if(!ITEM_USED(item)) {
-        ret = SELECTOR_IARGS;
-        goto finally;
-    }
-    item->interest = i;
-    items_update_fdset_for_fd(s, item);
-finally:
-    return ret;
-}
-
-selector_status
-selector_set_interest_key(struct selector_key *key, fd_interest i) {
-    selector_status ret;
-
-    if(NULL == key || NULL == key->s || INVALID_FD(key->client_socket)) {
-        ret = SELECTOR_IARGS;
-    } else {
-        ret = selector_set_interest(key->s, key->client_socket, i);
-    }
-
-    return ret;
-}
-
-/**
- * se encarga de manejar los resultados del select.
- * se encuentra separado para facilitar el testing
- */
+/***************************************************************
+  Handles the result of pselect, ie. availables reads/writes
+****************************************************************/
 static void
 handle_iteration(fd_selector s) {
-    int masterSocket = s->fds[0].client_socket;
+
+    int master_socket = s->fds[0].client_socket;
     int n = s->max_fd;
+
     struct selector_key key = {
         .s = s,
     };
 
-    if (FD_ISSET(masterSocket, &s->slave_r)) {
+    if (FD_ISSET(master_socket, &s->slave_r)) {
+
+        // There is a new connection
+
         for (int i = 0; i < proxy_conf.maxClients; i++) {
             struct item *item = s->fds + i;
 
@@ -461,71 +480,71 @@ handle_iteration(fd_selector s) {
 
             key.item = item;
             s->handlers.handle_create(&key);
-            item->handler = &(s->handlers);
-            item->interest = OP_READ + OP_WRITE;
-            s->max_fd = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
-            FD_CLR(masterSocket, &s->slave_r);
+
+            s->max_fd = item->client_socket > item->target_socket
+                ? item->client_socket : item->target_socket;
             break;
         }
-    }
 
-    for (int i = 0; i <= n; i++) {
-        struct item *item = s->fds + i; // devuelve el items[i]
-        key.item = item;
-        // Caso en el que se crea una nueva conexión
-        if (ITEM_USED(item)) { // si el item esta en uso
-            key.s = s;
-            key.client_socket   = item->client_socket;
-            key.target_socket = item->target_socket;
-            key.src_buffer = &(item->src_buffer);
-            key.dst_buffer = &(item->dst_buffer);
-            // operaciones que van de src -> dst
-            if(FD_ISSET(item->client_socket, &s->slave_r)) {
-                if(OP_READ & item->interest) {
-                    if(0 == item->handler->handle_read) {
-                        assert(("OP_READ arrived but no handler. bug!" == 0));
-                    } else {
-                        item->handler->handle_read(&key);
-                    }
-                }
-            }
-            if(FD_ISSET(item->target_socket, &s->slave_w)) {
-                if(OP_WRITE & item->interest) {
-                    if(0 == item->handler->handle_write) {
-                        assert(("OP_WRITE arrived but no handler. bug!" == 0));
-                    } else {
-                        item->handler->handle_write(&key);
-                    }
-                }
-            }
+    } else {
 
+        // A client/target demands attention
 
-            key.target_socket   = item->client_socket;
-            key.client_socket = item->target_socket;
-            key.dst_buffer = &(item->src_buffer);
-            key.src_buffer = &(item->dst_buffer);
-            // operaciones que van de dst -> src
-            if(FD_ISSET(item->target_socket, &s->slave_r)) {
-                if(OP_READ & item->interest) {
-                    if(0 == item->handler->handle_read) {
-                        assert(("OP_READ arrived but no handler. bug!" == 0));
-                    } else {
-                        item->handler->handle_read(&key);
+        for (int i = 0; i <= n; i++) {
+            struct item *item = s->fds + i;
+            key.item = item;
+
+            if (ITEM_USED(item)) {
+                
+                // There is an initialized connection on this item
+
+                key.s = s;
+                key.src_socket = item->client_socket;
+                key.dst_socket = item->target_socket;
+
+                // Check read operations
+
+                if(FD_ISSET(item->client_socket, &s->slave_r)) {
+                    log(DEBUG, "Client %d has read available", item->client_socket)
+                    if(OP_READ & item->client_interest) {
+                        stm_handler_read(&(item->stm), &key);
+                        continue;
                     }
                 }
-            }
-            if(FD_ISSET(item->client_socket, &s->slave_w)) {
-                if(OP_WRITE & item->interest) {
-                    if(0 == item->handler->handle_write) {
-                        assert(("OP_WRITE arrived but no handler. bug!" == 0));
-                    } else {
-                        item->handler->handle_write(&key);
+
+                if(FD_ISSET(item->target_socket, &s->slave_r)) {
+                    log(DEBUG, "Target %d has read available", item->target_socket)
+                    if(OP_READ & item->target_interest) {
+                        stm_handler_read(&(item->stm), &key);
+                        continue;
                     }
                 }
+
+                // Check write operations
+
+                if(FD_ISSET(item->client_socket, &s->slave_w)) {
+                    log(DEBUG, "Client %d has write available", item->client_socket)
+                    if(OP_WRITE & item->client_interest) {
+                        stm_handler_write(&(item->stm), &key);
+                        continue;
+                    }
+                }
+
+                if(FD_ISSET(item->target_socket, &s->slave_w)) {
+                    log(DEBUG, "Target %d has write available", item->target_socket)
+                    if(OP_WRITE & item->target_interest) {
+                        stm_handler_write(&(item->stm), &key);
+                        continue;
+                    }
+                }
+
             }
         }
+
     }
+
 }
+
 
 static void
 handle_block_notifications(fd_selector s) {
@@ -539,9 +558,8 @@ handle_block_notifications(fd_selector s) {
 
         struct item *item = s->fds + j->fd;
         if(ITEM_USED(item)) {
-            key.client_socket   = item->client_socket;
-            // key.data = item->data;
-            item->handler->handle_block(&key);
+            key.src_socket   = item->client_socket;
+            s->handlers.handle_block(&key);
         }
 
         free(j);
@@ -552,8 +570,8 @@ handle_block_notifications(fd_selector s) {
 
 
 selector_status
-selector_notify_block(fd_selector  s,
-                 const int    fd) {
+selector_notify_block(fd_selector s, const int fd) {
+
     selector_status ret = SELECTOR_SUCCESS;
 
     // TODO(juan): usar un pool
@@ -576,8 +594,13 @@ selector_notify_block(fd_selector  s,
 
 finally:
     return ret;
+
 }
 
+
+/***************************************************************
+  Begins the iteration awaiting for available reads/writes
+****************************************************************/
 selector_status
 selector_select(fd_selector s) {
     selector_status ret = SELECTOR_SUCCESS;
@@ -586,45 +609,36 @@ selector_select(fd_selector s) {
     memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
     memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
-    int masterSocket = s->fds[0].client_socket;
-    FD_ZERO(&s->slave_r);
-    FD_SET(masterSocket, &s->slave_r);
-
-    int maxSocket = masterSocket;
+    int maxSocket = 0;
     for (int i = 1; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))
             continue;
 
-        FD_SET(item->client_socket, &s->slave_r);
-        FD_SET(item->target_socket, &s->slave_r);
-
         int localMax = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
         maxSocket = localMax > maxSocket ? localMax : maxSocket;
     }
 
+    s->max_fd = maxSocket;
+
+    log(DEBUG, "Entering pselect()");
+    log(DEBUG, "read_fd[4] = %d  | read_fd[5] = %d",
+        FD_ISSET(4, &(s->slave_r)), FD_ISSET(5, &(s->slave_r)));
+    log(DEBUG, "write_fd[4] = %d | write_fd[5] = %d",
+        FD_ISSET(4, &(s->slave_w)), FD_ISSET(5, &(s->slave_w)));
+        
+    log(DEBUG, "Max fd is %d", s->max_fd);
 
     s->selector_thread = pthread_self();
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, NULL, &emptyset); // sacar el NULL despues
 
-    if(-1 == fds) { // entra si hubo un error
+    log(DEBUG, "Exited pselect() with %d", fds);
+
+    if(-1 == fds) {
         switch(errno) {
             case EAGAIN:
             case EINTR:
-                // si una señal nos interrumpio. ok!
-                break;
-            case EBADF:
-                // ayuda a encontrar casos donde se cierran los fd pero no
-                // se desregistraron
-                for(int i = 0 ; i < s->max_fd; i++) {
-                    if(FD_ISSET(i, &s->master_r)|| FD_ISSET(i, &s->master_w)) {
-                        if(-1 == fcntl(i, F_GETFD, 0)) {
-                            fprintf(stderr, "Bad descriptor detected: %d\n", i);
-                        }
-                    }
-                }
-                ret = SELECTOR_IO;
                 break;
             default:
                 ret = SELECTOR_IO;
@@ -632,7 +646,7 @@ selector_select(fd_selector s) {
 
         }
     } else {
-        log(INFO, "Entered in iteration\n")
+        log(DEBUG, "Handling iteration")
         handle_iteration(s);
     }
     if(ret == SELECTOR_SUCCESS) {
@@ -641,6 +655,7 @@ selector_select(fd_selector s) {
 finally:
     return ret;
 }
+
 
 int
 selector_fd_set_nio(const int fd) {

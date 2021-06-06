@@ -1,9 +1,12 @@
-#ifndef SELECTOR_H_W50GNLODsARolpHbsDsrvYvMsbT
-#define SELECTOR_H_W50GNLODsARolpHbsDsrvYvMsbT
+#ifndef SELECTOR_H
+#define SELECTOR_H
 
 #include <sys/time.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include "buffer.h"
+#include "http.h"
+#include "stm.h"
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -23,8 +26,8 @@
  *
  * Si el handler requiere bloquearse por alguna razón (por ejemplo realizar
  * una resolución de DNS utilizando getaddrinfo(3)), tiene la posiblidad de
- * descargar el trabajo en un hilo notificará al selector que el resultado del
- * trabajo está disponible y se le presentará a los handlers durante
+ * descargar el trabajo en un hilo que notificará al selector que el resultado
+ * del trabajo está disponible y se le presentará a los handlers durante
  * la iteración normal. Los handlers no se tienen que preocupar por la
  * concurrencia.
  *
@@ -94,20 +97,6 @@ void
 selector_destroy(fd_selector s);
 
 /**
- * Intereses sobre un file descriptor (quiero leer, quiero escribir, …)
- *
- * Son potencias de 2, por lo que se puede requerir una conjunción usando el OR
- * de bits.
- *
- * OP_NOOP es útil para cuando no se tiene ningún interés.
- */
-typedef enum {
-    OP_NOOP    = 0,
-    OP_READ    = 1 << 0,
-    OP_WRITE   = 1 << 2,
-} fd_interest ;
-
-/**
  * Quita un interés de una lista de intereses
  */
 #define INTEREST_OFF(FLAG, MASK)  ( (FLAG) & ~(MASK) )
@@ -118,15 +107,11 @@ typedef enum {
 struct selector_key {
     /** el selector que dispara el evento */
     fd_selector s;
-    /** el file descriptor del cliente */
-    int         client_socket;
-    /** el file descriptor del target */
-    int         target_socket;
-    /** el buffer del cliente */
-    buffer * src_buffer;
-    /** el buffer del target */
-    buffer * dst_buffer;
-    /** el item del cliente */
+    /** el file descriptor de la fuente */
+    int         src_socket;
+    /** el file descriptor del destino */
+    int         dst_socket;
+    /** el item de la conexion */
     struct item * item;
 };
 
@@ -134,18 +119,14 @@ struct selector_key {
  * Manejador de los diferentes eventos..
  */
 typedef struct fd_handler {
-  void (*handle_read)      (struct selector_key *key);
-  void (*handle_write)     (struct selector_key *key);
   void (*handle_block)     (struct selector_key *key);
-
   void (*handle_create)     (struct selector_key *key);
-  /**
-   * llamado cuando se se desregistra el fd
-   * Seguramente deba liberar los recusos alocados en data.
-   */
   void (*handle_close)     (struct selector_key *key);
-
 } fd_handler;
+
+
+void
+selector_update_fdset(fd_selector s, const struct item * item);
 
 /**
  * registra en el selector `s' un nuevo file descriptor `fd'.
@@ -204,12 +185,17 @@ selector_notify_block(fd_selector s,
 // estructuras internas item_def
 struct item {
     int                 client_socket;
-    fd_interest         interest;
-    const fd_handler   *handler;
-    void *              data; // no se usa
     int                 target_socket;
-    buffer              src_buffer;
-    buffer              dst_buffer;
+
+    fd_interest         client_interest;
+    fd_interest         target_interest;
+    
+    buffer              read_buffer;
+    buffer              write_buffer;
+    
+    state_machine       stm;
+
+    void *              data;
 };
 
 struct fdselector {

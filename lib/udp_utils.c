@@ -106,7 +106,7 @@ ssize_t usend(int fd, char * buffer, size_t buffSize, struct sockaddr * address,
 	}
 
 	printSocketAddress((struct sockaddr *) address, addrBuffer);
-    log(INFO, "Handling client %s - Sent %zu bytes", addrBuffer, sentBytes);
+    log(DEBUG, "Handling client %s - Sent %zu bytes", addrBuffer, sentBytes);
 
 	return sentBytes;
 }
