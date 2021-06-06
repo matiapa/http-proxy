@@ -1,17 +1,13 @@
 #include<stdio.h>
 #include <stdlib.h>  // malloc
 #include <string.h>  // memset
-#include <assert.h>  // assert
-#include <errno.h>
-#include <time.h>
-#include <unistd.h>  // close
-#include <pthread.h>
+
 
 #include <http_parser.h>
 #include <mime_chars.h>
 #include <parser.h>
 #include <logger.h>
-
+#include <parser_utils.h>
 
 
 
@@ -198,7 +194,8 @@ static struct parser_definition definition = {
         .states_n     = states_n,
         .start_state  = METHOD,
 };
-
+//////////////////////////////////////////////////////////////////////////////
+// Functions
 struct  parserData * http_request_parser_init(){
     parserData * data = malloc(sizeof(*data));
     if(data != NULL){
@@ -243,6 +240,40 @@ void destroy_parser(parserData * data){
     free(data);
 }
 
+int equals(char * currentMethod, char * methodName) {
+    const struct parser_definition d = parser_utils_strcmpi("foo");
+
+    struct parser *parser = parser_init(parser_no_classes(), &d);
+    for (int i = 0; i < METHOD_LENGTH && currentMethod[i] == '\0'; ++i) {
+        const struct parser_event * e = parser_feed(parser, currentMethod[i]);
+        do {
+            switch(e->type) {
+                case STRING_CMP_MAYEQ:
+                    break;
+                case STRING_CMP_EQ:
+                    return 1;
+                    break;
+                case STRING_CMP_NEQ:
+                    return 0;
+                    break;
+            }
+            e = e->next;
+        } while (e != NULL);
+    }
+}
+
+int get_method(char * method){
+
+    if(equals(method, "GET"))
+        return GET;
+    if(equals(method, "POST"))
+        return POST;
+    if(equals(method, "CONNECT"))
+        return CONNECT;
+
+    return OTHER;
+}
+
 void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parserData * data ,size_t readBytes) {
 
     /*int valN = 0;
@@ -267,7 +298,7 @@ void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parser
                 case METHOD_NAME_END:
                     log(DEBUG, "METHOD_NAME_END %c",e->data[0]  );
                     data->valN = 0;
-                    //get_method(currentMethod);
+                    httpRequest->method = get_method(data->currentMethod);
                     break;
                 case  TARGET_VAL:
                     log(DEBUG, "TARGET_VAL %c",e->data[0]  );

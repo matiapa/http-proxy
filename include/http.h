@@ -10,7 +10,7 @@
 #define HEADER_NAME_LENGTH 30
 #define HEADER_NAME_VAL_LENGTH 60
 
-typedef enum {GET, POST, CONNECT} methods;
+typedef enum {GET, POST, CONNECT, OTHER} methods;
 
 typedef enum {CONNECTION, REQUEST, RESPONSE} item_state;
 
