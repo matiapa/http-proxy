@@ -1,10 +1,12 @@
-#ifndef SELECTOR_H_W50GNLODsARolpHbsDsrvYvMsbT
-#define SELECTOR_H_W50GNLODsARolpHbsDsrvYvMsbT
+#ifndef SELECTOR_H
+#define SELECTOR_H
 
 #include <sys/time.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include "buffer.h"
 #include "http.h"
+#include "stm.h"
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -95,20 +97,6 @@ void
 selector_destroy(fd_selector s);
 
 /**
- * Intereses sobre un file descriptor (quiero leer, quiero escribir, …)
- *
- * Son potencias de 2, por lo que se puede requerir una conjunción usando el OR
- * de bits.
- *
- * OP_NOOP es útil para cuando no se tiene ningún interés.
- */
-typedef enum {
-    OP_NOOP    = 0,
-    OP_READ    = 1 << 0,
-    OP_WRITE   = 1 << 2,
-} fd_interest ;
-
-/**
  * Quita un interés de una lista de intereses
  */
 #define INTEREST_OFF(FLAG, MASK)  ( (FLAG) & ~(MASK) )
@@ -131,18 +119,14 @@ struct selector_key {
  * Manejador de los diferentes eventos..
  */
 typedef struct fd_handler {
-  void (*handle_read)      (struct selector_key *key);
-  void (*handle_write)     (struct selector_key *key);
   void (*handle_block)     (struct selector_key *key);
-
   void (*handle_create)     (struct selector_key *key);
-  /**
-   * llamado cuando se se desregistra el fd
-   * Seguramente deba liberar los recusos alocados en data.
-   */
   void (*handle_close)     (struct selector_key *key);
-
 } fd_handler;
+
+
+void
+selector_update_fdset(fd_selector s, const struct item * item);
 
 /**
  * registra en el selector `s' un nuevo file descriptor `fd'.
@@ -206,10 +190,10 @@ struct item {
     fd_interest         client_interest;
     fd_interest         target_interest;
     
-    buffer              conn_buffer;
     buffer              read_buffer;
     buffer              write_buffer;
-    item_state          state;
+    
+    state_machine       stm;
 
     void *              data;
 };

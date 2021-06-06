@@ -91,9 +91,7 @@ int create_tcp_server(const char *port) {
 
 int handle_connections(
     int serverSocket,
-    void (*handle_creates) (struct selector_key *key),
-    void (*handle_reads) (struct selector_key *key),
-    void (*handle_writes) (struct selector_key *key)
+    void (*handle_creates) (struct selector_key *key)
 ) {
 
     if(selector_fd_set_nio(serverSocket) == -1) {
@@ -128,10 +126,9 @@ int handle_connections(
     // Fill in handlers
     
     const struct fd_handler handlers = {
-        .handle_read       = handle_reads,
-        .handle_write      = handle_writes,
         .handle_create     = handle_creates,
-        .handle_close      = NULL
+        .handle_close      = NULL,  // TODO: Add a close handler
+        .handle_block      = NULL
     };
 
     // Register master socket

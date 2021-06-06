@@ -9,13 +9,10 @@
 #include <io.h>
 #include <args.h>
 #include <monitor.h>
+#include <proxy_stm.h>
 
 
 static void sigterm_handler(const int signal);
-
-void handle_writes(struct selector_key *key);
-
-void handle_reads(struct selector_key *key);
 
 void handle_creates(struct selector_key *key);
 
@@ -26,9 +23,6 @@ int main(int argc, char **argv) {
 
     struct proxy_args args;
     parse_args(argc, argv, &args);
-    
-    targetHost = "localhost";
-    targetPort = "8081";
 
     close(0);
 
@@ -58,7 +52,7 @@ int main(int argc, char **argv) {
 
     // Start handling connections
 
-    int res = handle_connections(serverSocket, handle_creates, handle_reads, handle_writes);
+    int res = handle_connections(serverSocket, handle_creates);
     if(res < 0) {
         log(ERROR, "Handling connections");
         close(serverSocket);
@@ -69,54 +63,6 @@ int main(int argc, char **argv) {
 
     return EXIT_SUCCESS;
     
-}
-
-
-void handle_writes(struct selector_key *key) {
-
-    log(DEBUG, "Entered handle_writes with src %d", key->src_socket);
-
-    if (buffer_can_read(&(key->item->conn_buffer))) {
-
-        size_t len;
-        uint8_t *bytes = buffer_read_ptr(&(key->item->conn_buffer), &len);
-
-        int sentBytes = bsend(key->dst_socket, bytes, len);
-
-        buffer_read_adv(&(key->item->conn_buffer), sentBytes);
-        FD_CLR(key->dst_socket, &(key->s)->slave_w);
-
-        log(DEBUG, "Sent %d bytes to socket %d\n", sentBytes, key->dst_socket);
-
-    }
-
-}
-
-
-void handle_reads(struct selector_key *key) {
-
-    if (buffer_can_write(&(key->item->conn_buffer))) {
-
-        size_t space;
-        uint8_t *ptr = buffer_write_ptr(&(key->item->conn_buffer), &space);
-
-        int readBytes = read(key->src_socket, ptr, space);
-
-        buffer_write_adv(&(key->item->conn_buffer), readBytes);
-        FD_SET(key->dst_socket, &(key->s)->slave_w);
-
-        log(DEBUG, "Received %d bytes from socket %d\n", readBytes, key->src_socket);
-
-        if (readBytes <= 0)
-            item_kill(key->s, key->item);
-        
-        // item_state s = key->item->state;
-
-        // struct request req;
-        // parse_state result = parse_http_request(key.);
-
-    }
-
 }
 
 
@@ -136,6 +82,8 @@ void handle_creates(struct selector_key *key) {
         exit(EXIT_FAILURE);
     }
 
+    key->item->client_socket = clientSocket;
+
     log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
         ntohs(address.sin_port));
 
@@ -145,22 +93,18 @@ void handle_creates(struct selector_key *key) {
         log(INFO, "Kicked %s due to blacklist", inet_ntoa(address.sin_addr));
     }
 
+    // Initialize connection buffers and state machine
 
-    // Initiate a connection to target
+    buffer_init(&(key->item->read_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
+    buffer_init(&(key->item->write_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
 
-    int targetSocket = setupClientSocket(key->s->targetHost, key->s->targetPort);
-    if (targetSocket < 0) {
-        log(ERROR, "Failed to connect to target");
-    }
+    memcpy(&(key->item->stm), &proto_stm, sizeof(proto_stm));
+    stm_init(&(key->item->stm));
 
-    key->item->client_socket = clientSocket;
-    key->item->target_socket = targetSocket;
+    key->item->client_interest = OP_READ;
+    key->item->target_interest = OP_NOOP;
+    selector_update_fdset(key->s, key->item);
 
-    key->item->client_interest = OP_READ | OP_WRITE;    // OP_READ
-    key->item->target_interest = OP_READ | OP_WRITE;    // OP_NOOP
-    key->item->state = CONNECT;
-
-    buffer_init(&(key->item->conn_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
 }
 
 

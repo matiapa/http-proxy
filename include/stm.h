@@ -1,7 +1,7 @@
 #ifndef STM_H
 #define STM_H
 
-#include <selector.h>
+#include <selector_interests.h>
 
 /**
  * stm.c - pequeño motor de maquina de estados donde los eventos son los
@@ -23,18 +23,18 @@
  * de selector.c.
  */
 
-struct state_machine {
+typedef struct state_machine {
     /** declaración de cual es el estado inicial */
     unsigned                      initial;
     /**
      * declaracion de los estados: deben estar ordenados segun .[].state.
      */
-    const struct state_definition *states;
+    const struct state_definition * states;
     /** cantidad de estados */
     unsigned                      max_state;
     /** estado actual */
-    const struct state_definition *current;
-};
+    const struct state_definition * current;
+} state_machine;
 
 struct selector_key *key;
 
@@ -61,10 +61,10 @@ struct state_definition {
     unsigned (*on_read_ready) (struct selector_key *key);
 
     /** ejecutado cuando hay datos disponibles para ser escritos */
-    unsigned (*on_write_ready)(struct selector_key *key);
+    unsigned (*on_write_ready) (struct selector_key *key);
     
     /** ejecutado cuando hay un trabajo bloqueante listo */
-    unsigned (*on_block_ready)(struct selector_key *key);
+    unsigned (*on_block_ready) (struct selector_key *key);
 };
 
 

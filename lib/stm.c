@@ -4,6 +4,8 @@
  */
 #include <stdlib.h>
 #include "stm.h"
+#include "selector.h"
+#include "logger.h"
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -30,6 +32,11 @@ handle_first(struct state_machine *stm, struct selector_key *key) {
 
         key->item->client_interest = stm->current->client_interest;
         key->item->target_interest = stm->current->target_interest;
+        selector_update_fdset(key->s, key->item);
+
+        // log(DEBUG, "Handling first jump");
+        // log(DEBUG, "New client interest is %d", key->item->client_interest);
+        // log(DEBUG, "New target interest is %d", key->item->target_interest);
 
         if(NULL != stm->current->on_arrival) {
             stm->current->on_arrival(stm->current->state, key);
@@ -50,6 +57,11 @@ void jump(struct state_machine *stm, unsigned next, struct selector_key *key) {
 
         key->item->client_interest = stm->current->client_interest;
         key->item->target_interest = stm->current->target_interest;
+        selector_update_fdset(key->s, key->item);
+
+        log(DEBUG, "Jumping to state %d\n", next);
+        // log(DEBUG, "New client interest is %d", key->item->client_interest);
+        // log(DEBUG, "New target interest is %d", key->item->target_interest);
 
         if(NULL != stm->current->on_arrival) {
             const unsigned int ret = stm->current->on_arrival(stm->current->state, key);
@@ -64,6 +76,7 @@ stm_handler_read(struct state_machine *stm, struct selector_key *key) {
     if(stm->current->on_read_ready == 0) {
         abort();
     }
+    log(DEBUG, "Handling read on state %d", stm->current->state);
     const unsigned int ret = stm->current->on_read_ready(key);
     jump(stm, ret, key);
 
@@ -76,6 +89,7 @@ stm_handler_write(struct state_machine *stm, struct selector_key *key) {
     if(stm->current->on_write_ready == 0) {
         abort();
     }
+    log(DEBUG, "Handling write on state %d", stm->current->state);
     const unsigned int ret = stm->current->on_write_ready(key);
     jump(stm, ret, key);
 
@@ -88,6 +102,7 @@ stm_handler_block(struct state_machine *stm, struct selector_key *key) {
     if(stm->current->on_block_ready == 0) {
         abort();
     }
+    log(DEBUG, "Handling block on state %d", stm->current->state);
     const unsigned int ret = stm->current->on_block_ready(key);
     jump(stm, ret, key);
 
