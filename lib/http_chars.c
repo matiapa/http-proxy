@@ -61,63 +61,6 @@ init_char_class(void) {
     classes[']']  |= TOKEN_SPECIAL;
     classes['[']  |= TOKEN_SPECIAL;
 
-    /*
-     * atom        =  1*<any CHAR except specials, SPACE and CTLs>
-     *
-     * qtext       =  <any CHAR excepting <">,     ; => may be folded
-     *                "\" & CR, and including
-     *                linear-white-space>
-     * dtext       =  <any CHAR excluding "[",     ; => may be folded
-     *                "]", "\" & CR, & including
-     *                linear-white-space>
-     * ctext       =  <any CHAR excluding "(",     ; => may be folded
-     *              ")", "\" & CR, & including
-     *              linear-white-space>
-     */
-    for(unsigned i = 0; i < 0xff; i++) {
-        if(classes[i] & TOKEN_CHAR) {
-            // atom
-            if(i == ' ' || (classes[i] & (TOKEN_SPECIAL | TOKEN_CTL))) {
-                // no es un atom
-            } else {
-                classes[i] |= TOKEN_ATOM;
-            }
-
-            // qtext
-            switch(i) {
-                case '"':
-                case '\\':
-                case '\r':
-                    break;
-                default:
-                    classes[i] |= TOKEN_QTEXT;
-            }
-
-            // dtext
-            switch(i) {
-                case '[':
-                case ']':
-                case '\\':
-                case '\r':
-                    break;
-                default:
-                    classes[i] |= TOKEN_DTEXT;
-            }
-
-            // ctext
-            switch(i) {
-                case '(':
-                case ')':
-                case '\\':
-                case '\r':
-                    break;
-                default:
-                    classes[i] |= TOKEN_CTEXT;
-            }
-
-        }
-    }
-
 
     return classes;
 }

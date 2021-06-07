@@ -35,44 +35,7 @@
  * specials    =  "(" / ")" / "<" / ">" / "@"    ; Must be in quoted-
  *               /  "," / ";" / ":" / "\" / <">  ;  string, to use
  *               /  "." / "[" / "]"              ;  within a word.
- * atom        =  1*<any CHAR except specials, SPACE and CTLs>
- *
- * qtext       =  <any CHAR excepting <">,     ; => may be folded
- *                "\" & CR, and including
- *                linear-white-space>
- * dtext       =  <any CHAR excluding "[",     ; => may be folded
- *                "]", "\" & CR, & including
- *                linear-white-space>
- * ctext       =  <any CHAR excluding "(",     ; => may be folded
- *                ")", "\" & CR, & including
- *                linear-white-space>
- *
- * RFC2045 (MIME Part One: Format of Internet Message Bodies)
- *
- * token := 1*<any (US-ASCII) CHAR except SPACE, CTLs,
- *                or tspecials>
- *
- * tspecials :=  "(" / ")" / "<" / ">" / "@" /
- *               "," / ";" / ":" / "\" / <">
- *               "/" / "[" / "]" / "?" / "="
- *               ; Must be in quoted-string,
- *
- *               ; to use within parameter values
- * RFC2046 (MIME Part Two: Media Types)
- *
- * bchars        := bcharsnospace / " "
- * bcharsnospace := DIGIT / ALPHA / "'" / "(" / ")" /
- *                     "+" / "_" / "," / "-" / "." /
- *                     "/" / ":" / "=" / "?"
- * RFC6838 - Media Type Specifications and Registration Procedures
- *  restricted-name = restricted-name-first *126restricted-name-chars
- *  restricted-name-first  = ALPHA / DIGIT
- *  restricted-name-chars  = ALPHA / DIGIT / "!" / "#" /
- *                             "$" / "&" / "-" / "^" / "_"
- *  restricted-name-chars  =/ "." ; Characters before first dot always
- *                                ; specify a facet name
- *  restricted-name-chars  =/ "+" ; Characters after last plus always
- *                                ; specify a structured syntax suffix
+
  */
 enum mime_char_class {
     // arrancamos en 10 para que sea compatible con los caracteres.
@@ -82,15 +45,7 @@ enum mime_char_class {
     TOKEN_CTL               = 1 << 13,
     TOKEN_LWSP              = 1 << 14,
     TOKEN_SPECIAL           = 1 << 15,
-    TOKEN_ATOM              = 1 << 16,
-    TOKEN_QTEXT             = 1 << 18,
-    TOKEN_DTEXT             = 1 << 19,
-    TOKEN_CTEXT             = 1 << 20,
-    TOKEN_BCHARS            = 1 << 21,
-    TOKEN_BCHARS_NOSPACE    = 1 << 22,
-    TOKEN_REST_NAME_FIRST   = 1 << 23,
-    TOKEN_REST_NAME_CHARS   = 1 << 24,
-    TOKEN_TSPECIAL          = 1 << 25,
+
 };
 
 /**
