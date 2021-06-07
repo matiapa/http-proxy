@@ -5,6 +5,7 @@
 #include <stm.h>
 #include <selector.h>
 #include <client.h>
+#include <http_parser.h>
 #include <proxy_stm.h>
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
@@ -309,23 +310,37 @@ static unsigned connect_read_ready(struct selector_key *key) {
 
     // Parse the request
 
-    // TODO: Add parser and handle pending message case
+    if(key->item->data == NULL)
+        key->item->data = calloc(1, sizeof(struct request));
+    
+    struct request * request = key->item->data;
 
-    if(strcmp((char *) ptr, "CONNECT\n") != 0) {
+    parse_state parser_state = http_parser_parse(&(key->item->read_buffer), request, &(key->item->parser_data));
+
+    if (parser_state == PENDING)
+        return CONNECT_READ;
+
+    if (parser_state == FAILED) {
         log_error("Invalid request received");
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
 
-    char * host = "localhost";
+    log(DEBUG, "Method: %d", request->method);
+    log(DEBUG, "URL: %s", request->url);
+
+    if(request->method != CONNECT) {
+        log_error("Expected CONNECT method");
+        notify_error(BAD_REQUEST, CONNECT_READ);
+    }
 
     // Check that target is not the proxy itself and is not blacklisted
 
-    if (strstr(proxy_conf.targetBlacklist, host) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", host);
+    if (strstr(proxy_conf.targetBlacklist, request->url) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", request->url);
         notify_error(FORBIDDEN, CONNECT_READ);
     }
 
-    if (strcmp(host, "localhost:8080")) {
+    if (strcmp(request->url, "localhost:8080") == 0) {
         log(INFO, "Rejected connection to proxy itself");
         notify_error(FORBIDDEN, CONNECT_READ);
     }
@@ -335,7 +350,7 @@ static unsigned connect_read_ready(struct selector_key *key) {
     // TODO: Diferentiate the case when there was a connection error
     // or a proxy error
 
-    int targetSocket = setupClientSocket(host, "8081");
+    int targetSocket = setupClientSocket(request->url, "8081");
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
         notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);

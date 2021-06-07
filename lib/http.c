@@ -31,28 +31,28 @@ char * status_code_message[7] = {
  *  BODY...
  */
 
-char * create_request(struct request * request) {
-    char * string = (char *) malloc(STRING_SIZE);
-    memset(string, 0, STRING_SIZE);
-    int position = 0;
+// char * create_request(struct request * request) {
+//     char * string = (char *) malloc(STRING_SIZE);
+//     memset(string, 0, STRING_SIZE);
+//     int position = 0;
 
-    if (request->method == POST || request->method == GET || request->method == CONNECT) {
-        position = requestFirstLine(string, request);
-        if (position < 0) return NULL;
-    } else {
-        free(string);
-        return NULL;
-    }
+//     if (request->method == POST || request->method == GET || request->method == CONNECT) {
+//         position = requestFirstLine(string, request);
+//         if (position < 0) return NULL;
+//     } else {
+//         free(string);
+//         return NULL;
+//     }
 
-    if (request->headers != NULL) position += headersSection(string + position, request->headers, request->header_count);
-    else position += copy(string + position, "\n");
+//     if (request->headers != NULL) position += headersSection(string + position, request->headers, request->header_count);
+//     else position += copy(string + position, "\n");
 
-    if (request->body != NULL) position += copy(string + position, request->body);
+//     if (request->body != NULL) position += copy(string + position, request->body);
 
-    string = realloc(string, position);
-    string[position] = '\0';
-    return string;
-}
+//     string = realloc(string, position);
+//     string[position] = '\0';
+//     return string;
+// }
 
 int requestFirstLine(char * string, struct request * request) {
     int position = snprintf(string, STRING_SIZE, "%s ", methods_strings[request->method]);

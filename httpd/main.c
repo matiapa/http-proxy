@@ -9,6 +9,7 @@
 #include <io.h>
 #include <args.h>
 #include <monitor.h>
+#include <selector_enums.h>
 #include <proxy_stm.h>
 
 
@@ -92,13 +93,17 @@ void handle_creates(struct selector_key *key) {
         item_kill(key->s, key->item);
     }
 
-    // Initialize connection buffers and state machine
+    // Initialize connection buffers, state machine and HTTP parser
 
     buffer_init(&(key->item->read_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
     buffer_init(&(key->item->write_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
 
     memcpy(&(key->item->stm), &proto_stm, sizeof(proto_stm));
     stm_init(&(key->item->stm));
+
+    http_parser_init(&(key->item->parser_data));
+
+    // Set initial interests
 
     key->item->client_interest = OP_READ;
     key->item->target_interest = OP_NOOP;
