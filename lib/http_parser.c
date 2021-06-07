@@ -215,8 +215,7 @@ static struct parser_definition definition = {
 };
 //////////////////////////////////////////////////////////////////////////////
 // Functions
-struct  parserData * http_request_parser_init(){
-    parserData * data = malloc(sizeof(*data));
+void http_request_parser_init(struct parserData * data){
     if(data != NULL){
         data->valN = 0;
         data->parser = parser_init(init_char_class(), &definition);
@@ -227,18 +226,6 @@ struct  parserData * http_request_parser_init(){
         //data->header = malloc(sizeof(char *) * HEADER_COLUMNS );
         data->headers = malloc(sizeof (&(data->header)) * MAXHEADERS);
     }
-    return data;
-    /*parserData  data = {
-            .valN = 0,
-            .parser = parser_init(init_char_class(), &definition),
-            .currentMethod = calloc(METHOD_LENGTH, sizeof(char)),
-            .currentTarget = calloc(TARGET_LENGTH, sizeof(char)),
-            .currentHeader = calloc(HEADER_NAME_LENGTH, sizeof(char)),
-            .currentHeaderValue = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char)),
-            //.header = malloc(sizeof(char *) * HEADER_COLUMNS ),
-            .headers = malloc(sizeof (&(data.header)) * MAXHEADERS),
-    };
-    return data;*/
 }
 
 void destroy_parser(parserData * data){
@@ -273,7 +260,7 @@ int get_method(char * method){
     return OTHER;
 }
 
-void parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parserData * data ,size_t readBytes) {
+parse_state parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parserData * data ,size_t readBytes) {
 
     /*int valN = 0;
     struct parser * p = parser_init(init_char_class(), &definition);

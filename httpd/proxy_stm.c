@@ -5,6 +5,7 @@
 #include <stm.h>
 #include <selector.h>
 #include <client.h>
+#include <http_parser.h>
 #include <proxy_stm.h>
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
@@ -310,6 +311,12 @@ static unsigned connect_read_ready(struct selector_key *key) {
     // Parse the request
 
     // TODO: Add parser and handle pending message case
+
+    int availableBytes;
+    buffer_read_ptr(&(key->item->read_buffer), &availableBytes);
+
+    struct request request;
+    parse_http_request(ptr, &request, &(key->item->parser_data), availableBytes);
 
     if(strcmp((char *) ptr, "CONNECT\n") != 0) {
         log_error("Invalid request received");
