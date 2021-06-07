@@ -9,6 +9,7 @@
 #include <io.h>
 #include <args.h>
 #include <monitor.h>
+#include <doh_client.h>
 #include <selector_enums.h>
 #include <proxy_stm.h>
 
@@ -33,6 +34,10 @@ int main(int argc, char **argv) {
 
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
+
+    // Initialize DOH client
+
+    initialize_doh_client(&(args.doh));
 
     // Start monitor on another thread
 

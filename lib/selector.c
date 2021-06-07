@@ -384,7 +384,7 @@ selector_register(
         }
     }
 
-    struct item * item = s->fds + ufd;
+    struct item * item = s->fds; // le saque el + ufd
     if(ITEM_USED(item)) {
         ret = SELECTOR_FDINUSE;
         goto finally;
@@ -630,7 +630,7 @@ selector_select(fd_selector s) {
     // Calculate max socket
 
     int maxSocket = 0;
-    for (int i = 1; i < proxy_conf.maxClients; i++) {
+    for (int i = 0; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))

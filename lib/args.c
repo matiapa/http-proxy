@@ -76,10 +76,10 @@ parse_args(const int argc, char **argv, struct proxy_args *args) {
     args->disectors_enabled = true;
 
     args->doh.host = "localhost";
-    args->doh.ip   = "127.0.0.1";
+    args->doh.ip   = "0.0.0.0";
     args->doh.port = 8053;
-    args->doh.path = "/getnsrecord";
-    args->doh.query = "?dns=";
+    args->doh.path = "getnsrecord";
+    args->doh.query = "?dns="; // esto no va
 
     int c;
 

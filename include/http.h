@@ -37,9 +37,10 @@ struct request {
 /* RESPONSE STRUCTURE */
 struct response {
     int status_code;
-    char *** headers;
+    char headers[MAX_HEADERS][2][HEADER_LENGTH];
     int header_count;
     char * body;
+    int body_length;
 };
 
 /* REQUEST FACTORY */
@@ -47,6 +48,8 @@ char * create_request(struct request * request);
 
 /* RESPONSE FACTORY */
 char * create_response(struct response * response);
+
+int copy(char * dst, char * src);
 
 #endif
 
