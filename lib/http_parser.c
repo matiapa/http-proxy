@@ -215,8 +215,7 @@ static struct parser_definition definition = {
 };
 //////////////////////////////////////////////////////////////////////////////
 // Functions
-struct  parserData * http_request_parser_init(){
-    parserData * data = malloc(sizeof(*data));
+void http_request_parser_init(struct parserData * data){
     if(data != NULL){
         data->valN = 0;
         data->parser = parser_init(init_char_class(), &definition);
@@ -228,7 +227,6 @@ struct  parserData * http_request_parser_init(){
         data->headers = malloc(sizeof (&(data->header)) * MAXHEADERS);
         data->headerCount = 0;
     }
-    return data;
 }
 
 void http_parser_reset(parserData * data){
@@ -264,7 +262,7 @@ void destroy_parser(parserData * data){
 
 
 
-methods get_method(char * method){
+int get_method(char * method){
 
     if(strcmp(method, "GET") == 0)
         return GET;

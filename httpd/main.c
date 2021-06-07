@@ -74,7 +74,6 @@ void handle_creates(struct selector_key *key) {
 
     int masterSocket = key->s->fds[0].client_socket;
 
-
     // Accept the client connection
 
     int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t *) &addrlen);
@@ -94,13 +93,17 @@ void handle_creates(struct selector_key *key) {
         log(INFO, "Kicked %s due to blacklist", inet_ntoa(address.sin_addr));
     }
 
-    // Initialize connection buffers and state machine
+    // Initialize connection buffers, state machine and HTTP parser
 
     buffer_init(&(key->item->read_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
     buffer_init(&(key->item->write_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
 
     memcpy(&(key->item->stm), &proto_stm, sizeof(proto_stm));
     stm_init(&(key->item->stm));
+
+    http_request_parser_init(&(key->item->parser_data));
+
+    // Set initial interests
 
     key->item->client_interest = OP_READ;
     key->item->target_interest = OP_NOOP;

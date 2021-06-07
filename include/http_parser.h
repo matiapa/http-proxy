@@ -19,7 +19,7 @@ typedef struct parserData{
     char *** headers;
 }parserData;
 
-struct  parserData * http_request_parser_init();
+void http_request_parser_init(struct parserData * data);
 
 parse_state parse_http_request(uint8_t * readBuffer, struct request * httpRequest, parserData * parser ,size_t readBytes);
 
