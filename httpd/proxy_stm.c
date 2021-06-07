@@ -312,11 +312,12 @@ static unsigned connect_read_ready(struct selector_key *key) {
 
     // TODO: Add parser and handle pending message case
 
-    size_t availableBytes;
-    buffer_read_ptr(&(key->item->read_buffer), &availableBytes);
+    if(key->item->data == NULL)
+        key->item->data = calloc(1, sizeof(struct request));
+    
+    struct request * request = key->item->data;
 
-    struct request request;
-    parse_state parser_state = parse_http_request(ptr, &request, &(key->item->parser_data), availableBytes);
+    parse_state parser_state = http_parser_parse(&(key->item->read_buffer), request, &(key->item->parser_data));
 
     if (parser_state == PENDING)
         return CONNECT_READ;
@@ -326,10 +327,10 @@ static unsigned connect_read_ready(struct selector_key *key) {
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
 
-    log(DEBUG, "Method: %d", request.method);
-    log(DEBUG, "URL: %s", request.url);
+    log(DEBUG, "Method: %d", request->method);
+    log(DEBUG, "URL: %s", request->url);
 
-    if(request.method != CONNECT) {
+    if(request->method != CONNECT) {
         log_error("Expected CONNECT method");
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
@@ -339,7 +340,7 @@ static unsigned connect_read_ready(struct selector_key *key) {
     // TODO: Diferentiate the case when there was a connection error
     // or a proxy error
 
-    int targetSocket = setupClientSocket(request.url, "8081");
+    int targetSocket = setupClientSocket(request->url, "8081");
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
         notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);

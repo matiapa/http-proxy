@@ -101,7 +101,7 @@ void handle_creates(struct selector_key *key) {
     memcpy(&(key->item->stm), &proto_stm, sizeof(proto_stm));
     stm_init(&(key->item->stm));
 
-    http_request_parser_init(&(key->item->parser_data));
+    http_parser_init(&(key->item->parser_data));
 
     // Set initial interests
 

@@ -3,12 +3,11 @@
 
 #include <buffer.h>
 
-#define HEADER_COLUMNS 2
-#define METHOD_LENGTH 10
-#define TARGET_LENGTH 50
-#define MAXHEADERS 30
-#define HEADER_NAME_LENGTH 30
-#define HEADER_NAME_VAL_LENGTH 60
+#define URL_LENGTH 50
+#define VERSION_LENGTH 50
+#define MAX_HEADERS 30
+#define HEADER_LENGTH 30
+#define BODY_LENGTH 1024
 
 typedef enum {GET, POST, CONNECT, OTHER} methods;
 
@@ -24,10 +23,14 @@ typedef enum {
 /* REQUEST STRUCTURE */
 struct request {
     methods method;
-    char *** headers;
+    char url[URL_LENGTH];
+    char version[VERSION_LENGTH];
+
+    char headers[MAX_HEADERS][2][HEADER_LENGTH];
     int header_count;
-    char * body;
-    char * url;
+
+    char body[BODY_LENGTH];
+    int body_length;
     char * file;
 };
 

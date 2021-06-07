@@ -3,49 +3,138 @@
 #include <string.h>  // memset
 #include <ctype.h> //toUpper
 
-
 #include <http_parser.h>
 #include <http_chars.h>
 #include <parser.h>
 #include <logger.h>
 
+#define PARSE_BUFF_SIZE 1024
 
 
 enum states {
     METHOD,
     TARGET,
     VERSION,
-    HEADER_CR,
+
+    REQ_LINE_CR,
+    REQ_LINE_CRLF,
+
     HEADER_NAME,
     HEADER_VALUE,
-    CHECK_IF_LAST_HEADER,
-    IGNORE,
-    UNEXPECTED,
-    END_CR,
-    END,
+
+    HEADER_LINE_CR,
+    HEADER_LINE_CRLF,
+
+    HEADERS_ENDLINE_CR,
+    HEADERS_ENDLINE_CRLF,
+
     BODY,
+
+    UNEXPECTED,
 };
+
 enum event_type{
     METHOD_NAME,
     METHOD_NAME_END,
+
     TARGET_VAL,
     TARGET_VAL_END,
+
     VERSION_VAL,
+    VERSION_VAL_END,
+    
     HEADER_NAME_VAL,
-    HEADER_NAME_VAL_END,
-    HEADER_VAL,
-    HEADER_VAL_END,
+    HEADER_NAME_END,
+
+    HEADER_VALUE_VAL,
+    HEADER_VALUE_END,
+
+    HEADER_SECTION_END,
+
+    BODY_VAL,
+
     WAIT_MSG,
     UNEXPECTED_VALUE,
-    BODY_START,
-    FINAL_VAL,
 };
 
 
 ///////////////////////////////////////////////////////////////////////////////
 // Acciones
+
 static void method(struct parser_event *ret, const uint8_t c) {
     ret->type    = METHOD_NAME;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void method_end(struct parser_event *ret, const uint8_t c) {
+    ret->type    = METHOD_NAME_END;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void target(struct parser_event *ret, const uint8_t c) {
+    ret->type    = TARGET_VAL;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void target_end(struct parser_event *ret, const uint8_t c) {
+    ret->type    = TARGET_VAL_END;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void version(struct parser_event *ret, const uint8_t c) {
+    ret->type    = VERSION_VAL;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void version_end(struct parser_event *ret, const uint8_t c) {
+    ret->type    = VERSION_VAL_END;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void header_name(struct parser_event *ret, const uint8_t c) {
+    ret->type    = HEADER_NAME;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void header_name_end(struct parser_event *ret, const uint8_t c) {
+    ret->type    = HEADER_NAME_END;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void header_value(struct parser_event *ret, const uint8_t c) {
+    ret->type    = HEADER_VALUE_VAL;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void header_value_end(struct parser_event *ret, const uint8_t c) {
+    ret->type    = HEADER_VALUE_END;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void header_section_end(struct parser_event *ret, const uint8_t c) {
+    ret->type    = HEADER_SECTION_END;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void body(struct parser_event *ret, const uint8_t c) {
+    ret->type    = BODY_VAL;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void wait(struct parser_event *ret, const uint8_t c) {
+    ret->type    = WAIT_MSG;
     ret->n       = 1;
     ret->data[0] = c;
 }
@@ -55,156 +144,121 @@ static void error(struct parser_event *ret, const uint8_t c) {
     ret->n       = 1;
     ret->data[0] = c;
 }
-static void method_end(struct parser_event *ret, const uint8_t c) {
-    ret->type    = METHOD_NAME_END;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void target(struct parser_event *ret, const uint8_t c) {
-    ret->type    = TARGET_VAL;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void target_end(struct parser_event *ret, const uint8_t c) {
-    ret->type    = TARGET_VAL_END;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void version(struct parser_event *ret, const uint8_t c) {
-    ret->type    = VERSION_VAL;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void wait(struct parser_event *ret, const uint8_t c) {
-    ret->type    = WAIT_MSG;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void header_name(struct parser_event *ret, const uint8_t c) {
-    ret->type    = HEADER_NAME_VAL;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void header_name_end(struct parser_event *ret, const uint8_t c) {
-    ret->type    = HEADER_NAME_VAL_END;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void header_value(struct parser_event *ret, const uint8_t c) {
-    ret->type    = HEADER_VAL;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void header_value_end(struct parser_event *ret, const uint8_t c) {
-    ret->type    = HEADER_VAL_END;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void body_start(struct parser_event *ret, const uint8_t c) {
-    ret->type    = BODY_START;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-static void end(struct parser_event *ret, const uint8_t c) {
-    ret->type    = FINAL_VAL;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Transiciones
 
 static const struct parser_state_transition ST_METHOD [] =  {
-        {.when = TOKEN_ALPHA,           .dest = METHOD,                       .act1 = method,},
-        {.when = TOKEN_SPECIAL,         .dest = UNEXPECTED,                   .act1 = error,},
-        {.when = TOKEN_DIGIT,           .dest = UNEXPECTED,                   .act1 = error,},
-        {.when = ' ',                   .dest = TARGET,                       .act1 = method_end,},
+    {.when = TOKEN_ALPHA,           .dest = METHOD,                       .act1 = method,},
+    {.when = ' ',                   .dest = TARGET,                       .act1 = method_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
+
 static const struct parser_state_transition ST_TARGET [] =  {
-        {.when = TOKEN_ALPHA,           .dest = TARGET,                       .act1 = target,},
-        {.when = TOKEN_SPECIAL,         .dest = TARGET,                       .act1 = target,},
-        {.when = TOKEN_DIGIT,           .dest = TARGET,                       .act1 = target,},
-        {.when = ' ',                   .dest = VERSION,                      .act1 = target_end,},
+    {.when = TOKEN_ALPHA,           .dest = TARGET,                       .act1 = target,},
+    {.when = TOKEN_DIGIT,           .dest = TARGET,                       .act1 = target,},
+    {.when = TOKEN_SPECIAL,         .dest = TARGET,                       .act1 = target,},
+    {.when = ' ',                   .dest = VERSION,                      .act1 = target_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
+
 static const struct parser_state_transition ST_VERSION [] =  {
-        {.when = TOKEN_ALPHA,           .dest = VERSION,                      .act1 = version,},
-        {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},
-        {.when = TOKEN_DIGIT,           .dest = VERSION,                      .act1 = version,},
-        {.when = '\r',                  .dest = HEADER_CR,                    .act1 = wait,},
+    {.when = TOKEN_ALPHA,           .dest = VERSION,                      .act1 = version,},
+    {.when = TOKEN_DIGIT,           .dest = VERSION,                      .act1 = version,},
+    {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},
+    {.when = '\r',                  .dest = REQ_LINE_CR,                  .act1 = version_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
-static const struct parser_state_transition ST_HEADER_CR[] =  {
-        {.when = '\n',                  .dest = CHECK_IF_LAST_HEADER,         .act1 = wait,},
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+
+static const struct parser_state_transition ST_REQ_LINE_CR[] =  {
+    {.when = '\n',                  .dest = REQ_LINE_CRLF,                .act1 = wait,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+};
+
+
+static const struct parser_state_transition ST_REQ_LINE_CRLF[] =  {
+    {.when = '\r',                  .dest = HEADERS_ENDLINE_CR,           .act1 = wait,},
+    {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_HEADER_NAME [] =  {
-        {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
-        {.when = TOKEN_LWSP,            .dest = IGNORE,                       .act1 = wait,},
-        {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
+    {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
+
 static const struct parser_state_transition ST_HEADER_VALUE [] =  {
-        {.when = TOKEN_ALPHA,           .dest = HEADER_VALUE,                 .act1 = header_value,},
-        {.when = TOKEN_DIGIT,           .dest = HEADER_VALUE,                 .act1 = header_value,},
-        {.when = TOKEN_SPECIAL,         .dest = HEADER_VALUE,                 .act1 = header_value,},
-        {.when = '\r',                  .dest = HEADER_CR,                    .act1 = header_value_end,},
+    {.when = TOKEN_ALPHA,           .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = TOKEN_DIGIT,           .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = TOKEN_SPECIAL,         .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = TOKEN_LWSP,            .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = '\r',                  .dest = HEADER_LINE_CR,               .act1 = header_value_end,},
 };
-static const struct parser_state_transition ST_CHECK_IF_LAST_HEADER [] =  {
-        {.when = '\r',                  .dest = END_CR,                       .act1 = wait,},
-        {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
-        {.when = TOKEN_LWSP,            .dest = IGNORE,                       .act1 = wait,},
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+
+static const struct parser_state_transition ST_HEADER_LINE_CR [] =  {
+    {.when = '\n',                  .dest = HEADER_LINE_CRLF,             .act1 = wait,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
-static const struct parser_state_transition ST_IGNORE [] =  {
-        {.when = ' ',                   .dest = IGNORE,                       .act1 = wait,},
-        {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+
+static const struct parser_state_transition ST_HEADER_LINE_CRLF [] =  {
+    {.when = '\r',                  .dest = HEADERS_ENDLINE_CR,           .act1 = wait,},
+    {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
-static const struct parser_state_transition ST_UNEXPECTED [] =  {
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+
+static const struct parser_state_transition ST_HEADERS_ENDLINE_CR [] =  {
+    {.when = '\n',                  .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
-static const struct parser_state_transition ST_END_CR [] =  {
-        {.when = '\n',                  .dest = END,                          .act1 = end,},
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+
+static const struct parser_state_transition ST_HEADERS_ENDLINE_CRLF [] =  {
+    {.when = ANY,                   .dest = BODY,                          .act1 = body,},
 };
-static const struct parser_state_transition ST_END [] =  {
-        {.when = ANY,                   .dest = BODY,                         .act1 = body_start,},
-};
+
 static const struct parser_state_transition ST_BODY [] =  {
-        {.when = ANY,                   .dest = BODY,                         .act1 = wait,},
+    {.when = ANY,                   .dest = BODY,                          .act1 = body,},
+};
+
+static const struct parser_state_transition ST_UNEXPECTED [] =  {
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 // Declaración formal
 
 static const struct parser_state_transition *states [] = {
-        ST_METHOD,
-        ST_TARGET,
-        ST_VERSION,
-        ST_HEADER_CR,
-        ST_HEADER_NAME,
-        ST_HEADER_VALUE,
-        ST_CHECK_IF_LAST_HEADER,
-        ST_IGNORE,
-        ST_UNEXPECTED,
-        ST_END_CR,
-        ST_END,
-        ST_BODY,
+    ST_METHOD,
+    ST_TARGET,
+    ST_VERSION,
+    ST_REQ_LINE_CR,
+    ST_REQ_LINE_CRLF,
+    ST_HEADER_NAME,
+    ST_HEADER_VALUE,
+    ST_HEADER_LINE_CR,
+    ST_HEADER_LINE_CRLF,
+    ST_HEADERS_ENDLINE_CR,
+    ST_HEADERS_ENDLINE_CRLF,
+    ST_BODY,
+    ST_UNEXPECTED,
 };
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
 static const size_t states_n [] = {
-        N(ST_METHOD),
-        N(ST_TARGET),
-        N(ST_VERSION),
-        N(ST_HEADER_CR),
-        N(ST_HEADER_NAME),
-        N(ST_HEADER_VALUE),
-        N(ST_CHECK_IF_LAST_HEADER),
-        N(ST_IGNORE),
-        N(ST_UNEXPECTED),
-        N(ST_END_CR),
-        N(ST_END),
-        N(ST_BODY),
+    N(ST_METHOD),
+    N(ST_TARGET),
+    N(ST_VERSION),
+    N(ST_REQ_LINE_CR),
+    N(ST_REQ_LINE_CRLF),
+    N(ST_HEADER_NAME),
+    N(ST_HEADER_VALUE),
+    N(ST_HEADER_LINE_CR),
+    N(ST_HEADER_LINE_CRLF),
+    N(ST_HEADERS_ENDLINE_CR),
+    N(ST_HEADERS_ENDLINE_CRLF),
+    N(ST_BODY),
+    N(ST_UNEXPECTED),
 };
 
 static struct parser_definition definition = {
@@ -213,155 +267,166 @@ static struct parser_definition definition = {
         .states_n     = states_n,
         .start_state  = METHOD,
 };
+
 //////////////////////////////////////////////////////////////////////////////
+
 // Functions
-void http_request_parser_init(struct parserData * data){
+
+#define MIN(x,y) (x < y ? x : y)
+
+#define COPY(dst, src, srcBytes) memcpy(dst, src, MIN(srcBytes, N(dst)));
+
+void http_parser_init(struct parserData * data){
     if(data != NULL){
-        data->valN = 0;
         data->parser = parser_init(init_char_class(), &definition);
-        data->currentMethod = calloc(METHOD_LENGTH, sizeof(char));
-        data->currentTarget = calloc(TARGET_LENGTH, sizeof(char));
-        data->currentHeader = calloc(HEADER_NAME_LENGTH, sizeof(char));
-        data->currentHeaderValue = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char));
-        //data->header = malloc(sizeof(char *) * HEADER_COLUMNS );
-        data->headers = malloc(sizeof (&(data->header)) * MAXHEADERS);
-        data->headerCount = 0;
+        buffer_init(&(data->parseBuffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
     }
 }
 
 void http_parser_reset(parserData * data){
-    data->valN = 0;
     parser_reset(data->parser);
-    memset(data->currentMethod, 0, sizeof(data->currentMethod));
-    memset(data->currentTarget, 0, sizeof(data->currentTarget));
-    memset(data->currentHeader, 0, sizeof(data->currentHeader));
-    memset(data->currentHeaderValue, 0, sizeof(data->currentHeaderValue));
-    memset(data->headers, 0, sizeof(data->headers));
-    data->headerCount = 0;
+    buffer_reset(&(data->parseBuffer));
 }
 
-
-
-void destroy_parser(parserData * data){
-    for(int j = 0; j < MAXHEADERS; j++){
-        for (int k = 0; k < HEADER_COLUMNS; k++){
-            free(data->headers[j][k]);
-        }
-        free(data->headers[j]);
-    }
-    free(data->headers);
-    free(data->currentMethod);
-    free(data->currentTarget);
-    free(data->currentHeader);
-    free(data->currentHeaderValue);
-
-    //antes de destroy tengo que estar seguro que dejaron de enviar y ya  pase al write
+void http_parser_destroy(parserData * data){
     parser_destroy(data->parser);
+    free(data->parseBuffer.data);
     free(data);
 }
 
+void assign_method(struct request * httpRequest, parserData * data){
+    size_t size;
+    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
 
-
-int get_method(char * method){
-
-    if(strcmp(method, "GET") == 0)
-        return GET;
-    if(strcmp(method, "POST") == 0)
-        return POST;
-    if(strcmp(method, "CONNECT") == 0)
-        return CONNECT;
-
-    return OTHER;
+    if(strncmp(ptr, "GET", size) == 0)
+        httpRequest->method = GET;
+    if(strncmp(ptr, "POST", size) == 0)
+        httpRequest->method = POST;
+    if(strncmp(ptr, "CONNECT", size) == 0)
+        httpRequest->method = CONNECT;
 }
 
-parse_state parse_http_request(uint8_t * readBuffer,struct request *httpRequest, parserData * data ,size_t readBytes) {
+void assign_target(struct request * req, parserData * data){
+    size_t size;
+    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
 
-    /*int valN = 0;
-    struct parser * p = parser_init(init_char_class(), &definition);
-    char * currentMethod = calloc(METHOD_LENGTH, sizeof(char));
-    char * currentTarget = calloc(TARGET_LENGTH, sizeof(char));
-    char * currentHeader = calloc(HEADER_NAME_LENGTH, sizeof(char));
-    char * currentHeaderValue = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char));
-    char ** header ;
-    char *** headers = malloc(sizeof (&(header)) * MAXHEADERS);
-    httpRequest->header_count = 0;*/
-    size_t i = 0;
+    COPY(req->url, ptr, size);
+}
 
-    while( i < readBytes ){
-        const struct parser_event* e = parser_feed(data->parser, readBuffer[i]);
-        do {
-            switch(e->type) {
-                case METHOD_NAME:
-                    log(DEBUG, "METHOD_NAME %c",e->data[0]  );
-                    data->currentMethod[data->valN++] = toupper(e->data[0]);
-                    break;
-                case METHOD_NAME_END:
-                    log(DEBUG, "METHOD_NAME_END %c",e->data[0]  );
-                    data->valN = 0;
-                    httpRequest->method = get_method(data->currentMethod);
-                    break;
-                case  TARGET_VAL:
-                    log(DEBUG, "TARGET_VAL %c",e->data[0]  );
-                    data->currentTarget[data->valN++] = e->data[0];
+void assign_version(struct request * req, parserData * data){
+    size_t size;
+    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
 
-                    break;
-                case  TARGET_VAL_END:
-                    log(DEBUG, "TARGET_VAL %c",e->data[0]  );
-                    httpRequest->url = data->currentTarget;
-                    data->valN = 0;
-                    break;
-                case VERSION_VAL:
-                    log(DEBUG, "VERSION_VAL %c",e->data[0]  );
-                    break;
-                case HEADER_NAME_VAL:
-                    log(DEBUG, "HEADER_NAME_VAL %c",e->data[0] );
-                    data->currentHeader[data->valN++] = e->data[0];
-                    break;
-                case HEADER_NAME_VAL_END:
-                    data->header = malloc(sizeof(char *) * HEADER_COLUMNS );
-                    data->header [0] = calloc(HEADER_NAME_LENGTH, sizeof(char));
-                    strncpy(data->header[0], data->currentHeader, HEADER_NAME_LENGTH);
-                    data->valN = 0;
-                    break;
-                case HEADER_VAL:
-                log(DEBUG, "HEADER_VAL %c",e->data[0]  );
-                    data->currentHeaderValue[data->valN++] = e->data[0];
-                    break;
-                case HEADER_VAL_END:
-                    log(DEBUG, "HEADER_VAL_END %c",e->data[0]  );
-                    data->header [1] = calloc(HEADER_NAME_VAL_LENGTH, sizeof(char));
-                    strncpy(data->header[1], data->currentHeaderValue, HEADER_NAME_VAL_LENGTH);
+    COPY(req->version, ptr, size);
+}
 
-                    data->headers [data->headerCount++] = data->header;
+void assign_header_name(struct request * req, parserData * data){
+    size_t size;
+    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
 
-                    memset(data->currentHeaderValue, 0 , sizeof(data->currentHeader));
-                    memset(data->currentHeader, 0, sizeof(data->currentHeader));
-                    log(DEBUG,"headers name: %s", data->headers[data->headerCount-1][0]);
-                    log(DEBUG,"headers value: %s",data->headers[data->headerCount-1][1]);
-                    data->valN = 0;
-                    break;
-                case WAIT_MSG:
-                log(DEBUG, "WAIT_MSG %c",e->data[0]  );
-                    break;
-                case UNEXPECTED_VALUE:
-                log(DEBUG, "UNEXPECTED_VALUE %c",e->data[0]  );
-                    http_parser_reset(data);
-                    return FAILED;
-                    break;
-                case BODY_START:
-                log(DEBUG, "BODY_START %c",e->data[0]  );
-                    break;
-                case FINAL_VAL:
-                log(DEBUG, "FINAL_VAL %c",e->data[0]  );
-                    http_parser_reset(data);
-                    httpRequest->headers = data->headers;
-                    httpRequest->header_count = data->headerCount;
-                    return SUCCESS;
-                    break;
-            }
-            e = e->next;
-        } while (e != NULL);
-        i++;
+    COPY(req->headers[req->header_count][0], ptr, size);
+}
+
+void assign_header_value(struct request * req, parserData * data){
+    size_t size;
+    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
+
+    COPY(req->headers[req->header_count][1], ptr, size);
+    req->header_count += 1;
+}
+
+
+parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest, parserData * data) {
+
+    parse_state result = PENDING;
+
+    while(buffer_can_read(readBuffer)){
+
+        const struct parser_event * e = parser_feed(data->parser, buffer_read(readBuffer));
+
+        switch(e->type) {
+            case METHOD_NAME:
+                log(DEBUG, "METHOD_NAME %c", e->data[0]);
+                buffer_write(&(data->parseBuffer), toupper(e->data[0]));
+                break;
+
+            case METHOD_NAME_END:
+                log(DEBUG, "METHOD_NAME_END %c", e->data[0]);
+                assign_method(httpRequest, data);
+                buffer_reset(&(data->parseBuffer));
+                break;
+
+            case TARGET_VAL:
+                log(DEBUG, "TARGET_VAL %c", e->data[0]);
+                buffer_write(&(data->parseBuffer), toupper(e->data[0]));
+                break;
+
+            case TARGET_VAL_END:
+                log(DEBUG, "TARGET_VAL_END %c", e->data[0]);
+                assign_target(httpRequest, data);
+                buffer_reset(&(data->parseBuffer));
+                break;
+
+            case VERSION_VAL:
+                log(DEBUG, "VERSION_VAL %c", e->data[0]);
+                buffer_write(&(data->parseBuffer), toupper(e->data[0]));
+                break;
+
+            case VERSION_VAL_END:
+                log(DEBUG, "VERSION_VAL_END %c", e->data[0]);
+                assign_version(httpRequest, data);
+                buffer_reset(&(data->parseBuffer));
+                break;
+
+            case HEADER_NAME_VAL:
+                log(DEBUG, "HEADER_NAME %c", e->data[0]);
+                buffer_write(&(data->parseBuffer), e->data[0]);
+                break;
+
+            case HEADER_NAME_END:
+                log(DEBUG, "HEADER_NAME_END %c", e->data[0]);
+                assign_header_name(httpRequest, data);
+                buffer_reset(&(data->parseBuffer));
+                break;
+
+            case HEADER_VALUE_VAL:
+                log(DEBUG, "HEADER_VAL %c", e->data[0]);
+                buffer_write(&(data->parseBuffer), e->data[0]);
+                break;
+            
+            case HEADER_VALUE_END:
+                log(DEBUG, "HEADER_VAL_END %c", e->data[0]);
+                assign_header_value(httpRequest, data);
+                buffer_reset(&(data->parseBuffer));
+                break;
+
+            case HEADER_SECTION_END:
+                log(DEBUG, "HEADER_SECTION_END %c", e->data[0]);
+                result = SUCCESS;
+                break;
+
+            case BODY_VAL:
+                log(DEBUG, "BODY_VAL %c", e->data[0]);
+                httpRequest->body[httpRequest->body_length++] = e->data[0];
+                result = SUCCESS;
+                break;
+
+            case WAIT_MSG:
+                log(DEBUG, "WAIT_MSG %c",e->data[0]);
+                break;
+
+            case UNEXPECTED_VALUE:
+                log(DEBUG, "UNEXPECTED_VALUE %d", e->data[0]);
+                http_parser_reset(data);
+                return FAILED;
+
+            default:
+                log(ERROR, "Unexpected event type %d", e->type);
+                return FAILED;
+        }
+     
     }
-    return PENDING;
+
+    return result;
+
 }
