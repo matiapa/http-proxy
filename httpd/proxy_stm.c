@@ -385,7 +385,8 @@ static unsigned request_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->src_socket, raw_req, space);
 
     if(readBytes < 0) {
-        log_error("Failed to read from client");
+        if(errno != EBADF)
+            log_error("Failed to read from client");
         return CLIENT_CLOSE_CONNECTION;
     }
 
@@ -454,7 +455,8 @@ static unsigned response_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->dst_socket, raw_res, space);
 
     if(readBytes < 0) {
-        log_error("Failed to read response from target");
+        if(errno != EBADF)
+            log_error("Failed to read response from target");
         return TARGET_CLOSE_CONNECTION;
     }
 
