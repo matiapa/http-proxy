@@ -325,13 +325,18 @@ static unsigned connect_read_ready(struct selector_key *key) {
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
 
-    log(DEBUG, "Method: %d", request->method);
-    log(DEBUG, "URL: %s", request->url);
-
     if(request->method != CONNECT) {
         log_error("Expected CONNECT method");
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
+
+    // Check that target is not the proxy itself and is not blacklisted
+
+    char * hostname = strtok(request->url, ":");
+    char * port = strtok(NULL, ":");
+    port = port == NULL ? "80" : port;
+
+    log(DEBUG, "Recieved CONNECT to %s:%s", hostname, port);
 
     // Check that target is not the proxy itself and is not blacklisted
 
@@ -340,7 +345,10 @@ static unsigned connect_read_ready(struct selector_key *key) {
         notify_error(FORBIDDEN, CONNECT_READ);
     }
 
-    if (strcmp(request->url, "localhost:8080") == 0) {
+    char currPort[6];
+    sprintf(currPort, "%d", proxy_conf.proxyArgs.proxy_port);
+
+    if (strcmp(hostname, "localhost") == 0 && strcmp(port, currPort) == 0) {
         log(INFO, "Rejected connection to proxy itself");
         notify_error(FORBIDDEN, CONNECT_READ);
     }
@@ -350,7 +358,7 @@ static unsigned connect_read_ready(struct selector_key *key) {
     // TODO: Diferentiate the case when there was a connection error
     // or a proxy error
 
-    int targetSocket = setupClientSocket(request->url, "8081");
+    int targetSocket = setupClientSocket(hostname, port);
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
         notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);
@@ -360,11 +368,12 @@ static unsigned connect_read_ready(struct selector_key *key) {
 
     // Write response bytes into write buffer
 
-    char *response = "Connected!";
+    struct response res = { .status_code = RESPONSE_OK };
+    char * raw_res = create_response(&res);
 
     ptr = buffer_write_ptr(&(key->item->write_buffer), &space);
-    strcpy((char *) ptr, response);
-    buffer_write_adv(&(key->item->write_buffer), strlen(response));
+    strcpy((char *) ptr, raw_res);
+    buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
 
     return CONNECT_WRITE;
 

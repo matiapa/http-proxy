@@ -2,6 +2,7 @@
 #define CONFIG_H_
 
 #include <stdbool.h>
+#include <args.h>
 
 #define VIA_PROXY_NAME_SIZE 128
 #define BLACKLIST_SIZE 1024
@@ -18,6 +19,8 @@ typedef struct Config {
     char targetBlacklist[BLACKLIST_SIZE];       // Comma separated list of target IPs to which connection must be denied.
 
     int logLevel;                               // Minimum log level to display of [DEBUG, INFO, ERROR, FATAL]. Default is DEBUG.
+
+    struct proxy_args proxyArgs;                // This is not modifiable on runtime, but its here for allowing global access to args.
 } Config;
 
 extern Config proxy_conf;

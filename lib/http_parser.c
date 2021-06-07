@@ -167,6 +167,7 @@ static const struct parser_state_transition ST_VERSION [] =  {
     {.when = TOKEN_DIGIT,           .dest = VERSION,                      .act1 = version,},
     {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},
     {.when = '\r',                  .dest = REQ_LINE_CR,                  .act1 = version_end,},
+    {.when = '\n',                  .dest = REQ_LINE_CRLF,                .act1 = version_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
@@ -175,9 +176,9 @@ static const struct parser_state_transition ST_REQ_LINE_CR[] =  {
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
-
 static const struct parser_state_transition ST_REQ_LINE_CRLF[] =  {
     {.when = '\r',                  .dest = HEADERS_ENDLINE_CR,           .act1 = wait,},
+    {.when = '\n',                  .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
     {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
@@ -194,6 +195,7 @@ static const struct parser_state_transition ST_HEADER_VALUE [] =  {
     {.when = TOKEN_SPECIAL,         .dest = HEADER_VALUE,                 .act1 = header_value,},
     {.when = TOKEN_LWSP,            .dest = HEADER_VALUE,                 .act1 = header_value,},
     {.when = '\r',                  .dest = HEADER_LINE_CR,               .act1 = header_value_end,},
+    {.when = '\n',                  .dest = HEADER_LINE_CRLF,             .act1 = header_value_end,},
 };
 
 static const struct parser_state_transition ST_HEADER_LINE_CR [] =  {
@@ -203,6 +205,7 @@ static const struct parser_state_transition ST_HEADER_LINE_CR [] =  {
 
 static const struct parser_state_transition ST_HEADER_LINE_CRLF [] =  {
     {.when = '\r',                  .dest = HEADERS_ENDLINE_CR,           .act1 = wait,},
+    {.when = '\n',                  .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
     {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
@@ -358,7 +361,7 @@ parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest,
 
             case TARGET_VAL:
                 log(DEBUG, "TARGET_VAL %c", e->data[0]);
-                buffer_write(&(data->parseBuffer), toupper(e->data[0]));
+                buffer_write(&(data->parseBuffer), tolower(e->data[0]));
                 break;
 
             case TARGET_VAL_END:
@@ -402,12 +405,14 @@ parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest,
 
             case HEADER_SECTION_END:
                 log(DEBUG, "HEADER_SECTION_END %c", e->data[0]);
+                http_parser_reset(data);
                 result = SUCCESS;
                 break;
 
             case BODY_VAL:
                 log(DEBUG, "BODY_VAL %c", e->data[0]);
                 httpRequest->body[httpRequest->body_length++] = e->data[0];
+                http_parser_reset(data);
                 result = SUCCESS;
                 break;
 

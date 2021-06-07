@@ -25,6 +25,8 @@ int main(int argc, char **argv) {
     struct proxy_args args;
     parse_args(argc, argv, &args);
 
+    proxy_conf.proxyArgs = args;
+
     close(0);
 
     // Register handlers for closing program appropiately
