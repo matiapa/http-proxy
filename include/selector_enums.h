@@ -1,3 +1,6 @@
+#ifndef SELECTOR_ENUMS_H
+#define SELECTOR_ENUMS_H
+
 /**
  * Intereses sobre un file descriptor (quiero leer, quiero escribir, …)
  *
@@ -17,3 +20,5 @@ typedef enum {
     READ_BUFFER   = 1 << 0,
     WRITE_BUFFER  = 1 << 2
 } rst_buffer;
+
+#endif
