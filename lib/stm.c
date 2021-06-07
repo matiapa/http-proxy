@@ -59,6 +59,12 @@ void jump(struct state_machine *stm, unsigned next, struct selector_key *key) {
         key->item->target_interest = stm->current->target_interest;
         selector_update_fdset(key->s, key->item);
 
+        if(stm->current->rst_buffer & READ_BUFFER)
+            buffer_reset(&(key->item->read_buffer));
+
+        if(stm->current->rst_buffer & WRITE_BUFFER)
+            buffer_reset(&(key->item->write_buffer));
+
         log(DEBUG, "Jumping to state %d\n", next);
         // log(DEBUG, "New client interest is %d", key->item->client_interest);
         // log(DEBUG, "New target interest is %d", key->item->target_interest);

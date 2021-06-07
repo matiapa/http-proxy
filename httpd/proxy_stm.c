@@ -10,6 +10,7 @@
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
 enum proxy_state {
+
     /*
      * Recieves 'CONNECT' message from client
      *
@@ -104,8 +105,8 @@ enum proxy_state {
      *   - END      When response message is over
      *   - ERROR_STATE            IO error
     */
-
     CLIENT_CLOSE_CONNECTION,
+
     /*
      * Sends Target last messages and gracefully shuts down
      *
@@ -118,12 +119,12 @@ enum proxy_state {
      *   - END      When response message is over
      *   - ERROR_STATE            IO error
     */
-
     TARGET_CLOSE_CONNECTION,
 
     END,
 
     ERROR_STATE,
+
 };
 
 
@@ -178,6 +179,11 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key);
 ------------------------------------------------------------ */
 static unsigned error_arrival(const unsigned state, struct selector_key *key);
 
+/* ------------------------------------------------------------
+  Notifies proxy errors.
+------------------------------------------------------------ */
+static unsigned error_write_ready(struct selector_key *key);
+
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
 
@@ -187,6 +193,7 @@ static const struct state_definition state_defs[] = {
         .state            = CONNECT_READ,
         .client_interest  = OP_READ,
         .target_interest  = OP_NOOP,
+        .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
         .on_read_ready    = connect_read_ready,
     },
     {
@@ -199,6 +206,7 @@ static const struct state_definition state_defs[] = {
         .state            = REQUEST_READ,
         .client_interest  = OP_READ,
         .target_interest  = OP_NOOP,
+        .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
         .on_read_ready    = request_read_ready,
     },
     {
@@ -211,6 +219,7 @@ static const struct state_definition state_defs[] = {
         .state            = RESPONSE_READ,
         .client_interest  = OP_NOOP,
         .target_interest  = OP_READ,
+        .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
         .on_read_ready    = response_read_ready,
     },
     {
@@ -240,8 +249,10 @@ static const struct state_definition state_defs[] = {
     {
         .state            = ERROR_STATE,
         .client_interest  = OP_WRITE,
+        .target_interest  = OP_NOOP,
+        .rst_buffer       = WRITE_BUFFER,
         .on_arrival       = error_arrival,
-        // TODO: .on_write_ready  (ERROR NOTIFICATION)
+        .on_write_ready   = error_write_ready
     }
 };
 
@@ -252,14 +263,31 @@ state_machine proto_stm = {
     .max_state = ERROR_STATE
 };
 
+typedef struct proxy_error {
+    int status_code;
+    unsigned next_state;
+} proxy_error;
+
+proxy_error error;
+
+#define log_error(_description) \
+    log(ERROR, "At state %d: %s", key->item->stm.current->state, _description);
+
+#define notify_error(_status_code, _next_state) \
+    error.status_code = _status_code; \
+    error.next_state = _next_state; \
+    return ERROR_STATE; \
+
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
 
 static unsigned connect_read_ready(struct selector_key *key) {
 
-    if (! buffer_can_write(&(key->item->read_buffer)))
-        return CONNECT_READ;
+    if (! buffer_can_write(&(key->item->read_buffer))) {
+        log_error("Read buffer limit reached");
+        notify_error(PAYLOAD_TOO_LARGE, CONNECT_READ);
+    }
 
     // Read request bytes into read buffer
 
@@ -268,9 +296,12 @@ static unsigned connect_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->src_socket, ptr, space);
 
     if(readBytes < 0) {
-        key->item->data = "Failed to read from src socket";
-        return ERROR_STATE;
+        log_error("Failed to read from client");
+        return END;
     }
+
+    if (readBytes == 0)
+        return END;
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
@@ -280,20 +311,20 @@ static unsigned connect_read_ready(struct selector_key *key) {
 
     // TODO: Add parser and handle pending message case
 
-    if (readBytes <= 0)
-        return END;
-
     if(strcmp((char *) ptr, "CONNECT\n") != 0) {
-        key->item->data = "Failed to parse message";
-        return ERROR_STATE;
+        log_error("Invalid request received");
+        notify_error(BAD_REQUEST, CONNECT_READ);
     }
 
     // Open connection with target socket
 
+    // TODO: Diferentiate the case when there was a connection error
+    // or a proxy error
+
     int targetSocket = setupClientSocket("localhost", "8081");
     if (targetSocket < 0) {
-        key->item->data = "Failed to connect to target";
-        return ERROR_STATE;
+        log_error("Failed to connect to target");
+        notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);
     }
 
     key->item->target_socket = targetSocket;
@@ -323,15 +354,9 @@ static unsigned connect_write_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->src_socket, ptr, size);
 
     if (sentBytes < 0) {
-        switch(errno) {
-            case EBADF:
-                return END;
-                break;
-            default:
-                 key->item->data = "Failed to write to src socket";
-                return ERROR_STATE;
-        }
-       
+        if(errno != EBADF)
+            log_error("Failed to write connect response to client");
+        return END;
     }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -341,11 +366,6 @@ static unsigned connect_write_ready(struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return CONNECT_WRITE;
 
-    // Clean the buffers go to next step
-
-    buffer_reset(&(key->item->read_buffer));
-    buffer_reset(&(key->item->write_buffer));
-
     return REQUEST_READ;
 
 }
@@ -353,8 +373,10 @@ static unsigned connect_write_ready(struct selector_key *key) {
 
 static unsigned request_read_ready(struct selector_key *key) {
 
-    if (! buffer_can_write(&(key->item->read_buffer)))
-        return REQUEST_READ;
+    if (! buffer_can_write(&(key->item->read_buffer))) {
+        log_error("Read buffer limit reached")
+        notify_error(PAYLOAD_TOO_LARGE, REQUEST_READ);
+    }
 
     // Read request bytes into read buffer
 
@@ -363,9 +385,12 @@ static unsigned request_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->src_socket, raw_req, space);
 
     if(readBytes < 0) {
-        key->item->data = "Failed to read from src socket";
-        return ERROR_STATE;
+        log_error("Failed to read from client");
+        return CLIENT_CLOSE_CONNECTION;
     }
+
+    if (readBytes <= 0)
+        return CLIENT_CLOSE_CONNECTION;
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
@@ -375,14 +400,7 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     // TODO: Add parser and handle pending message case
 
-    // TODO: Add via header
-
-    if (readBytes <= 0)
-        return CLIENT_CLOSE_CONNECTION;
-
     // Write processed request bytes into write buffer
-
-    // TODO: Check for maximum request size and throw error if necessary
 
     uint8_t * raw_req_proc = buffer_write_ptr(&(key->item->write_buffer), &space);
     strncpy((char *) raw_req_proc, (char *) raw_req, readBytes);
@@ -395,6 +413,9 @@ static unsigned request_read_ready(struct selector_key *key) {
 
 static unsigned request_write_ready(struct selector_key *key) {
 
+    if (! buffer_can_read(&(key->item->write_buffer)))
+        return REQUEST_WRITE;
+
     // Read request bytes from write buffer
 
     size_t size;
@@ -402,14 +423,9 @@ static unsigned request_write_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->dst_socket, ptr, size);
 
     if (sentBytes < 0) {
-        switch(errno) {
-            case EBADF:
-                return TARGET_CLOSE_CONNECTION;
-                break;
-            default:
-                key->item->data = "Failed to write to dst socket";
-                return ERROR_STATE;
-        }
+        if(errno != EBADF)
+            log_error("Failed to write request to target");
+        return TARGET_CLOSE_CONNECTION;
     }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -426,8 +442,10 @@ static unsigned request_write_ready(struct selector_key *key) {
 
 static unsigned response_read_ready(struct selector_key *key) {
 
-    if (! buffer_can_write(&(key->item->read_buffer)))
-        return RESPONSE_READ;
+    if (! buffer_can_write(&(key->item->read_buffer))) {
+        log_error("Read buffer limit reached")
+        notify_error(BAD_GATEWAY, REQUEST_READ);
+    }
 
     // Read response bytes into read buffer
 
@@ -436,9 +454,12 @@ static unsigned response_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->dst_socket, raw_res, space);
 
     if(readBytes < 0) {
-        key->item->data = "Failed to read from dst socket";
-        return ERROR_STATE;
+        log_error("Failed to read response from target");
+        return TARGET_CLOSE_CONNECTION;
     }
+
+    if (readBytes <= 0)
+        return TARGET_CLOSE_CONNECTION;
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
@@ -448,12 +469,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     // TODO: Add parser and handle pending message case
 
-    if (readBytes <= 0)
-        return TARGET_CLOSE_CONNECTION;
-
     // Write processed response bytes into write buffer
-
-    // TODO: Check for maximum response size and throw error if necessary
 
     uint8_t * raw_res_proc = buffer_write_ptr(&(key->item->write_buffer), &space);
     strncpy((char *) raw_res_proc, (char *) raw_res, readBytes);
@@ -466,6 +482,9 @@ static unsigned response_read_ready(struct selector_key *key) {
 
 static unsigned response_write_ready(struct selector_key *key) {
 
+    if (! buffer_can_read(&(key->item->write_buffer)))
+        return RESPONSE_WRITE;
+
     // Read response bytes from write buffer
 
     size_t size;
@@ -473,15 +492,9 @@ static unsigned response_write_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->src_socket, ptr, size);
 
     if (sentBytes < 0) {
-        switch(errno) {
-            case EBADF:
-                return CLIENT_CLOSE_CONNECTION;
-                break;
-            default:
-                key->item->data = "Failed to write to src socket";
-                return ERROR_STATE;
-        }
-        
+        if(errno != EBADF)
+            log_error("Failed to write response to client");
+        return CLIENT_CLOSE_CONNECTION;
     }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -491,11 +504,6 @@ static unsigned response_write_ready(struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return RESPONSE_WRITE;
 
-    // Clean the buffers and start over
-
-    buffer_reset(&(key->item->read_buffer));
-    buffer_reset(&(key->item->write_buffer));
-
     return REQUEST_READ;
 
 }
@@ -504,14 +512,50 @@ static unsigned response_write_ready(struct selector_key *key) {
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 static unsigned error_arrival(const unsigned state, struct selector_key *key) {
 
-    log(ERROR, "%s", (char *) key->item->data);
+    struct response res = { .status_code = error.status_code };
+    char * raw_res = create_response(&res);
 
-    return ERROR_STATE;   // TODO: Pass as data if error is recoverable
+    size_t space;
+    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+    strncpy(ptr, raw_res, space);
+    buffer_write_adv(&(key->item->write_buffer), strlen(ptr));
+
+    log(ERROR, "Writed %ld bytes to write buffer", strlen(ptr));
+
+    log(ERROR, "%s", raw_res);
+
+    return ERROR_STATE;
+
+}
+
+
+static unsigned error_write_ready(struct selector_key *key) {
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
+    ssize_t sentBytes = write(key->src_socket, ptr, size);
+
+    log(ERROR, "Read %ld bytes from write buffer", sentBytes);
+
+    if (sentBytes < 0) {
+        log(ERROR, "Failed to notify error to client");
+        return END;
+    }
+
+    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+
+    if ((size_t) sentBytes < size)
+        return ERROR_STATE;
+
+    return error.next_state;
+
 }
 
 
 static unsigned client_close_connection_arrival(const unsigned state, struct selector_key *key) {
-   log(DEBUG, "Client Closed connection from socket %d", key->src_socket);
+
+    log(DEBUG, "Client closed connection from socket %d", key->src_socket);
 
     // Read last bytes from write buffer
 
@@ -519,9 +563,8 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->dst_socket, ptr, size);
 
-    if (sentBytes < 0) {
+    if (sentBytes < 0)
         return END;
-    }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
@@ -531,19 +574,22 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
         return CLIENT_CLOSE_CONNECTION;
 
     return END;
+
 }
 
+
 static unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key) {
-// Read last bytes from write buffer
 
     log(DEBUG, "Target Closed connection from socket %d", key->dst_socket);
+
+    // Read last bytes from write buffer
+
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->src_socket, ptr, size);
 
-    if (sentBytes < 0) {
+    if (sentBytes < 0)
         return END;
-    }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
@@ -553,9 +599,14 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
         return TARGET_CLOSE_CONNECTION;
 
     return END;
+
 }
 
+
 static unsigned end_arrival(const unsigned state, struct selector_key *key){
+
     item_kill(key->s, key->item);
+
     return END;
+    
 }
