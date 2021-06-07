@@ -1,7 +1,7 @@
 #ifndef STM_H
 #define STM_H
 
-#include <selector_interests.h>
+#include <selector_enums.h>
 
 /**
  * stm.c - pequeño motor de maquina de estados donde los eventos son los
@@ -50,6 +50,8 @@ struct state_definition {
 
     fd_interest client_interest;
     fd_interest target_interest;
+
+    rst_buffer rst_buffer;
 
     /** ejecutado al arribar al estado */
     unsigned (*on_arrival)    (const unsigned state, struct selector_key *key);
