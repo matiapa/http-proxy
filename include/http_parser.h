@@ -3,11 +3,13 @@
 
 
 #include <http_chars.h>
+#include <parser.h>
 #include <http.h>
 
 
 typedef struct parserData{
     int valN;
+    int headerCount;
     struct parser * parser;
     char * currentMethod;
     char * currentTarget;
@@ -19,7 +21,7 @@ typedef struct parserData{
 
 struct  parserData * http_request_parser_init();
 
-void parse_http_request(uint8_t * readBuffer, struct request * httpRequest, parserData * parser ,size_t readBytes);
+parse_state parse_http_request(uint8_t * readBuffer, struct request * httpRequest, parserData * parser ,size_t readBytes);
 
 void destroy_parser(parserData * data);
 
