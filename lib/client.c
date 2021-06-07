@@ -19,16 +19,14 @@ int setupClientSocket(const char *host, const char *service) {
 	struct addrinfo addrCriteria;
 	memset(&addrCriteria, 0, sizeof(addrCriteria));
 
-	addrCriteria.ai_family = AF_INET;
+	addrCriteria.ai_family = AF_UNSPEC;
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
 
 	// Resolve host string for posible addresses
 
-	struct addrinfo * servAddr = malloc(sizeof(struct addrinfo));
-	char google[11] = "google.com";
-	char port[5] = "80";
-	int getaddr = doh_client(google, port, servAddr, AF_UNSPEC);
+	struct addrinfo * servAddr;
+	int getaddr = doh_client(host, service, &servAddr, AF_UNSPEC);
 
 	if (getaddr != 0) {
 		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
@@ -54,7 +52,7 @@ int setupClientSocket(const char *host, const char *service) {
 	}
 
 	// Release address resource and return socket number
-    freeaddresses(servAddr);
+    free(servAddr);
 	return sock;
 
 }

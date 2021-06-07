@@ -12,8 +12,8 @@
 
 void initialize_doh_client(struct doh * args);
 
-int doh_client(const char * target, const char * port, struct addrinfo * addrinfo, int family);
+int doh_client(const char * target, const char * port, struct addrinfo ** restrict addrinfo, int family);
 
-void freeaddresses(struct addrinfo * addrinfo);
+void change_configuration(struct doh * args);
 
 #endif //PC_2021A_06_DOH_CLIENT_H

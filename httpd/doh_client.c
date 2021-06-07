@@ -49,33 +49,52 @@ struct R_DATA {
 };
 #pragma pack(pop)
 
-struct IPV6 {
-    uint8_t nums[16];
+//Structure for ipv4 or ipv6
+union sa {
+    struct sockaddr_in sin;
+    struct sockaddr_in6 sin6;
 };
 
+//Addrinfo structure
+struct aibuf {
+    struct addrinfo ai;
+    union sa sa;
+};
 
 void change_to_dns_format(char* dns, const char * host);
-unsigned char * get_body(unsigned char * buf);
+
+unsigned char * get_body(unsigned char * str);
+
 unsigned char * get_name(char * buf, unsigned char * body);
+
 char * create_post(int length, char * body);
-void send_doh_request(const char * target, int s, int family);
-void resolve_localhost(struct addrinfo * addr, const char * port);
-void read_answer(struct R_DATA * data, struct addrinfo * answer, const char * port, int family);
+
+void send_doh_request(const char * target, int s);
+
+void resolve_localhost(struct addrinfo ** addr, int port);
 
 struct doh configurations;
-struct sockaddr_in dest;
-int id = 0; // TODO: hacerlo dinamico para manejar
 unsigned char buf[BUFF_SIZE];
-unsigned char * reader;
+int id = 0; // TODO: hacerlo dinamico para manejar varios pedidos doh
 
 void initialize_doh_client(struct doh * args) {
     memcpy(&configurations, args, sizeof(struct doh));
 }
 
-int doh_client(const char * target, const char * port, struct addrinfo * addrinfo, int family) {
+void change_configuration(struct doh * args) {
+    memcpy(&configurations, args, sizeof(struct doh));
+}
+
+// https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
+int doh_client(const char * target, const char * port, struct addrinfo ** restrict addrinfo, int family) {
+    unsigned char * reader;
+    struct sockaddr_in dest;
+    memset(buf, 0, BUFF_SIZE);
+    struct DNS_HEADER * dns;
+    int sin_port = atoi(port);
 
     if (!strcmp(target, "localhost")) {
-        resolve_localhost(addrinfo, port);
+        resolve_localhost(addrinfo, sin_port);
         return 0;
     }
 
@@ -85,94 +104,100 @@ int doh_client(const char * target, const char * port, struct addrinfo * addrinf
         return -1;
     }
 
-    /* Establece la conexón con el servidor */
+    /*--------- Establece la conexón con el servidor ---------*/
     dest.sin_family = AF_UNSPEC;
-    dest.sin_port = htons(configurations.port); // el servidor DOH esta en localhost:8053
-    dest.sin_addr.s_addr = inet_addr(configurations.ip); //dns servers, esto deberia ser variable al igual que el port
+    dest.sin_port = htons(configurations.port);
+    dest.sin_addr.s_addr = inet_addr(configurations.ip);
 
     if (connect(s, (struct sockaddr*)&dest,sizeof(dest)) < 0) { // establece la conexión con el servidor DOH
         log(ERROR, "Error in connect")
         return -1;
     }
 
-    /* Mando el request DOH */
-    send_doh_request(target, s, AF_INET);
 
-    struct DNS_HEADER * dns;
+    /*----------- Mando el request DOH -----------*/
+    send_doh_request(target, s);
 
-    /* Recivo el response DOH */
+
+    /*----------- Recivo el response DOH -----------*/
     int dim = sizeof(struct sockaddr_in);
-    memset(buf, 0, BUFF_SIZE);
-    if (recvfrom (s,(unsigned char*)buf , BUFF_SIZE , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim ) < 0) { // se recive el response HTTP
-        log(ERROR, "reading response failed")
+    if (recvfrom (s,(unsigned char*)buf , BUFF_SIZE , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim ) < 0) {
+        log(ERROR, "Getting response from DOH server")
         return -1;
     }
 
-    /* Comienza la lectura del response HTTP */
+
+    /*----------- Comienza la lectura del response HTTP -----------*/
     unsigned char * body = get_body(buf); // TODO: cambiar esto por el parser
     dns = (struct DNS_HEADER *) body; // obtengo el DNS_HEADER
 
-    char name[20];
-    unsigned char * dataDir = get_name(name, body + (int)(sizeof(struct DNS_HEADER))); // obtengo el nombre del question, reemplazo los '.'
+    char name[30];
+    reader = get_name(name, body + (int)(sizeof(struct DNS_HEADER))) + sizeof(struct QUESTION); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
-    reader = dataDir + 1 + sizeof(struct QUESTION); // comienzo de las Answers, me salteo la estructura QUESTION porque no me interesa
 
-    /* Comienza la lectura de las respuestas */
-
+    /*----------- Comienza la lectura de las respuestas -----------*/
     int ans_count = ntohs(dns->ans_count); // cantidad de respuestas
+    struct aibuf * out = calloc(1, ans_count * sizeof(*out) + 1); // se usa para llenar la estructura de las answers
 
-    struct addrinfo * answer = addrinfo; // lo uso para iterar
+    int sin_family, sum, cant = 0;
     for (int i = 0; i < ans_count; i++) {
-        unsigned char * after_name = get_name(name, reader) + 1;
+        unsigned char * after_name = get_name(name, reader); // TODO: ver lo de c00c
+        struct R_DATA * data = (struct R_DATA *)after_name;
 
-        read_answer((struct R_DATA *)after_name, answer, port, family); // leo la answer
+        if (ntohs(data->type) == A) sin_family = AF_INET;
+        else if (ntohs(data->type) == AAAA) sin_family = AF_INET6;
+        else break;
 
-        if (answer->ai_family == AF_INET)
-            reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + sizeof(answer->ai_addr->sa_data)); // acomodo al reader
+        if (family == AF_UNSPEC || family == sin_family) {
+            out[cant].ai = (struct addrinfo) {
+                    .ai_family = sin_family,
+                    .ai_socktype = SOCK_STREAM,
+                    .ai_protocol = 0,
+                    .ai_addrlen = sin_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
+                    .ai_addr = (void *) &out[cant].sa,
+                    .ai_canonname = NULL};
 
-        if (answer->ai_family == AF_INET6)
-            reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + sizeof(struct IPV6)); // acomodo al reader
+            if (cant) out[cant - 1].ai.ai_next = &out[cant].ai;
 
-        // asigno el siguiente nodo en caso de que no sea el último
-        if (answer->ai_family != AF_INET && answer->ai_addr->sa_family != AF_INET6) {
-            break;
+            switch (ntohs(data->type)) {
+                case A:
+                    out[cant].sa.sin.sin_family = AF_INET;
+                    out[cant].sa.sin.sin_port = htons(sin_port);
+                    memcpy(&out[cant].sa.sin.sin_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 4);
+                    break;
+                case AAAA:
+                    out[cant].sa.sin6.sin6_family = AF_INET6;
+                    out[cant].sa.sin6.sin6_port = htons(sin_port);
+                    out[cant].sa.sin6.sin6_scope_id = 0;
+                    memcpy(&out[cant].sa.sin6.sin6_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 16);
+                    break;
+            }
+            cant++;
         }
 
-        if (i != ans_count - 1) {
-            answer->ai_next = (struct addrinfo *)malloc(sizeof(struct addrinfo));
-            answer = answer->ai_next;
-        }
+        if (ntohs(data->type) == A)
+            sum = sizeof(out[i].sa.sin.sin_addr);
+
+        if (ntohs(data->type) == AAAA)
+            sum = sizeof(out[i].sa.sin6.sin6_addr);
+
+        reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + sum); // acomodo al reader
     }
-    answer->ai_next = NULL;
+
+    out = realloc(out, cant * sizeof(*out) + 1); // reacomodo la memoria
+    *addrinfo = &out->ai;
 
     return 0;
 }
 
-void change_to_dns_format(char* dns, const char * host) {
-    int len = (int)strlen(host);
-    memcpy(dns, ".", 1);
-    memcpy(dns + 1, host, len);
-
-    char cant = 0;
-    for (int i = (int)strlen(dns) - 1; i >= 0; i--) {
-        if (dns[i] != '.') {
-            cant++;
-        } else {
-            dns[i] = cant;
-            cant = 0;
-        }
-    }
-    dns[len + 1] = 0;
-}
-
 // TODO: borrarlo cuando pongan el parser
-unsigned char * get_body(unsigned char * buf) {
+unsigned char * get_body(unsigned char * str) {
     int i = 0;
     int done = 1;
     int flag = 0;
     putchar('\n');
     while (done) {
-        if (buf[i+1] == '\n' && buf[i] == '\r') {
+        if (str[i+1] == '\n' && str[i] == '\r') {
             if (flag) done = 0;
             else flag = 1;
             i++;
@@ -181,20 +206,7 @@ unsigned char * get_body(unsigned char * buf) {
         }
         i++;
     }
-    return buf + i;
-}
-
-unsigned char * get_name(char * buf, unsigned char * body) {
-    char c;
-    int pos = 0;
-    body++; // para evitar el primer punto
-    while ((c = *((char *)body)) != '\0') {
-        if (c < 'a') buf[pos++] = '.';
-        else buf[pos++] = c;
-        body++;
-    }
-    buf[pos] = '\0';
-    return body;
+    return str + i;
 }
 
 char * create_post(int length, char * body) {
@@ -229,7 +241,7 @@ char * create_post(int length, char * body) {
     return string;
 }
 
-void send_doh_request(const char * target, int s, int family) {
+void send_doh_request(const char * target, int s) {
     unsigned char * qname;
     struct QUESTION * qinfo = NULL;
 
@@ -270,58 +282,51 @@ void send_doh_request(const char * target, int s, int family) {
     free(string); // libera el request http
 }
 
-void read_answer(struct R_DATA * data, struct addrinfo * answer, const char * port, int family) {
-    answer->ai_socktype = SOCK_STREAM;
-    answer->ai_protocol = 0;
+void resolve_localhost(struct addrinfo ** addrinfo, int port) {
 
-    if (family == AF_INET && ntohs(data->type) == A) { // si es IPV4
-        answer->ai_addr = malloc(sizeof(struct sockaddr_in));
-        struct sockaddr_in * addr_in = (struct sockaddr_in *) answer->ai_addr;
-        answer->ai_family = AF_INET;
-        answer->ai_addrlen = sizeof(struct sockaddr_in);
+    struct aibuf * out = calloc(1, sizeof(*out) + 1);
+    out->ai = (struct addrinfo) {
+            .ai_family = AF_INET,
+            .ai_socktype = SOCK_STREAM,
+            .ai_protocol = 0,
+            .ai_addrlen = sizeof(struct sockaddr_in),
+            .ai_addr = (void *) &out->sa,
+            .ai_canonname = NULL,
+            .ai_next = NULL};
 
-        addr_in->sin_family = AF_INET;
-        addr_in->sin_port = htons(atoi(port));
+    out->sa.sin.sin_family = AF_INET;
+    out->sa.sin.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &out->sa.sin.sin_addr);
 
-        memcpy(&(addr_in->sin_addr), &((*((long*)((unsigned char *)data + sizeof(struct R_DATA))))), INET_ADDRSTRLEN);
+    *addrinfo = &out->ai;
+}
 
-    } else if (family == AF_INET6 && ntohs(data->type) == AAAA) { // si es IPV6
-        answer->ai_addr = malloc(sizeof(struct sockaddr_in6));
-        struct sockaddr_in6 * addr_in = (struct sockaddr_in6 *) answer->ai_addr;
+void change_to_dns_format(char* dns, const char * host) {
+    int len = (int)strlen(host);
+    memcpy(dns, ".", 1);
+    memcpy(dns + 1, host, len);
 
-        answer->ai_family = AF_INET6;
-        answer->ai_addrlen = sizeof(struct sockaddr_in6);
-
-        addr_in->sin6_family = AF_INET6;
-        addr_in->sin6_port = htons(atoi(port));
-
-        memcpy(&(addr_in->sin6_addr), &((*((long*)((unsigned char *)data + sizeof(struct R_DATA))))), INET6_ADDRSTRLEN);
-
+    char cant = 0;
+    for (int i = (int)strlen(dns) - 1; i >= 0; i--) {
+        if (dns[i] != '.') {
+            cant++;
+        } else {
+            dns[i] = cant;
+            cant = 0;
+        }
     }
+    dns[len + 1] = 0;
 }
 
-void resolve_localhost(struct addrinfo * addrinfo, const char * port) {
-    addrinfo->ai_addr = malloc(sizeof(struct sockaddr_in));
-    int num = ntohs(atoi(port));
-    memcpy(&(addrinfo->ai_addr->sa_data), &num, sizeof(port));
-    inet_pton(AF_INET, "127.0.0.1", &(addrinfo->ai_addr->sa_data[2]));
-    addrinfo->ai_socktype = SOCK_STREAM;
-    addrinfo->ai_protocol = IPPROTO_TCP;
-    addrinfo->ai_family = AF_INET;
-    addrinfo->ai_addrlen = INET_ADDRSTRLEN;
-    addrinfo->ai_addr->sa_family = AF_INET;
-    addrinfo->ai_addr->sa_len = INET_ADDRSTRLEN;
-    addrinfo->ai_next = NULL;
-}
-
-void freeaddresses(struct addrinfo * addrinfo) {
-    struct addrinfo * tmp;
-
-    while (addrinfo != NULL) {
-        tmp = addrinfo;
-        addrinfo = addrinfo->ai_next;
-        free(tmp->ai_addr);
-        free(tmp);
+unsigned char * get_name(char * str, unsigned char * body) {
+    char c;
+    int pos = 0;
+    body++; // para evitar el primer punto
+    while ((c = *((char *)body)) != '\0') {
+        if (c < 'a') str[pos++] = '.';
+        else str[pos++] = c;
+        body++;
     }
+    str[pos] = '\0';
+    return body + 1;
 }
-

@@ -110,8 +110,6 @@ int responseFirstLine(char * string, struct response * response) {
         string, STRING_SIZE, "%s %d %s\n", HTTP_VERSION,
         status_code_num[response->status_code], status_code_message[response->status_code]
     );
-
-    return snprintf(string, STRING_SIZE, "%s %d %s\r\n", HTTP_VERSION, response->status_code, response->status_message);
 }
 
 
