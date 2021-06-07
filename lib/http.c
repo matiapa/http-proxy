@@ -59,11 +59,8 @@ char * status_code_message[7] = {
 int requestFirstLine(char * string, struct request * request) {
     int position = snprintf(string, STRING_SIZE, "%s ", methods_strings[request->method]);
 
-    if ((request->method == CONNECT || request->method == GET) && request->url != NULL) {
+    if ((request->method == CONNECT || request->method == GET || request->method == POST)) {
         position += copy(string + position, request->url);
-    } else if (request->method == GET || request->method == POST) {
-        position += copy(string + position, "/");
-        if (request->file != NULL) position += copy(string + position, request->file);
     } else {
         return -1;
     }

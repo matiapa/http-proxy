@@ -1,13 +1,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <address.h>
 #include <logger.h>
 #include <client.h>
 #include <doh_client.h>
+#include <arpa/inet.h>
 
 #define MAX_ADDR_BUFFER 128
 
@@ -23,9 +23,9 @@ int setupClientSocket(const char *host, const char *service) {
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
 
-	// Resolve host string for posible addresses
+    struct addrinfo * servAddr;
 
-	struct addrinfo * servAddr;
+	// Resolve host string for posible addresses
 	int getaddr = doh_client(host, service, &servAddr, AF_UNSPEC);
 
 	if (getaddr != 0) {

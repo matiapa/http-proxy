@@ -31,7 +31,6 @@ struct request {
 
     char body[BODY_LENGTH];
     int body_length;
-    char * file;
 };
 
 /* RESPONSE STRUCTURE */
@@ -39,7 +38,7 @@ struct response {
     int status_code;
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
     int header_count;
-    char * body;
+    char body[BODY_LENGTH];
     int body_length;
 };
 
@@ -52,16 +51,6 @@ char * create_response(struct response * response);
 int copy(char * dst, char * src);
 
 #endif
-
-
-/* EJEMPLO ARMADO DE HEADER
-    int header_count = 2;
-    char *** headers = malloc(sizeof(char *)*HEADER_COLUMNS*header_count);
-    char * header1[2] = {"Accept", "application/"};
-    char * header2[2] = {"Accept-Encoding", "gzip"};
-    headers[0] = header1;
-    headers[1] = header2;
-*/
 
 /* EJEMPLO DE USO REQUEST FACTORY
     struct request request = {
