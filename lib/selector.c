@@ -192,10 +192,12 @@ void item_kill(fd_selector s, struct item * item) {
     free(item->write_buffer.data);
 
     FD_CLR(item->client_socket, &s->master_r);
+    FD_CLR(item->client_socket, &s->master_w);
+    FD_CLR(item->target_socket, &s->master_r);
     FD_CLR(item->target_socket, &s->master_w);
 
+    // Marks item as unused
 
-    //marks item as unused
     item->client_socket = -1;
 }
 
@@ -461,6 +463,22 @@ finally:
 static void
 handle_iteration(fd_selector s) {
 
+    // Check for item timeouts
+
+    for (int i = 1; i < proxy_conf.maxClients; i++) {
+        struct item * item = s->fds + i;
+
+        if(!ITEM_USED(item))
+            continue;
+        // log(INFO, "%d last activity: %ld", item->client_socket, item->last_activity);
+
+        int delta = time(NULL) - item->last_activity;
+        if(proxy_conf.connectionTimeout > 0 && proxy_conf.connectionTimeout < delta){
+            log(INFO, "Kicking %d due to timeout", item->client_socket);
+            item_kill(s, item);
+        }
+    }
+
     int master_socket = s->fds[0].client_socket;
     int n = s->max_fd;
 
@@ -609,6 +627,8 @@ selector_select(fd_selector s) {
     memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
     memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
+    // Calculate max socket
+
     int maxSocket = 0;
     for (int i = 1; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
@@ -621,21 +641,23 @@ selector_select(fd_selector s) {
     }
 
     s->max_fd = maxSocket;
-
-    log(DEBUG, "Entering pselect()");
-    log(DEBUG, "read_fd[4] = %d  | read_fd[5] = %d",
-        FD_ISSET(4, &(s->slave_r)), FD_ISSET(5, &(s->slave_r)));
-    log(DEBUG, "write_fd[4] = %d | write_fd[5] = %d",
-        FD_ISSET(4, &(s->slave_w)), FD_ISSET(5, &(s->slave_w)));
-        
     log(DEBUG, "Max fd is %d", s->max_fd);
 
+    // log(DEBUG, "Entering pselect()");
+    // log(DEBUG, "read_fd[4] = %d  | read_fd[5] = %d",
+    //     FD_ISSET(4, &(s->slave_r)), FD_ISSET(5, &(s->slave_r)));
+    // log(DEBUG, "write_fd[4] = %d | write_fd[5] = %d",
+    //     FD_ISSET(4, &(s->slave_w)), FD_ISSET(5, &(s->slave_w)));
+        
+    struct timespec t = { .tv_sec = SELECTOR_TIMEOUT_SECS };
+
     s->selector_thread = pthread_self();
-    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, NULL, &emptyset); // sacar el NULL despues
+    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &t, &emptyset); // sacar el NULL despues
 
     log(DEBUG, "Exited pselect() with %d", fds);
 
     if(-1 == fds) {
+        perror("pselect");
         switch(errno) {
             case EAGAIN:
             case EINTR:

@@ -14,11 +14,11 @@ int headersSection(char * string, char ** headers[2], int header_count);
 
 char * methods_strings[3] = {"GET", "POST", "CONNECT"};
 
-int status_code_num[6] = {200, 400, 413, 500, 502, 504};
+int status_code_num[7] = {200, 400, 403, 413, 500, 502, 504};
 
-char * status_code_message[6] = {
-    "OK", "Bad Request", "Payload Too Large", "Internal Server Error",
-    "Bad Gateway", "Gateway Timeout"
+char * status_code_message[7] = {
+    "OK", "Bad Request", "Forbidden", "Payload Too Large",
+    "Internal Server Error", "Bad Gateway", "Gateway Timeout"
 };
 
 

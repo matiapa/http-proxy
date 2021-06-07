@@ -73,7 +73,6 @@ void handle_creates(struct selector_key *key) {
 
     int masterSocket = key->s->fds[0].client_socket;
 
-
     // Accept the client connection
 
     int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t *) &addrlen);
@@ -83,6 +82,7 @@ void handle_creates(struct selector_key *key) {
     }
 
     key->item->client_socket = clientSocket;
+    key->item->last_activity = time(NULL);
 
     log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
         ntohs(address.sin_port));
@@ -90,7 +90,6 @@ void handle_creates(struct selector_key *key) {
     if (strstr(proxy_conf.clientBlacklist, inet_ntoa(address.sin_addr)) != NULL) {
         log(INFO, "Kicking %s due to blacklist", inet_ntoa(address.sin_addr));
         item_kill(key->s, key->item);
-        log(INFO, "Kicked %s due to blacklist", inet_ntoa(address.sin_addr));
     }
 
     // Initialize connection buffers and state machine

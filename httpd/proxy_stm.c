@@ -316,12 +316,26 @@ static unsigned connect_read_ready(struct selector_key *key) {
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
 
+    char * host = "localhost";
+
+    // Check that target is not the proxy itself and is not blacklisted
+
+    if (strstr(proxy_conf.targetBlacklist, host) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", host);
+        notify_error(FORBIDDEN, CONNECT_READ);
+    }
+
+    if (strcmp(host, "localhost:8080")) {
+        log(INFO, "Rejected connection to proxy itself");
+        notify_error(FORBIDDEN, CONNECT_READ);
+    }
+
     // Open connection with target socket
 
     // TODO: Diferentiate the case when there was a connection error
     // or a proxy error
 
-    int targetSocket = setupClientSocket("localhost", "8081");
+    int targetSocket = setupClientSocket(host, "8081");
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
         notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);
@@ -372,6 +386,8 @@ static unsigned connect_write_ready(struct selector_key *key) {
 
 
 static unsigned request_read_ready(struct selector_key *key) {
+
+    key->item->last_activity = time(NULL);
 
     if (! buffer_can_write(&(key->item->read_buffer))) {
         log_error("Read buffer limit reached")

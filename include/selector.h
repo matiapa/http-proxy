@@ -49,6 +49,8 @@
 
 #define CONN_BUFFER 1024
 
+#define SELECTOR_TIMEOUT_SECS 60
+
 typedef struct fdselector * fd_selector;
 
 /** valores de retorno. */
@@ -196,6 +198,7 @@ struct item {
     state_machine       stm;
 
     void *              data;
+    time_t              last_activity;
 };
 
 struct fdselector {
