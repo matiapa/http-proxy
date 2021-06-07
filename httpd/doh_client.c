@@ -69,9 +69,11 @@ unsigned char * get_name(char * buf, unsigned char * body);
 
 char * create_post(int length, char * body);
 
-void send_doh_request(const char * target, int s);
+void send_doh_request(const char * target, int s, int type);
 
 void resolve_localhost(struct addrinfo ** addr, int port);
+
+int read_response(struct aibuf * out, int sin_port, int family, int ans_count, struct DNS_HEADER * dns, unsigned char * body, int initial_size);
 
 struct doh configurations;
 unsigned char buf[BUFF_SIZE];
@@ -90,7 +92,6 @@ int doh_client(const char * target, const char * port, struct addrinfo ** restri
     unsigned char * reader;
     struct sockaddr_in dest;
     memset(buf, 0, BUFF_SIZE);
-    struct DNS_HEADER * dns;
     int sin_port = atoi(port);
 
     if (!strcmp(target, "localhost")) {
@@ -114,74 +115,38 @@ int doh_client(const char * target, const char * port, struct addrinfo ** restri
         return -1;
     }
 
+    struct aibuf * out = NULL;
+    int cant = 0;
+    int types[2] = {A, AAAA};
 
-    /*----------- Mando el request DOH -----------*/
-    send_doh_request(target, s);
+    for (int k = 0; k < 2; k++) {
 
+        if (family != AF_UNSPEC && family != types[k])
+            continue;
 
-    /*----------- Recivo el response DOH -----------*/
-    int dim = sizeof(struct sockaddr_in);
-    if (recvfrom (s,(unsigned char*)buf , BUFF_SIZE , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim ) < 0) {
-        log(ERROR, "Getting response from DOH server")
-        return -1;
-    }
+        memset(buf, 0, BUFF_SIZE); // limpio el buffer
 
+        /*----------- Mando el request DOH para IPv4 -----------*/
+        send_doh_request(target, s, types[k]);
 
-    /*----------- Comienza la lectura del response HTTP -----------*/
-    unsigned char * body = get_body(buf); // TODO: cambiar esto por el parser
-    dns = (struct DNS_HEADER *) body; // obtengo el DNS_HEADER
-
-    char name[30];
-    reader = get_name(name, body + (int)(sizeof(struct DNS_HEADER))) + sizeof(struct QUESTION); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
-
-
-    /*----------- Comienza la lectura de las respuestas -----------*/
-    int ans_count = ntohs(dns->ans_count); // cantidad de respuestas
-    struct aibuf * out = calloc(1, ans_count * sizeof(*out) + 1); // se usa para llenar la estructura de las answers
-
-    int sin_family, sum, cant = 0;
-    for (int i = 0; i < ans_count; i++) {
-        unsigned char * after_name = get_name(name, reader); // TODO: ver lo de c00c
-        struct R_DATA * data = (struct R_DATA *)after_name;
-
-        if (ntohs(data->type) == A) sin_family = AF_INET;
-        else if (ntohs(data->type) == AAAA) sin_family = AF_INET6;
-        else break;
-
-        if (family == AF_UNSPEC || family == sin_family) {
-            out[cant].ai = (struct addrinfo) {
-                    .ai_family = sin_family,
-                    .ai_socktype = SOCK_STREAM,
-                    .ai_protocol = 0,
-                    .ai_addrlen = sin_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
-                    .ai_addr = (void *) &out[cant].sa,
-                    .ai_canonname = NULL};
-
-            if (cant) out[cant - 1].ai.ai_next = &out[cant].ai;
-
-            switch (ntohs(data->type)) {
-                case A:
-                    out[cant].sa.sin.sin_family = AF_INET;
-                    out[cant].sa.sin.sin_port = htons(sin_port);
-                    memcpy(&out[cant].sa.sin.sin_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 4);
-                    break;
-                case AAAA:
-                    out[cant].sa.sin6.sin6_family = AF_INET6;
-                    out[cant].sa.sin6.sin6_port = htons(sin_port);
-                    out[cant].sa.sin6.sin6_scope_id = 0;
-                    memcpy(&out[cant].sa.sin6.sin6_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 16);
-                    break;
-            }
-            cant++;
+        /*----------- Recivo el response DOH -----------*/
+        int dim = sizeof(struct sockaddr_in);
+        if (recvfrom (s,(unsigned char*)buf , BUFF_SIZE , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim ) < 0) {
+            log(ERROR, "Getting response from DOH server")
+            return -1;
         }
 
-        if (ntohs(data->type) == A)
-            sum = sizeof(out[i].sa.sin.sin_addr);
+        unsigned char * body = get_body(buf); // TODO: cambiar esto por el parser
+        struct DNS_HEADER * dns = (struct DNS_HEADER *) body; // obtengo el DNS_HEADER
+        int ans_count = ntohs(dns->ans_count); // cantidad de respuestas
+        if (out == NULL) {
+            out = calloc(1, ans_count * sizeof(*out) + 1); // se usa para llenar la estructura de las answers
+        } else {
+            out = realloc(out, (ans_count + cant) * sizeof(*out) + 1);
+        }
 
-        if (ntohs(data->type) == AAAA)
-            sum = sizeof(out[i].sa.sin6.sin6_addr);
-
-        reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + sum); // acomodo al reader
+        /*----------- Lectura del response DOH -----------*/
+        cant = read_response(out, sin_port, family, ans_count, dns, body, cant);
     }
 
     out = realloc(out, cant * sizeof(*out) + 1); // reacomodo la memoria
@@ -241,7 +206,7 @@ char * create_post(int length, char * body) {
     return string;
 }
 
-void send_doh_request(const char * target, int s) {
+void send_doh_request(const char * target, int s, int type) {
     unsigned char * qname;
     struct QUESTION * qinfo = NULL;
 
@@ -269,7 +234,7 @@ void send_doh_request(const char * target, int s) {
 
     qinfo = (struct QUESTION*)&buf[sizeof(struct DNS_HEADER) + (strlen((const char*)qname) + 1)]; //fill it
 
-    qinfo->qtype = htons(ANY);
+    qinfo->qtype = htons(type);
 
     qinfo->qclass = htons(1); //its internet (lol)
 
@@ -280,6 +245,59 @@ void send_doh_request(const char * target, int s) {
     }
 
     free(string); // libera el request http
+}
+
+int read_response(struct aibuf * out, int sin_port, int family, int ans_count, struct DNS_HEADER * dns, unsigned char * body, int initial_size) {
+
+    char name[30];
+    unsigned char * reader = get_name(name, body + (int)(sizeof(struct DNS_HEADER))) + sizeof(struct QUESTION); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
+
+    int sin_family, sum, cant = initial_size;
+    for (int i = 0 + initial_size; i < ans_count + initial_size; i++) {
+        unsigned char * after_name = get_name(name, reader); // TODO: ver lo de c00c
+        struct R_DATA * data = (struct R_DATA *)after_name;
+
+        if (ntohs(data->type) == A) sin_family = AF_INET;
+        else if (ntohs(data->type) == AAAA) sin_family = AF_INET6;
+        else break;
+
+        if (family == AF_UNSPEC || family == sin_family) {
+            out[cant].ai = (struct addrinfo) {
+                    .ai_family = sin_family,
+                    .ai_socktype = SOCK_STREAM,
+                    .ai_protocol = 0,
+                    .ai_addrlen = sin_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
+                    .ai_addr = (void *) &out[cant].sa,
+                    .ai_canonname = NULL};
+
+            if (cant) out[cant - 1].ai.ai_next = &out[cant].ai;
+
+            switch (ntohs(data->type)) {
+                case A:
+                    out[cant].sa.sin.sin_family = AF_INET;
+                    out[cant].sa.sin.sin_port = htons(sin_port);
+                    memcpy(&out[cant].sa.sin.sin_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 4);
+                    break;
+                case AAAA:
+                    out[cant].sa.sin6.sin6_family = AF_INET6;
+                    out[cant].sa.sin6.sin6_port = htons(sin_port);
+                    out[cant].sa.sin6.sin6_scope_id = 0;
+                    memcpy(&out[cant].sa.sin6.sin6_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 16);
+                    break;
+            }
+            cant++;
+        }
+
+        if (ntohs(data->type) == A)
+            sum = sizeof(out[i].sa.sin.sin_addr);
+
+        if (ntohs(data->type) == AAAA)
+            sum = sizeof(out[i].sa.sin6.sin6_addr);
+
+        reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + sum); // acomodo al reader
+    }
+
+    return cant;
 }
 
 void resolve_localhost(struct addrinfo ** addrinfo, int port) {
