@@ -102,7 +102,7 @@ int handle_connections(
     // Initialize selector library
 
     const struct selector_init conf = {
-        .signal = SIGALRM,
+        .signal = SIGCONT,
         .select_timeout = {
             .tv_sec  = 10,
             .tv_nsec = 0

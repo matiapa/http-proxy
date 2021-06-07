@@ -18,7 +18,7 @@
 #include <logger.h>
 #include <io.h>
 #include <config.h>
-
+#include <statistics.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -91,7 +91,7 @@ selector_init(const struct selector_init  *c) {
         goto finally;
     }
     sigemptyset(&emptyset);
-
+    
 finally:
     return ret;
 }
@@ -631,6 +631,7 @@ selector_select(fd_selector s) {
     log(DEBUG, "Max fd is %d", s->max_fd);
 
     s->selector_thread = pthread_self();
+   
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, NULL, &emptyset); // sacar el NULL despues
 
     log(DEBUG, "Exited pselect() with %d", fds);
@@ -639,6 +640,7 @@ selector_select(fd_selector s) {
         switch(errno) {
             case EAGAIN:
             case EINTR:
+                log(DEBUG,"interrupted pselect");
                 break;
             default:
                 ret = SELECTOR_IO;

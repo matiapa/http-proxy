@@ -2,7 +2,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <pthread.h>
-
+#include <statistics.h>
 #include <tcp_utils.h>
 #include <logger.h>
 #include <client.h>
@@ -38,6 +38,10 @@ int main(int argc, char **argv) {
 
     pthread_t thread_id;
     pthread_create(&thread_id, NULL, start_monitor, mng_port);
+
+    // Initialize
+
+    initialize_statistics();
 
     // Start accepting connections
 

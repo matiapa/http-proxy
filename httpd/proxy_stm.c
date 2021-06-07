@@ -6,6 +6,7 @@
 #include <selector.h>
 #include <client.h>
 #include <proxy_stm.h>
+#include <statistics.h>
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
@@ -257,7 +258,7 @@ state_machine proto_stm = {
 
 
 static unsigned connect_read_ready(struct selector_key *key) {
-
+    add_connection();
     if (! buffer_can_write(&(key->item->read_buffer)))
         return CONNECT_READ;
 
@@ -557,5 +558,6 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
 
 static unsigned end_arrival(const unsigned state, struct selector_key *key){
     item_kill(key->s, key->item);
+    remove_conection();
     return END;
 }
