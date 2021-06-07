@@ -16,6 +16,11 @@ typedef enum {CONNECTION, REQUEST, RESPONSE} item_state;
 
 typedef enum {SUCCESS, PENDING, FAILED} parse_state;
 
+typedef enum {
+    RESPONSE_OK, BAD_REQUEST, PAYLOAD_TOO_LARGE, INTERNAL_SERVER_ERROR,
+    BAD_GATEWAY, GATEWAY_TIMEOUT
+} status_code;
+
 /* REQUEST STRUCTURE */
 struct request {
     methods method;
@@ -29,7 +34,6 @@ struct request {
 /* RESPONSE STRUCTURE */
 struct response {
     int status_code;
-    char * status_message;
     char *** headers;
     int header_count;
     char * body;
@@ -40,12 +44,6 @@ char * create_request(struct request * request);
 
 /* RESPONSE FACTORY */
 char * create_response(struct response * response);
-
-/* REQUEST PARSER */
-//parse_state parse_http_request(buffer * reqBuffer, struct request * parsedReq);
-
-/* RESPONSE PARSER */
-//parse_state parse_http_response(buffer * resBuffer, struct response * parsedRes);
 
 #endif
 

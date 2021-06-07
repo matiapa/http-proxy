@@ -176,19 +176,27 @@ items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    item->client_socket = -1;
+    
     getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
     log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+    buffer_reset(&(item->read_buffer));
+    buffer_reset(&(item->write_buffer));
 
     close(item->client_socket);
     close(item->target_socket);
 
     // Release connection buffers
 
-    free(item->conn_buffer.data);
+    free(item->read_buffer.data);
+    free(item->write_buffer.data);
 
-    FD_CLR(item->client_socket, &s->slave_r);
-    FD_CLR(item->target_socket, &s->slave_w);
+    FD_CLR(item->client_socket, &s->master_r);
+    FD_CLR(item->target_socket, &s->master_w);
+
+
+    //marks item as unused
+    item->client_socket = -1;
 }
 
 /**
@@ -206,34 +214,6 @@ items_max_fd(fd_selector s) {
         }
     }
     return max;
-}
-
-
-/***************************************************************
-  Configures fdset based on item permissions
-****************************************************************/
-static void
-items_update_fdset_for_fd(fd_selector s, const struct item * item) {
-
-    FD_CLR(item->client_socket, &s->slave_r);
-    FD_CLR(item->client_socket, &s->slave_w);
-    FD_CLR(item->target_socket, &s->slave_r);
-    FD_CLR(item->target_socket, &s->slave_w);
-
-    if(ITEM_USED(item)) {
-        if(item->client_interest & OP_READ)
-            FD_SET(item->client_socket, &(s->slave_r));
-
-        if(item->client_interest & OP_WRITE)
-            FD_SET(item->client_socket, &(s->slave_w));
-
-        if(item->target_interest & OP_READ)
-            FD_SET(item->target_socket, &(s->slave_r));
-
-        if(item->target_interest & OP_WRITE)
-            FD_SET(item->target_socket, &(s->slave_w));
-    }
-    
 }
 
 
@@ -333,6 +313,52 @@ selector_destroy(fd_selector s) {
 
 
 /***************************************************************
+  Configures fdset based on item permissions
+****************************************************************/
+void
+selector_update_fdset(fd_selector s, const struct item * item) {
+    if(ITEM_USED(item)) {
+
+        // Check that client socket is set
+
+        if (item->client_socket != 0) {
+            // log(DEBUG, "Updating fd_sets for client %d", item->client_socket)
+
+            FD_CLR(item->client_socket, &(s->master_r));
+            FD_CLR(item->client_socket, &(s->master_w));
+
+            if(item->client_interest & OP_READ)
+                FD_SET(item->client_socket, &(s->master_r));                 
+            
+            if(item->client_interest & OP_WRITE)
+                FD_SET(item->client_socket, &(s->master_w));  
+        }
+
+        // Check that target socket is set
+
+        if (item->target_socket != 0) {
+            // log(DEBUG, "Updating fd_sets for target %d", item->target_socket)
+
+            FD_CLR(item->target_socket, &(s->master_w));
+            FD_CLR(item->target_socket, &(s->master_r));
+
+            if(item->target_interest & OP_READ)
+                FD_SET(item->target_socket, &(s->master_r));             
+
+            if(item->target_interest & OP_WRITE)
+                FD_SET(item->target_socket, &(s->master_w));   
+        }
+
+        // log(DEBUG, "New sets: read_fd[0] = %d | read_fd[4] = %d | read_fd[5] = %d",
+        //     FD_ISSET(0, &(s->master_r)), FD_ISSET(4, &(s->master_r)), FD_ISSET(5, &(s->master_r)));
+        // log(DEBUG, "New sets: write_fd[0] = %d | write_fd[4] = %d | write_fd[5] = %d",
+        //     FD_ISSET(0, &(s->master_w)), FD_ISSET(4, &(s->master_w)), FD_ISSET(5, &(s->master_w)));
+
+    }
+}
+
+
+/***************************************************************
   Registers a new fd, in the proxy case, the passive socket
 ****************************************************************/
 selector_status
@@ -361,12 +387,24 @@ selector_register(
         ret = SELECTOR_FDINUSE;
         goto finally;
     } else {
-        item->client_socket = fd;
+        item->client_socket   = fd;
+        item->client_interest = interest;
+        item->data            = data;
+
+        log(DEBUG, "Registered socket %d with interests %d", fd, interest);
 
         if(fd > s->max_fd) {
             s->max_fd = fd;
         }
-        items_update_fdset_for_fd(s, item);
+
+        FD_CLR(item->client_socket, &(s->master_r));
+        FD_CLR(item->client_socket, &(s->master_w));
+
+        if(item->client_interest & OP_READ)
+            FD_SET(item->client_socket, &(s->master_r));                 
+        
+        if(item->client_interest & OP_WRITE)
+            FD_SET(item->client_socket, &(s->master_w));  
     }
     
     s->handlers = *handler;
@@ -405,7 +443,7 @@ selector_unregister_fd(fd_selector s, const int fd) {
     }
 
     item->client_interest = OP_NOOP;
-    items_update_fdset_for_fd(s, item);
+    selector_update_fdset(s, item);
 
     memset(item, 0x00, sizeof(*item));
     item_init(item);
@@ -443,8 +481,8 @@ handle_iteration(fd_selector s) {
             key.item = item;
             s->handlers.handle_create(&key);
 
-            s->max_fd = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
-            FD_CLR(master_socket, &s->slave_r);
+            s->max_fd = item->client_socket > item->target_socket
+                ? item->client_socket : item->target_socket;
             break;
         }
 
@@ -460,42 +498,43 @@ handle_iteration(fd_selector s) {
                 
                 // There is an initialized connection on this item
 
-                // Check client -> target operations
-
                 key.s = s;
                 key.src_socket = item->client_socket;
                 key.dst_socket = item->target_socket;
 
+                // Check read operations
+
                 if(FD_ISSET(item->client_socket, &s->slave_r)) {
-                    // log(DEBUG, "Client read %d", item->client_socket)
+                    log(DEBUG, "Client %d has read available", item->client_socket)
                     if(OP_READ & item->client_interest) {
-                        s->handlers.handle_read(&key);
+                        stm_handler_read(&(item->stm), &key);
+                        continue;
+                    }
+                }
+
+                if(FD_ISSET(item->target_socket, &s->slave_r)) {
+                    log(DEBUG, "Target %d has read available", item->target_socket)
+                    if(OP_READ & item->target_interest) {
+                        stm_handler_read(&(item->stm), &key);
+                        continue;
+                    }
+                }
+
+                // Check write operations
+
+                if(FD_ISSET(item->client_socket, &s->slave_w)) {
+                    log(DEBUG, "Client %d has write available", item->client_socket)
+                    if(OP_WRITE & item->client_interest) {
+                        stm_handler_write(&(item->stm), &key);
+                        continue;
                     }
                 }
 
                 if(FD_ISSET(item->target_socket, &s->slave_w)) {
-                    // log(DEBUG, "Target write %d", item->target_socket)
+                    log(DEBUG, "Target %d has write available", item->target_socket)
                     if(OP_WRITE & item->target_interest) {
-                        s->handlers.handle_write(&key);
-                    }
-                }
-
-                // Check target -> client operations
-
-                key.dst_socket = item->client_socket;
-                key.src_socket = item->target_socket;
-
-                if(FD_ISSET(item->target_socket, &s->slave_r)) {
-                    // log(DEBUG, "Target read %d", item->target_socket)
-                    if(OP_READ & item->target_interest) {
-                        s->handlers.handle_read(&key);
-                    }
-                }
-
-                if(FD_ISSET(item->client_socket, &s->slave_w)) {
-                    // log(DEBUG, "Client write %d", item->client_socket)
-                    if(OP_WRITE & item->client_interest) {
-                        s->handlers.handle_write(&key);
+                        stm_handler_write(&(item->stm), &key);
+                        continue;
                     }
                 }
 
@@ -566,53 +605,48 @@ selector_status
 selector_select(fd_selector s) {
     selector_status ret = SELECTOR_SUCCESS;
 
-    int masterSocket = s->fds[0].client_socket;
-    FD_ZERO(&s->slave_r);
-    FD_SET(masterSocket, &s->slave_r);
+    memcpy(&s->slave_r, &s->master_r, sizeof(s->slave_r));
+    memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
+    memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
-    int maxSocket = masterSocket;
+    int maxSocket = 0;
     for (int i = 1; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))
             continue;
 
-        FD_SET(item->client_socket, &s->slave_r);
-        FD_SET(item->target_socket, &s->slave_r);
-
         int localMax = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
         maxSocket = localMax > maxSocket ? localMax : maxSocket;
     }
 
+    s->max_fd = maxSocket;
+
+    log(DEBUG, "Entering pselect()");
+    log(DEBUG, "read_fd[4] = %d  | read_fd[5] = %d",
+        FD_ISSET(4, &(s->slave_r)), FD_ISSET(5, &(s->slave_r)));
+    log(DEBUG, "write_fd[4] = %d | write_fd[5] = %d",
+        FD_ISSET(4, &(s->slave_w)), FD_ISSET(5, &(s->slave_w)));
+        
+    log(DEBUG, "Max fd is %d", s->max_fd);
 
     s->selector_thread = pthread_self();
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, NULL, &emptyset); // sacar el NULL despues
 
-    if(-1 == fds) { // entra si hubo un error
+    log(DEBUG, "Exited pselect() with %d", fds);
+
+    if(-1 == fds) {
         switch(errno) {
             case EAGAIN:
             case EINTR:
-                // si una señal nos interrumpio. ok!
                 break;
-            // case EBADF:
-            //     // ayuda a encontrar casos donde se cierran los fd pero no
-            //     // se desregistraron
-            //     for(int i = 0 ; i < s->max_fd; i++) {
-            //         if(FD_ISSET(i, &s->master_r)|| FD_ISSET(i, &s->master_w)) {
-            //             if(-1 == fcntl(i, F_GETFD, 0)) {
-            //                 fprintf(stderr, "Bad descriptor detected: %d\n", i);
-            //             }
-            //         }
-            //     }
-            //     ret = SELECTOR_IO;
-            //     break;
             default:
                 ret = SELECTOR_IO;
                 goto finally;
 
         }
     } else {
-        //log(INFO, "Entered in iteration\n")
+        log(DEBUG, "Handling iteration")
         handle_iteration(s);
     }
     if(ret == SELECTOR_SUCCESS) {

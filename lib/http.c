@@ -14,6 +14,12 @@ int headersSection(char * string, char ** headers[2], int header_count);
 
 char * methods_strings[3] = {"GET", "POST", "CONNECT"};
 
+int status_code_num[6] = {200, 400, 413, 500, 502, 504};
+
+char * status_code_message[6] = {
+    "OK", "Bad Request", "Payload Too Large", "Internal Server Error",
+    "Bad Gateway", "Gateway Timeout"
+};
 
 
 /*-----------------------------------------
@@ -83,10 +89,6 @@ char * create_response(struct response * response) {
     memset(string, 0, STRING_SIZE);
 
     int position = responseFirstLine(string, response);
-    if (position < 0) {
-        free(string);
-        return NULL;
-    }
 
     if (response->headers != NULL)
         position += headersSection(string + position, response->headers, response->header_count);
@@ -96,16 +98,19 @@ char * create_response(struct response * response) {
 
     string = realloc(string, position);
     string[position] = '\0';
+
     return string;
+    
 }
 
 
 int responseFirstLine(char * string, struct response * response) {
 
-    if (response->status_message == NULL || response->status_code < 100)
-        return -1;
+    return snprintf(
+        string, STRING_SIZE, "%s %d %s\n", HTTP_VERSION,
+        status_code_num[response->status_code], status_code_message[response->status_code]
+    );
 
-    return snprintf(string, STRING_SIZE, "%s %d %s\n", HTTP_VERSION, response->status_code, response->status_message);
 }
 
 

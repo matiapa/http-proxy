@@ -11,9 +11,7 @@ int create_tcp_server(const char *port);
 // Accept a new TCP connection on a server socket
 int handle_connections(
     int server,
-    void (*handle_creates) (struct selector_key *key),
-    void (*handle_reads) (struct selector_key *key),
-    void (*handle_writes) (struct selector_key *key)
+    void (*handle_creates) (struct selector_key *key)
 );
 
 #endif 
