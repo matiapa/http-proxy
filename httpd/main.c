@@ -9,6 +9,7 @@
 #include <io.h>
 #include <args.h>
 #include <monitor.h>
+#include <doh_client.h>
 #include <proxy_stm.h>
 
 
@@ -24,12 +25,20 @@ int main(int argc, char **argv) {
     struct proxy_args args;
     parse_args(argc, argv, &args);
 
+    
+    targetHost = "localhost";
+    targetPort = "8081";
+
     close(0);
 
     // Register handlers for closing program appropiately
 
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
+
+    // Initialize DOH client
+
+    initialize_doh_client(&(args.doh));
 
     // Start monitor on another thread
 

@@ -3,11 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define BLOCK_SIZE 200
-#define STRING_SIZE 2000
+#define STRING_SIZE 300
 #define HTTP_VERSION "HTTP/1.1"
 
-int copy(char * dst, char * src);
 int requestFirstLine(char * string, struct request * request);
 int responseFirstLine(char * string, struct response * request);
 int headersSection(char * string, char ** headers[2], int header_count);
@@ -46,9 +44,12 @@ char * create_request(struct request * request) {
 
     if (request->headers != NULL) position += headersSection(string + position, request->headers, request->header_count);
 
-    position += copy(string + position, "\n");
+    position += copy(string + position, "\r\n");
 
-    if (request->body != NULL) position += copy(string + position, request->body);
+    if (request->body != NULL) {
+        memcpy(string + position, request->body, request->body_size);
+        position += request->body_size;
+    }
 
     string = realloc(string, position);
     string[position] = '\0';
@@ -67,7 +68,7 @@ int requestFirstLine(char * string, struct request * request) {
         return -1;
     }
 
-    position += snprintf(string + position, STRING_SIZE - position, " %s\n", HTTP_VERSION);
+    position += snprintf(string + position, STRING_SIZE - position, " %s\r\n", HTTP_VERSION);
     return position;
 }
 
@@ -91,7 +92,7 @@ char * create_response(struct response * response) {
 
     if (response->headers != NULL)
         position += headersSection(string + position, response->headers, response->header_count);
-    else position += copy(string + position, "\n");
+    else position += copy(string + position, "\r\n");
 
     if (response->body != NULL) position += copy(string + position, response->body);
 
@@ -110,6 +111,7 @@ int responseFirstLine(char * string, struct response * response) {
         status_code_num[response->status_code], status_code_message[response->status_code]
     );
 
+    return snprintf(string, STRING_SIZE, "%s %d %s\r\n", HTTP_VERSION, response->status_code, response->status_message);
 }
 
 
@@ -120,7 +122,7 @@ int responseFirstLine(char * string, struct response * response) {
 int headersSection(char * string, char *** headers, int header_count) {
     int position = 0;
     for (int i = 0; i < header_count; i++)
-        position += snprintf(string + position, STRING_SIZE - position, "%s: %s\n", headers[i][0], headers[i][1]);
+        position += snprintf(string + position, STRING_SIZE - position, "%s: %s\r\n", headers[i][0], headers[i][1]);
 
     return position;
 }

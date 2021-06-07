@@ -7,6 +7,7 @@
 #include <address.h>
 #include <logger.h>
 #include <client.h>
+#include <doh_client.h>
 
 #define MAX_ADDR_BUFFER 128
 
@@ -24,8 +25,11 @@ int setupClientSocket(const char *host, const char *service) {
 
 	// Resolve host string for posible addresses
 
-	struct addrinfo *servAddr;
-	int getaddr = getaddrinfo(host, service, &addrCriteria, &servAddr);
+	struct addrinfo * servAddr = malloc(sizeof(struct addrinfo));
+	char google[11] = "google.com";
+	char port[5] = "80";
+	int getaddr = doh_client(google, port, servAddr, AF_UNSPEC);
+
 	if (getaddr != 0) {
 		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
 		return -1;
@@ -34,13 +38,13 @@ int setupClientSocket(const char *host, const char *service) {
 	// Try to connect to an address
 
 	int sock = -1;
-	for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+	for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
 		sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 		if (sock < 0){
 			log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer))
 			continue;
 		}
-			
+
 		int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
 		if (conn != 0) {
 			log(INFO, "can't connectto %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
@@ -50,9 +54,7 @@ int setupClientSocket(const char *host, const char *service) {
 	}
 
 	// Release address resource and return socket number
-
-	freeaddrinfo(servAddr); 
-
+    freeaddresses(servAddr);
 	return sock;
 
 }

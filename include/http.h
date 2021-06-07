@@ -24,6 +24,7 @@ struct request {
     char * body;
     char * url;
     char * file;
+    int body_size;
 };
 
 /* RESPONSE STRUCTURE */
@@ -39,6 +40,8 @@ char * create_request(struct request * request);
 
 /* RESPONSE FACTORY */
 char * create_response(struct response * response);
+
+int copy(char * dst, char * src);
 
 /* REQUEST PARSER */
 parse_state parse_http_request(char * rawReq, struct request * parsedReq);
