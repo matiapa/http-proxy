@@ -337,6 +337,10 @@ void change_to_dns_format(char* dns, const char * host) {
 }
 
 unsigned char * get_name(char * str, unsigned char * body) {
+    if (*body & 0xC0) {
+        return body + 2;
+    }
+
     char c;
     int pos = 0;
     body++; // para evitar el primer punto
