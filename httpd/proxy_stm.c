@@ -325,7 +325,7 @@ static unsigned connect_read_ready(struct selector_key *key) {
         notify_error(BAD_REQUEST, CONNECT_READ);
     }
 
-    if(request->method != CONNECT) {
+    if(request->method != CONNECT && request->method != GET) {
         log_error("Expected CONNECT method");
         notify_error(BAD_REQUEST, CONNECT_READ);
     }

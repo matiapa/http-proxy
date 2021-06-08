@@ -185,6 +185,7 @@ static const struct parser_state_transition ST_REQ_LINE_CRLF[] =  {
 
 static const struct parser_state_transition ST_HEADER_NAME [] =  {
     {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = '-',           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
