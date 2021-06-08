@@ -166,13 +166,17 @@ int is_number(const char * str) {
 
 int parse_url(char * text, struct url * url) {
 
-    char aux[200];
-    memset(aux, 0, 200);
-    strcpy(aux, text);
+    memset(url, 0, sizeof(*url));
     char * token = NULL;
-    char* rest = aux;
+    char * rest = text;
     url->port = 0;
     int flag = 0, num_flag;
+
+    if (rest[0] == '/') { // esta en formato origin
+        strcpy(url->path, rest);
+        return 0;
+    }
+
     while (strchr(rest, ':') != NULL && (token = strtok_r(rest, ":", &rest))) {
         num_flag = is_number(token);
         if (!num_flag && !flag) {

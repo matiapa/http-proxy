@@ -65,7 +65,7 @@ struct aibuf {
 /*------------------- FUNCIONES -------------------*/
 void change_to_dns_format(char* dns, const char * host);
 unsigned char * get_body(unsigned char * str);
-unsigned char * get_name(char * buf, unsigned char * body);
+unsigned char * get_name(unsigned char * body);
 char * create_post(int length, char * body);
 void send_doh_request(const char * target, int s, int type);
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, unsigned char * body, int initial_size);
@@ -87,11 +87,10 @@ void change_configuration(struct doh * args) {
 }
 
 // https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
-int doh_client(const char * target, const int port, struct addrinfo ** restrict addrinfo, int family) {
+int doh_client(const char * target, const int sin_port, struct addrinfo ** restrict addrinfo, int family) {
     unsigned char * reader;
     struct sockaddr_in dest;
     memset(buf, 0, BUFF_SIZE);
-    int sin_port = port;
 
     /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
     if (!strcmp(target, "localhost")) return resolve_string(addrinfo, "127.0.0.1", sin_port);
@@ -104,7 +103,7 @@ int doh_client(const char * target, const int port, struct addrinfo ** restrict 
     }
 
     /*--------- Establece la conexón con el servidor ---------*/
-    dest.sin_family = AF_UNSPEC;
+    dest.sin_family = AF_INET;
     dest.sin_port = htons(configurations.port);
     dest.sin_addr.s_addr = inet_addr(configurations.ip);
 
@@ -235,18 +234,18 @@ void send_doh_request(const char * target, int s, int type) {
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, unsigned char * body, int initial_size) {
 
     char name[30];
-    unsigned char * reader = get_name(name, body + (int)(sizeof(struct DNS_HEADER))) + sizeof(struct QUESTION); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
+    unsigned char * reader = get_name(body + (int)(sizeof(struct DNS_HEADER))) + sizeof(struct QUESTION); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
-    int sin_family, sum, cant = initial_size;
+    int sin_family, cant = initial_size;
     for (int i = 0 + initial_size; i < ans_count + initial_size; i++) {
-        unsigned char * after_name = get_name(name, reader); // TODO: ver lo de c00c
+        unsigned char * after_name = get_name(reader); // TODO: ver lo de c00c
         struct R_DATA * data = (struct R_DATA *)after_name;
 
         if (ntohs(data->type) == A) sin_family = AF_INET;
         else if (ntohs(data->type) == AAAA) sin_family = AF_INET6;
-        else break;
+        else sin_family = -1;
 
-        if (family == AF_UNSPEC || family == sin_family) {
+        if ((family == AF_UNSPEC && (sin_family == AF_INET || sin_family == AF_INET6)) || family == sin_family) {
             out[cant].ai = (struct addrinfo) {
                     .ai_family = sin_family,
                     .ai_socktype = SOCK_STREAM,
@@ -275,13 +274,7 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, u
             cant++;
         }
 
-        if (ntohs(data->type) == A)
-            sum = sizeof(out[i].sa.sin.sin_addr);
-
-        if (ntohs(data->type) == AAAA)
-            sum = sizeof(out[i].sa.sin6.sin6_addr);
-
-        reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + sum); // acomodo al reader
+        reader = (unsigned char *)(after_name + sizeof(struct R_DATA) + ntohs(data->data_len)); // acomodo al reader
     }
 
     return cant;
@@ -340,20 +333,15 @@ void change_to_dns_format(char* dns, const char * host) {
     dns[len + 1] = 0;
 }
 
-unsigned char * get_name(char * str, unsigned char * body) {
+unsigned char * get_name(unsigned char * body) {
     if (*body & 0xC0) { // Chequeo si no esta en formato comprimido
         return body + 2;
     }
 
-    char c;
-    int pos = 0;
     body++; // para evitar el primer punto
-    while ((c = *((char *)body)) != '\0') {
-        if (c < 'a') str[pos++] = '.';
-        else str[pos++] = c;
+    while (*((char *)body) != 0) {
         body++;
     }
 
-    str[pos] = '\0';
     return body + 1;
 }

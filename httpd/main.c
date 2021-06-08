@@ -10,6 +10,7 @@
 #include <doh_client.h>
 #include <selector_enums.h>
 #include <proxy_stm.h>
+#include <address.h>
 
 
 static void sigterm_handler(const int signal);

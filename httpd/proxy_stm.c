@@ -565,11 +565,10 @@ static unsigned process_request(struct selector_key * key) {
         // The request method is CONNECT, URL must be in authority form
         // and a new connection must be established
 
-        char * hostname = strtok(request->url, ":");
-        char * portc = strtok(NULL, ":");
-        int port = portc != NULL ? atoi(portc) : 80;
+        struct url url;
+        parse_url(request->url, &url);
 
-        unsigned ret = connect_target(key, hostname, port);
+        unsigned ret = connect_target(key, url.hostname, url.port);
         if (ret == ERROR_STATE)
             return ret;
 
