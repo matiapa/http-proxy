@@ -93,7 +93,7 @@ selector_close(void);
 
 /* instancia un nuevo selector. returna NULL si no puede instanciar  */
 fd_selector
-selector_new(const size_t initial_elements, const char * targetHost, const char * targetPost);
+selector_new(const size_t initial_elements);
 
 /** destruye un selector creado por _new. Tolera NULLs */
 void
@@ -232,12 +232,6 @@ struct fdselector {
      * notificados.
      */
     struct blocking_job    *resolution_jobs;
-
-    // ip del target
-    const char * targetHost;
-
-    // port del target
-    const char * targetPort;
 
     // handlers a utilizar en los items
     fd_handler handlers;

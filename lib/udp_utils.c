@@ -11,6 +11,7 @@
 
 #define ADDR_BUFF_SIZE 128
 
+
 int create_udp_server(const char *port) {
 
 	// Create address criteria
@@ -79,7 +80,6 @@ int create_udp_server(const char *port) {
 	return servSock;
 
 }
-
 
 ssize_t uread(int fd, char * buffer, size_t buffSize, struct sockaddr * address, socklen_t * addressSize) {
 	char addrBuffer[ADDR_BUFF_SIZE] = {0};

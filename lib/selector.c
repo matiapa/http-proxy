@@ -265,7 +265,7 @@ ensure_capacity(fd_selector s, const size_t n) {
 
 
 fd_selector
-selector_new(const size_t initial_elements, const char * targetHost, const char * targetPost) {
+selector_new(const size_t initial_elements) {
     size_t size = sizeof(struct fdselector);
     fd_selector ret = malloc(size);
     if(ret != NULL) {
@@ -279,10 +279,6 @@ selector_new(const size_t initial_elements, const char * targetHost, const char 
             selector_destroy(ret);
             ret = NULL;
         }
-
-        // add port and host of target
-        ret->targetHost = targetHost;
-        ret->targetPort = targetPost;
     }
     return ret;
 }

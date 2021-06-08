@@ -1,6 +1,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 
 #include <address.h>
 #include <logger.h>
@@ -9,6 +10,53 @@
 
 #define MAX_PENDING_CONN 5
 #define ADDR_BUFFER_SIZE 128
+
+
+int create_tcp_client(const char *host, const char *port) {
+
+	// Create address criteria
+
+	char addrBuffer[ADDR_BUFFER_SIZE];
+	struct addrinfo addrCriteria;
+	memset(&addrCriteria, 0, sizeof(addrCriteria));
+
+	addrCriteria.ai_family = AF_UNSPEC;
+	addrCriteria.ai_socktype = SOCK_STREAM;
+	addrCriteria.ai_protocol = IPPROTO_TCP;
+
+    struct addrinfo * servAddr;
+
+	// Resolve host string for posible addresses
+	int getaddr = doh_client(host, port, &servAddr, AF_UNSPEC);
+
+	if (getaddr != 0) {
+		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
+		return -1;
+	}
+
+	// Try to connect to an address
+
+	int sock = -1;
+	for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+		sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+		if (sock < 0){
+			log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer))
+			continue;
+		}
+
+		int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
+		if (conn != 0) {
+			log(INFO, "can't connectto %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
+			close(sock); // Socket connection failed; try next address
+			sock = -1;
+		}
+	}
+
+	// Release address resource and return socket number
+    free(servAddr);
+	return sock;
+
+}
 
 
 int create_tcp_server(const char *port) {
@@ -89,10 +137,7 @@ int create_tcp_server(const char *port) {
 }
 
 
-int handle_connections(
-    int serverSocket,
-    void (*handle_creates) (struct selector_key *key)
-) {
+int handle_connections( int serverSocket, void (*handle_creates) (struct selector_key *key)) {
 
     if(selector_fd_set_nio(serverSocket) == -1) {
         log(ERROR, "Setting master socket flags");
@@ -116,7 +161,7 @@ int handle_connections(
 
     // Create new selector
 
-    fd_selector selector = selector_new(1024, targetHost, targetPort);
+    fd_selector selector = selector_new(1024);
     if(selector == NULL) {
         log(ERROR, "Creating new selector");
         selector_close();
@@ -158,4 +203,3 @@ int handle_connections(
     }
 
 }
-

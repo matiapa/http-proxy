@@ -6,9 +6,13 @@
 #define STRING_SIZE 300
 #define HTTP_VERSION "HTTP/1.1"
 
+
 int requestFirstLine(char * string, struct request * request);
+
 int responseFirstLine(char * string, struct response * response);
+
 int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count);
+
 
 char * methods_strings[3] = {"GET", "POST", "CONNECT"};
 

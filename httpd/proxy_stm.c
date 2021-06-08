@@ -4,7 +4,7 @@
 #include <buffer.h>
 #include <stm.h>
 #include <selector.h>
-#include <client.h>
+#include <tcp_utils.h>
 #include <http_parser.h>
 #include <proxy_stm.h>
 
@@ -358,7 +358,7 @@ static unsigned connect_read_ready(struct selector_key *key) {
     // TODO: Diferentiate the case when there was a connection error
     // or a proxy error
 
-    int targetSocket = setupClientSocket(hostname, port);
+    int targetSocket = create_tcp_client(hostname, port);
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
         notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);
