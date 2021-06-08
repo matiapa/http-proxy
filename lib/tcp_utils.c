@@ -6,6 +6,7 @@
 #include <address.h>
 #include <logger.h>
 #include <selector.h>
+#include <doh_client.h>
 #include <tcp_utils.h>
 
 #define MAX_PENDING_CONN 5

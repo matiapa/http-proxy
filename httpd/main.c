@@ -5,8 +5,6 @@
 
 #include <tcp_utils.h>
 #include <logger.h>
-#include <client.h>
-#include <io.h>
 #include <args.h>
 #include <monitor.h>
 #include <doh_client.h>

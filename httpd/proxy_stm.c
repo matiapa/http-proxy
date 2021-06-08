@@ -6,24 +6,12 @@
 #include <selector.h>
 #include <tcp_utils.h>
 #include <http_parser.h>
+#include <stdbool.h>
 #include <proxy_stm.h>
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
 enum proxy_state {
-
-    /*
-     * Recieves 'CONNECT' message from client
-     *
-     * Interests:
-     *   - Client: OP_READ
-     *
-     * Transitions:
-     *   - CONNECT_READ     While message is not ready
-     *   - CONNECT_WRITE    When message is over
-     *   - ERROR_STATE            Parsing/IO error
-    */
-    CONNECT_READ,
     
     /*
      * Sends CONNECT response message to client
@@ -132,11 +120,6 @@ enum proxy_state {
 /* -------------------------------------- HANDLERS PROTOTYPES -------------------------------------- */
 
 /* ------------------------------------------------------------
-  Reads connection requests from client.
------------------------------------------------------------- */
-static unsigned connect_read_ready(struct selector_key *key);
-
-/* ------------------------------------------------------------
   Sends connection response to client.
 ------------------------------------------------------------ */
 static unsigned connect_write_ready(struct selector_key *key);
@@ -186,17 +169,23 @@ static unsigned error_arrival(const unsigned state, struct selector_key *key);
 static unsigned error_write_ready(struct selector_key *key);
 
 
+/* -------------------------------------- PROCESSORS PROTOTYPES -------------------------------------- */
+
+/* ------------------------------------------------------------
+  Processes an HTTP request and returns next state.
+------------------------------------------------------------ */
+static unsigned process_request(struct selector_key * key);
+
+/* ------------------------------------------------------------
+  Initiates a connection to target and returns next state.
+------------------------------------------------------------ */
+static unsigned connect_target(struct selector_key * key, char * target, char * port);
+
+
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
 
 
 static const struct state_definition state_defs[] = {
-    {
-        .state            = CONNECT_READ,
-        .client_interest  = OP_READ,
-        .target_interest  = OP_NOOP,
-        .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
-        .on_read_ready    = connect_read_ready,
-    },
     {
         .state            = CONNECT_WRITE,
         .client_interest  = OP_WRITE,
@@ -259,7 +248,7 @@ static const struct state_definition state_defs[] = {
 
 
 state_machine proto_stm = {
-    .initial = CONNECT_READ,
+    .initial = REQUEST_READ,
     .states = state_defs,
     .max_state = ERROR_STATE
 };
@@ -281,104 +270,6 @@ proxy_error error;
 
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
-
-
-static unsigned connect_read_ready(struct selector_key *key) {
-
-    if (! buffer_can_write(&(key->item->read_buffer))) {
-        log_error("Read buffer limit reached");
-        notify_error(PAYLOAD_TOO_LARGE, CONNECT_READ);
-    }
-
-    // Read request bytes into read buffer
-
-    size_t space;
-    uint8_t *ptr = buffer_write_ptr(&(key->item->read_buffer), &space);
-    ssize_t readBytes = read(key->src_socket, ptr, space);
-
-    if(readBytes < 0) {
-        log_error("Failed to read from client");
-        return END;
-    }
-
-    if (readBytes == 0)
-        return END;
-
-    buffer_write_adv(&(key->item->read_buffer), readBytes);
-
-    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->src_socket);
-
-    // Parse the request
-
-    if(key->item->data == NULL)
-        key->item->data = calloc(1, sizeof(struct request));
-    
-    struct request * request = key->item->data;
-
-    parse_state parser_state = http_parser_parse(&(key->item->read_buffer), request, &(key->item->parser_data));
-
-    if (parser_state == PENDING)
-        return CONNECT_READ;
-
-    if (parser_state == FAILED) {
-        log_error("Invalid request received");
-        notify_error(BAD_REQUEST, CONNECT_READ);
-    }
-
-    if(request->method != CONNECT && request->method != GET) {
-        log_error("Expected CONNECT method");
-        notify_error(BAD_REQUEST, CONNECT_READ);
-    }
-
-    // Check that target is not the proxy itself and is not blacklisted
-
-    char * hostname = strtok(request->url, ":");
-    char * port = strtok(NULL, ":");
-    port = port == NULL ? "80" : port;
-
-    log(DEBUG, "Recieved CONNECT to %s:%s", hostname, port);
-
-    // Check that target is not the proxy itself and is not blacklisted
-
-    if (strstr(proxy_conf.targetBlacklist, request->url) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", request->url);
-        notify_error(FORBIDDEN, CONNECT_READ);
-    }
-
-    char currPort[6];
-    sprintf(currPort, "%d", proxy_conf.proxyArgs.proxy_port);
-
-    if (strcmp(hostname, "localhost") == 0 && strcmp(port, currPort) == 0) {
-        log(INFO, "Rejected connection to proxy itself");
-        notify_error(FORBIDDEN, CONNECT_READ);
-    }
-
-    // Open connection with target socket
-
-    // TODO: Diferentiate the case when there was a connection error
-    // or a proxy error
-
-    int targetSocket = create_tcp_client(hostname, port);
-    if (targetSocket < 0) {
-        log_error("Failed to connect to target");
-        notify_error(INTERNAL_SERVER_ERROR, CONNECT_READ);
-    }
-
-    key->item->target_socket = targetSocket;
-
-    // Write response bytes into write buffer
-
-    struct response res = { .status_code = RESPONSE_OK };
-    char * raw_res = create_response(&res);
-
-    ptr = buffer_write_ptr(&(key->item->write_buffer), &space);
-    strcpy((char *) ptr, raw_res);
-    buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
-
-    return CONNECT_WRITE;
-
-}
-
 
 static unsigned connect_write_ready(struct selector_key *key) {
 
@@ -437,17 +328,9 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->src_socket);
 
-    // Parse the request
+    // Process the request
 
-    // TODO: Add parser and handle pending message case
-
-    // Write processed request bytes into write buffer
-
-    uint8_t * raw_req_proc = buffer_write_ptr(&(key->item->write_buffer), &space);
-    strncpy((char *) raw_req_proc, (char *) raw_req, readBytes);
-    buffer_write_adv(&(key->item->write_buffer), readBytes);
-
-    return REQUEST_WRITE;
+    return process_request(key);
 
 }
 
@@ -651,4 +534,139 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 
     return END;
     
+}
+
+
+/* -------------------------------------- PROCESSORS IMPLEMENTATIONS -------------------------------------- */
+
+
+static unsigned process_request(struct selector_key * key) {
+
+    // Instantiate a request struct or use previous one if it exists
+
+    if(key->item->data == NULL)
+        key->item->data = calloc(1, sizeof(struct request));
+    
+    struct request * request = key->item->data;
+
+    // Parse the request and check for pending and failure cases
+
+    parse_state parser_state = http_parser_parse(&(key->item->read_buffer), request, &(key->item->parser_data));
+
+    if (parser_state == PENDING)
+        return REQUEST_READ;
+
+    if (parser_state == FAILED) {
+        log_error("Invalid request received");
+        notify_error(BAD_REQUEST, REQUEST_READ);
+    }
+
+    // Check if request demands a connection through CONNECT
+
+    if (request->method == CONNECT) {
+        char * hostname = strtok(request->url, ":");
+        char * port = strtok(NULL, ":");
+        port = port == NULL ? "80" : port;
+
+        unsigned ret = connect_target(key, hostname, port);
+        if (ret == ERROR_STATE)
+            return ret;
+
+        // Write response bytes into write buffer
+
+        struct response res = { .status_code = RESPONSE_OK };
+        char * raw_res = create_response(&res);
+
+        size_t space;
+        uint8_t * ptr = buffer_write_ptr(&(key->item->write_buffer), &space);
+
+        strcpy((char *) ptr, raw_res);
+        buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
+
+        return CONNECT_WRITE;
+    }
+
+    // Check if request demands a connection through GET absolute-form
+
+    // TODO: Plug in URL parser
+    
+    if (request->method == GET && strstr(request->url, "//")) {
+        char * hostname = strtok(request->url, ":");
+        char * port = strtok(NULL, ":");
+        port = port == NULL ? "80" : port;
+
+        unsigned ret = connect_target(key, hostname, port);
+        if (ret == ERROR_STATE)
+            return ret;
+    }
+
+    // Check that a target connection is established
+
+    if (key->item->target_socket < 0) {
+        log_error("There is no target connection");
+        notify_error(BAD_REQUEST, REQUEST_READ);
+    }
+
+    // Write processed request bytes into write buffer
+
+    char * raw_req = create_request(request);
+    size_t size = strlen(raw_req);
+
+    size_t space;
+    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+    int writeBytes = size < space ? size : space;
+    strncpy((char *) ptr, (char *) raw_req, writeBytes);
+    buffer_write_adv(&(key->item->write_buffer), writeBytes);
+
+    return REQUEST_WRITE;
+    
+}
+
+
+static unsigned connect_target(struct selector_key * key, char * target_host, char * target_port) {
+
+    // If there is an established connection to same target, return
+
+    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) == 0)
+        return 0;
+
+    // If there is an established connection to another target, close it
+
+    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) != 0)
+        close(key->item->target_socket);
+
+    // Get hostname and port from target
+
+    log(DEBUG, "Connection requested to %s:%s", target_host, target_port);
+
+    // Check that target is not blacklisted
+
+    if (strstr(proxy_conf.targetBlacklist, target_host) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", target_host);
+        notify_error(FORBIDDEN, REQUEST_READ);
+    }
+
+    // Check that target is not the proxy itself
+
+    char currPort[6];
+    sprintf(currPort, "%d", proxy_conf.proxyArgs.proxy_port);
+
+    if (strcmp(target_host, "localhost") == 0 && strcmp(target_port, currPort) == 0) {
+        log(INFO, "Rejected connection to proxy itself");
+        notify_error(FORBIDDEN, REQUEST_READ);
+    }
+
+    // Open connection with target
+
+    int targetSocket = create_tcp_client(target_host, target_port);
+    if (targetSocket < 0) {
+        log_error("Failed to connect to target");
+        notify_error(INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+
+    key->item->target_socket = targetSocket;
+
+    return 0;
+
 }

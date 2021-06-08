@@ -4,7 +4,7 @@ CFLAGS = -I include/ -Wall -Wextra -pedantic -pedantic-errors -std=c11 -g -D_POS
 
 all: httpd
 
-PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/client.o lib/http.o lib/io.o lib/logger.o lib/selector.o\
+PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/http.o lib/logger.o lib/selector.o\
  lib/http_parser.o lib/parser.o lib/http_chars.o lib/tcp_utils.o lib/udp_utils.o lib/stm.o\
  httpd/main.o httpd/monitor.o httpd/proxy_stm.o httpd/doh_client.o
 

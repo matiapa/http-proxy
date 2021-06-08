@@ -201,6 +201,7 @@ struct item {
 
     void *              data;
     time_t              last_activity;
+    char                target_name[50];
 };
 
 struct fdselector {

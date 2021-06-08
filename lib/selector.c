@@ -16,7 +16,6 @@
 #include <signal.h>
 #include <selector.h>
 #include <logger.h>
-#include <io.h>
 #include <config.h>
 
 
