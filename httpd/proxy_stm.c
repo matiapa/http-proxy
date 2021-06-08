@@ -560,25 +560,16 @@ static unsigned process_request(struct selector_key * key) {
         notify_error(BAD_REQUEST, REQUEST_READ);
     }
 
-    // Parse the URL
-
-    struct url url;
-    parse_url(request->url, &url);
-
-    // char hostname[URL_LENGTH];
-    // strncpy(hostname, url.host, URL_LENGTH);
-
-    // free_parsed_url(&url);
-    // url.host = hostname;
-
-    log(DEBUG, "> URL PARSER")
-    log(DEBUG, "> Hostname: %s", url.hostname);
-    log(DEBUG, "> Port: %d", url.port);
-
-    // Check if request demands a connection through CONNECT
-
     if (request->method == CONNECT) {
-        unsigned ret = connect_target(key, url.hostname, url.port);
+
+        // The request method is CONNECT, URL must be in authority form
+        // and a new connection must be established
+
+        char * hostname = strtok(request->url, ":");
+        char * portc = strtok(NULL, ":");
+        int port = portc != NULL ? atoi(portc) : 80;
+
+        unsigned ret = connect_target(key, hostname, port);
         if (ret == ERROR_STATE)
             return ret;
 
@@ -594,38 +585,46 @@ static unsigned process_request(struct selector_key * key) {
         buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
 
         return CONNECT_WRITE;
+
+    } else {
+
+        // The request method is a traditional one, URL must be in
+        // in absolute-form or origin-form
+
+        struct url url;
+        parse_url(request->url, &url);
+        
+        if (strlen(url.hostname) > 0) {
+            // URL is in absolute-form, initiate a new connection
+            // and proceed to forward request
+
+            unsigned ret = connect_target(key, url.hostname, url.port);
+            if (ret == ERROR_STATE)
+                return ret;
+        }
+
+        // Check that a target connection is established
+
+        if (key->item->target_socket < 0) {
+            log_error("There is no target connection");
+            notify_error(CONFLICT, REQUEST_READ);
+        }
+
+        // Write processed request bytes into write buffer
+
+        char * raw_req = create_request(request);
+        size_t size = strlen(raw_req);
+
+        size_t space;
+        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+        int writeBytes = size < space ? size : space;
+        strncpy((char *) ptr, (char *) raw_req, writeBytes);
+        buffer_write_adv(&(key->item->write_buffer), writeBytes);
+
+        return REQUEST_WRITE;
+
     }
-
-    // Check if request demands a connection through GET absolute-form
-
-    // TODO: Plug in URL parser
-    
-    if (request->method == GET) {
-        unsigned ret = connect_target(key, url.hostname, url.port);
-        if (ret == ERROR_STATE)
-            return ret;
-    }
-
-    // Check that a target connection is established
-
-    if (key->item->target_socket < 0) {
-        log_error("There is no target connection");
-        notify_error(BAD_REQUEST, REQUEST_READ);
-    }
-
-    // Write processed request bytes into write buffer
-
-    char * raw_req = create_request(request);
-    size_t size = strlen(raw_req);
-
-    size_t space;
-    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
-
-    int writeBytes = size < space ? size : space;
-    strncpy((char *) ptr, (char *) raw_req, writeBytes);
-    buffer_write_adv(&(key->item->write_buffer), writeBytes);
-
-    return REQUEST_WRITE;
     
 }
 
