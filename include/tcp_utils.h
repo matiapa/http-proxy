@@ -3,7 +3,7 @@
 
 #include <selector.h>
 
-int create_tcp_client(const char *host, const char *port);
+int create_tcp_client(const char *host, const int port);
 
 int create_tcp_server(const char *port);
 

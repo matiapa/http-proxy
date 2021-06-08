@@ -164,7 +164,7 @@ int is_number(const char * str) {
     return 1;
 }
 
-int url_parser(char * text, struct url * url) {
+int parse_url(char * text, struct url * url) {
 
     char aux[200];
     memset(aux, 0, 200);
@@ -197,10 +197,10 @@ int url_parser(char * text, struct url * url) {
                 flag = 1;
             } else {
                 if (rest != NULL){
-                    snprintf(url->page, PATH_LENGTH, "/%s/%s", token, rest);
+                    snprintf(url->path, PATH_LENGTH, "/%s/%s", token, rest);
                     rest = NULL;
                 } else {
-                    snprintf(url->page, PATH_LENGTH, "/%s", token);
+                    snprintf(url->path, PATH_LENGTH, "/%s", token);
                 }
             }
         } else {

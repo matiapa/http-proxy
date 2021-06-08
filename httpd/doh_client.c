@@ -87,11 +87,11 @@ void change_configuration(struct doh * args) {
 }
 
 // https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
-int doh_client(const char * target, const char * port, struct addrinfo ** restrict addrinfo, int family) {
+int doh_client(const char * target, const int port, struct addrinfo ** restrict addrinfo, int family) {
     unsigned char * reader;
     struct sockaddr_in dest;
     memset(buf, 0, BUFF_SIZE);
-    int sin_port = atoi(port);
+    int sin_port = port;
 
     /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
     if (!strcmp(target, "localhost")) return resolve_string(addrinfo, "127.0.0.1", sin_port);

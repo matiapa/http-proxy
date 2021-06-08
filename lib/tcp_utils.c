@@ -13,7 +13,7 @@
 #define ADDR_BUFFER_SIZE 128
 
 
-int create_tcp_client(const char *host, const char *port) {
+int create_tcp_client(const char *host, const int port) {
 
 	// Create address criteria
 

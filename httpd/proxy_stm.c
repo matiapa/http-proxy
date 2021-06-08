@@ -6,7 +6,7 @@
 #include <selector.h>
 #include <tcp_utils.h>
 #include <http_parser.h>
-#include <stdbool.h>
+#include <address.h>
 #include <proxy_stm.h>
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
@@ -179,7 +179,7 @@ static unsigned process_request(struct selector_key * key);
 /* ------------------------------------------------------------
   Initiates a connection to target and returns next state.
 ------------------------------------------------------------ */
-static unsigned connect_target(struct selector_key * key, char * target, char * port);
+static unsigned connect_target(struct selector_key * key, char * target, int port);
 
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
@@ -267,7 +267,6 @@ proxy_error error;
     error.status_code = _status_code; \
     error.next_state = _next_state; \
     return ERROR_STATE; \
-
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
@@ -561,14 +560,25 @@ static unsigned process_request(struct selector_key * key) {
         notify_error(BAD_REQUEST, REQUEST_READ);
     }
 
+    // Parse the URL
+
+    struct url url;
+    parse_url(request->url, &url);
+
+    // char hostname[URL_LENGTH];
+    // strncpy(hostname, url.host, URL_LENGTH);
+
+    // free_parsed_url(&url);
+    // url.host = hostname;
+
+    log(DEBUG, "> URL PARSER")
+    log(DEBUG, "> Hostname: %s", url.hostname);
+    log(DEBUG, "> Port: %d", url.port);
+
     // Check if request demands a connection through CONNECT
 
     if (request->method == CONNECT) {
-        char * hostname = strtok(request->url, ":");
-        char * port = strtok(NULL, ":");
-        port = port == NULL ? "80" : port;
-
-        unsigned ret = connect_target(key, hostname, port);
+        unsigned ret = connect_target(key, url.hostname, url.port);
         if (ret == ERROR_STATE)
             return ret;
 
@@ -590,12 +600,8 @@ static unsigned process_request(struct selector_key * key) {
 
     // TODO: Plug in URL parser
     
-    if (request->method == GET && strstr(request->url, "//")) {
-        char * hostname = strtok(request->url, ":");
-        char * port = strtok(NULL, ":");
-        port = port == NULL ? "80" : port;
-
-        unsigned ret = connect_target(key, hostname, port);
+    if (request->method == GET) {
+        unsigned ret = connect_target(key, url.hostname, url.port);
         if (ret == ERROR_STATE)
             return ret;
     }
@@ -624,7 +630,7 @@ static unsigned process_request(struct selector_key * key) {
 }
 
 
-static unsigned connect_target(struct selector_key * key, char * target_host, char * target_port) {
+static unsigned connect_target(struct selector_key * key, char * target_host, int target_port) {
 
     // If there is an established connection to same target, return
 
@@ -638,7 +644,7 @@ static unsigned connect_target(struct selector_key * key, char * target_host, ch
 
     // Get hostname and port from target
 
-    log(DEBUG, "Connection requested to %s:%s", target_host, target_port);
+    log(DEBUG, "Connection requested to %s:%d", target_host, target_port);
 
     // Check that target is not blacklisted
 
@@ -649,10 +655,7 @@ static unsigned connect_target(struct selector_key * key, char * target_host, ch
 
     // Check that target is not the proxy itself
 
-    char currPort[6];
-    sprintf(currPort, "%d", proxy_conf.proxyArgs.proxy_port);
-
-    if (strcmp(target_host, "localhost") == 0 && strcmp(target_port, currPort) == 0) {
+    if (strcmp(target_host, "localhost") == 0 && target_port == proxy_conf.proxyArgs.proxy_port) {
         log(INFO, "Rejected connection to proxy itself");
         notify_error(FORBIDDEN, REQUEST_READ);
     }

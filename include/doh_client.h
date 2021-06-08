@@ -12,7 +12,7 @@
 
 void initialize_doh_client(struct doh * args);
 
-int doh_client(const char * target, const char * port, struct addrinfo ** restrict addrinfo, int family);
+int doh_client(const char * target, const int port, struct addrinfo ** restrict addrinfo, int family);
 
 void change_configuration(struct doh * args);
 
