@@ -3,7 +3,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
-#include "../include/address.h"
+#include <address.h>
 
 const char *
 printFamily(struct addrinfo *aip)
@@ -154,4 +154,61 @@ int sockAddrsEqual(const struct sockaddr *addr1, const struct sockaddr *addr2) {
 			&& ipv6Addr1->sin6_port == ipv6Addr2->sin6_port;
 	} else
 		return 0;
+}
+
+int is_number(const char * str) {
+    while(*str != '\0') {
+        if (*str > '9' || *str < '0') return 0;
+        str++;
+    }
+    return 1;
+}
+
+int url_parser(char * text, struct url * url) {
+
+    char aux[200];
+    memset(aux, 0, 200);
+    strcpy(aux, text);
+    char * token = NULL;
+    char* rest = aux;
+    url->port = 0;
+    int flag = 0, num_flag;
+    while (strchr(rest, ':') != NULL && (token = strtok_r(rest, ":", &rest))) {
+        num_flag = is_number(token);
+        if (!num_flag && !flag) {
+            if (strcmp(token, "http") == 0 || strcmp(token, "https") == 0) {
+                strcpy(url->protocol, token);
+                rest += 2; // por ://
+            } else {
+                strcpy(url->hostname, token);
+                flag = 1;
+            }
+        } else if (num_flag) {
+            url->port = atoi(token);
+        } else break;
+    }
+
+    token = NULL;
+    while ((token = strtok_r(rest, "/", &rest))) {
+        num_flag = is_number(token);
+        if (!num_flag) {
+            if (!flag) {
+                strcpy(url->hostname, token);
+                flag = 1;
+            } else {
+                if (rest != NULL){
+                    snprintf(url->page, PATH_LENGTH, "/%s/%s", token, rest);
+                    rest = NULL;
+                } else {
+                    snprintf(url->page, PATH_LENGTH, "/%s", token);
+                }
+            }
+        } else {
+            url->port = atoi(token);
+        }
+    }
+
+    if (url->port == 0) url->port = 80;
+
+    return 0;
 }
