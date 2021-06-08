@@ -28,6 +28,9 @@ void printFlags(struct addrinfo *aip);
 
 char * printAddressPort( const struct addrinfo *aip, char addr[]);
 
+// Gets machine FQDN if available, or unqualified hostname otherwise
+int get_machine_fqdn(char * fqdn);
+
 int parse_url(char * text, struct url * url);
 
 // Determina si dos sockets son iguales (misma direccion y puerto)

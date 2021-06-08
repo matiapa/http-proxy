@@ -10,6 +10,11 @@
 
 #define PARSE_BUFF_SIZE 1024
 
+char state_names[13][24] = {
+    "METHOD", "TARGET", "VERSION", "REQ_LINE_CR", "REQ_LINE_CRLF", "HEADER_NAME", "HEADER_VALUE",
+    "HEADER_LINE_CR", "HEADER_LINE_CRLF", "HEADERS_ENDLINE_CR", "HEADERS_ENDLINE_CRLF",
+    "BODY", "UNEXPECTED"
+};
 
 enum states {
     METHOD,
@@ -31,6 +36,12 @@ enum states {
     BODY,
 
     UNEXPECTED,
+};
+
+char event_names[14][24] = {
+    "METHOD_NAME", "METHOD_NAME_END", "TARGET_VAL", "TARGET_VAL_END", "VERSION_VAL", "VERSION_VAL_END",
+    "HEADER_NAME_VAL", "HEADER_NAME_END", "HEADER_VALUE_VAL", "HEADER_VALUE_END", "HEADERS_SECTION_END",
+    "BODY_VAL", "WAIT_MSG", "UNEXPECTED_VALUE"
 };
 
 enum event_type{
@@ -98,7 +109,7 @@ static void version_end(struct parser_event *ret, const uint8_t c) {
 }
 
 static void header_name(struct parser_event *ret, const uint8_t c) {
-    ret->type    = HEADER_NAME;
+    ret->type    = HEADER_NAME_VAL;
     ret->n       = 1;
     ret->data[0] = c;
 }
@@ -185,7 +196,7 @@ static const struct parser_state_transition ST_REQ_LINE_CRLF[] =  {
 
 static const struct parser_state_transition ST_HEADER_NAME [] =  {
     {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
-    {.when = '-',           .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = '-',                   .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
@@ -348,81 +359,70 @@ parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest,
 
         const struct parser_event * e = parser_feed(data->parser, buffer_read(readBuffer));
 
+        // log(DEBUG, "STATE %s", state_names[data->parser->state]);
+        // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+
         switch(e->type) {
             case METHOD_NAME:
-                log(DEBUG, "METHOD_NAME %c", e->data[0]);
                 buffer_write(&(data->parseBuffer), toupper(e->data[0]));
                 break;
 
             case METHOD_NAME_END:
-                log(DEBUG, "METHOD_NAME_END %c", e->data[0]);
                 assign_method(httpRequest, data);
                 buffer_reset(&(data->parseBuffer));
                 break;
 
             case TARGET_VAL:
-                log(DEBUG, "TARGET_VAL %c", e->data[0]);
                 buffer_write(&(data->parseBuffer), tolower(e->data[0]));
                 break;
 
             case TARGET_VAL_END:
-                log(DEBUG, "TARGET_VAL_END %c", e->data[0]);
                 assign_target(httpRequest, data);
                 buffer_reset(&(data->parseBuffer));
                 break;
 
             case VERSION_VAL:
-                log(DEBUG, "VERSION_VAL %c", e->data[0]);
                 buffer_write(&(data->parseBuffer), toupper(e->data[0]));
                 break;
 
             case VERSION_VAL_END:
-                log(DEBUG, "VERSION_VAL_END %c", e->data[0]);
                 assign_version(httpRequest, data);
                 buffer_reset(&(data->parseBuffer));
                 break;
 
             case HEADER_NAME_VAL:
-                log(DEBUG, "HEADER_NAME %c", e->data[0]);
                 buffer_write(&(data->parseBuffer), e->data[0]);
                 break;
 
             case HEADER_NAME_END:
-                log(DEBUG, "HEADER_NAME_END %c", e->data[0]);
                 assign_header_name(httpRequest, data);
                 buffer_reset(&(data->parseBuffer));
                 break;
 
             case HEADER_VALUE_VAL:
-                log(DEBUG, "HEADER_VAL %c", e->data[0]);
                 buffer_write(&(data->parseBuffer), e->data[0]);
                 break;
             
             case HEADER_VALUE_END:
-                log(DEBUG, "HEADER_VAL_END %c", e->data[0]);
                 assign_header_value(httpRequest, data);
                 buffer_reset(&(data->parseBuffer));
                 break;
 
             case HEADER_SECTION_END:
-                log(DEBUG, "HEADER_SECTION_END %c", e->data[0]);
                 http_parser_reset(data);
                 result = SUCCESS;
                 break;
 
             case BODY_VAL:
-                log(DEBUG, "BODY_VAL %c", e->data[0]);
                 httpRequest->body[httpRequest->body_length++] = e->data[0];
                 http_parser_reset(data);
                 result = SUCCESS;
                 break;
 
             case WAIT_MSG:
-                log(DEBUG, "WAIT_MSG %c",e->data[0]);
                 break;
 
             case UNEXPECTED_VALUE:
-                log(DEBUG, "UNEXPECTED_VALUE %d", e->data[0]);
                 http_parser_reset(data);
                 return FAILED;
 

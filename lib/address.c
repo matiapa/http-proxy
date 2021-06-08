@@ -156,6 +156,35 @@ int sockAddrsEqual(const struct sockaddr *addr1, const struct sockaddr *addr2) {
 		return 0;
 }
 
+
+int get_machine_fqdn(char * fqdn) {
+	struct addrinfo * p;
+	
+	// Get unqualified hostname
+
+	char hostname[1024] = {0};
+	gethostname(hostname, 1023);
+
+	// Get FQDN if available
+
+	struct addrinfo hints = {0};
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_CANONNAME;
+
+	struct addrinfo * info;
+	int gai_result;
+	if ((gai_result = getaddrinfo(hostname, "http", &hints, &info)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_result));
+		return -1;
+	}
+
+	strcpy(fqdn, info->ai_canonname);
+
+	freeaddrinfo(info);
+}
+
+
 int is_number(const char * str) {
     while(*str != '\0') {
         if (*str > '9' || *str < '0') return 0;

@@ -83,7 +83,7 @@ void parse_request(char * command, char * response) {
         ">> connectionTimeout:                    Max inactivity time before disconnection, or -1 to disable it. Default is -1.\n"
         ">> statisticsEnabled:                    Whether to log connection statistics. Default is 1.\n"
         ">> disectorsEnabled:                     Whether to extract plain text credentials. Default is 1.\n"
-        ">> viaProxyName:                         Host name to use on RFC 2616 required 'Via' header, up to %d characters. Default is proxy hostname.\n"
+        ">> viaProxyName:                         Host name to use on RFC 7230 required 'Via' header, up to %d characters. Default is proxy hostname.\n"
         ">> clientBlacklist:                      Comma separated list of client IPs to which service must be denied. Max size of list is %d.\n"
         ">> targetBlacklist:                      Comma separated list of target IPs to which connection must be denied. Max size of list is %d.\n"
         ">> logLevel:                             Minimum log level to display, possible values are [DEBUG, INFO, ERROR, FATAL]. Default is DEBUG.\n",

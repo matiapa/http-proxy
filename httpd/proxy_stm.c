@@ -7,6 +7,7 @@
 #include <tcp_utils.h>
 #include <http_parser.h>
 #include <address.h>
+#include <ctype.h>
 #include <proxy_stm.h>
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
@@ -180,6 +181,11 @@ static unsigned process_request(struct selector_key * key);
   Initiates a connection to target and returns next state.
 ------------------------------------------------------------ */
 static unsigned connect_target(struct selector_key * key, char * target, int port);
+
+/* ------------------------------------------------------------
+  Processes request headers according to RFC 7230 specifications
+------------------------------------------------------------ */
+static void process_request_headers(struct request * req, char * target_host, char * proxy_host);
 
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
@@ -591,7 +597,7 @@ static unsigned process_request(struct selector_key * key) {
         // The request method is a traditional one, URL must be in
         // in absolute-form or origin-form
 
-        struct url url;
+        struct url url = {0};
         parse_url(request->url, &url);
         
         if (strlen(url.hostname) > 0) {
@@ -609,6 +615,17 @@ static unsigned process_request(struct selector_key * key) {
             log_error("There is no target connection");
             notify_error(CONFLICT, REQUEST_READ);
         }
+
+        // Process request headers
+
+        char proxy_hostname[128];
+        if(strlen(proxy_conf.viaProxyName) > 0) {
+            strncpy(proxy_hostname, proxy_conf.viaProxyName, 128);
+        } else {
+            get_machine_fqdn(proxy_hostname);
+        }
+        
+        process_request_headers(request, url.hostname, proxy_hostname);
 
         // Write processed request bytes into write buffer
 
@@ -670,5 +687,93 @@ static unsigned connect_target(struct selector_key * key, char * target_host, in
     key->item->target_socket = targetSocket;
 
     return 0;
+
+}
+
+
+#define remove_array_elem(array, pos, size) \
+    memcpy(array+pos, array+pos+1, size-pos-1)
+
+#define rtrim(s) \
+    char* back = s + strlen(s); \
+    while(isspace(*--back)); \
+    *(back+1) = 0;
+
+static void process_request_headers(struct request * req, char * target_host, char * proxy_host) {
+
+    char * raw_req = create_request(req);
+    log(DEBUG, "Original request");
+    log(DEBUG, raw_req);
+    free(raw_req);
+
+    bool replaced_host_header = false;
+    bool replaced_via_header = false;
+    bool close_detected = false;
+
+    for (int i=0; i < req->header_count; i++) {
+
+        // Right trim header names
+
+        rtrim(req->headers[i][0]);
+
+        // Replace Host header if target hostname is not empty
+
+        if (strcmp(req->headers[i][0], "Host") == 0 && strlen(target_host) > 0) {
+            strcpy(req->headers[i][1], target_host);
+            replaced_host_header = true;
+        }
+
+        // Replace Via header appending proxy hostname
+
+        if (strcmp(req->headers[i][0], "Via") == 0) {
+            char new_token[128];
+            sprintf(new_token, ", 1.1 %s", proxy_host);
+
+            strcat(req->headers[i][1], new_token);
+            
+            replaced_via_header = true;
+        }
+
+        // Remove headers listed on Connection header
+
+        if (strcmp(req->headers[i][0], "Connection") == 0) {
+            char * connection_headers = req->headers[i][1];
+
+            if (strstr(connection_headers, "Close"))
+                close_detected = true;
+
+            for(int j=0; j < req->header_count; j++) {
+                if (strstr(connection_headers, req->headers[j][0])) {
+                    remove_array_elem(req->headers, j, req->header_count);
+                    req->header_count -= 1;
+                }
+            }
+        }
+
+
+    }
+
+    // If a Host header was not present but a hostname was given, add it
+
+    if(!replaced_host_header && strlen(target_host) > 0) {
+        req->header_count += 1;
+        strcpy(req->headers[req->header_count - 1][0], "Host");
+        strcpy(req->headers[req->header_count - 1][1], target_host);
+    }
+
+    // If a Via header was not present, add it
+
+    if(!replaced_via_header) {
+        req->header_count += 1;
+        sprintf(req->headers[req->header_count - 1][0], "Via");
+        sprintf(req->headers[req->header_count - 1][1], "1.1 %s", proxy_host);
+    }
+
+    // TODO: Handle close detected
+
+    raw_req = create_request(req);
+    log(DEBUG, "Processed request");
+    log(DEBUG, raw_req);
+    free(raw_req);
 
 }

@@ -57,6 +57,23 @@ struct parser_definition {
     const unsigned                         start_state;
 };
 
+/* CDT del parser */
+struct parser {
+    /** tipificación para cada caracter */
+    const unsigned     *classes;
+    /** definición de estados */
+    const struct parser_definition *def;
+
+    /* estado actual */
+    unsigned            state;
+
+    /* evento que se retorna */
+    struct parser_event e1;
+    /* evento que se retorna */
+    struct parser_event e2;
+};
+
+
 /**
  * inicializa el parser.
  *
