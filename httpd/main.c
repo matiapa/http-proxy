@@ -11,6 +11,7 @@
 #include <selector_enums.h>
 #include <proxy_stm.h>
 
+
 void handle_creates(struct selector_key *key);
 
 void handle_close(struct selector_key * key);
@@ -93,6 +94,7 @@ void handle_creates(struct selector_key *key) {
     if (clientSocket < 0) {
         log(FATAL, "Accepting new connection")
     }
+    add_connection();
 
     key->item->client_socket = clientSocket;
     key->item->last_activity = time(NULL);

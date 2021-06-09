@@ -320,6 +320,7 @@ static unsigned request_read_ready(struct selector_key *key) {
     uint8_t * raw_req = buffer_write_ptr(&(key->item->read_buffer), &space);
     ssize_t readBytes = read(key->item->client_socket, raw_req, space);
 
+
     if(readBytes < 0) {
         if(errno != EBADF)
             log_error("Failed to read from client");
@@ -332,6 +333,9 @@ static unsigned request_read_ready(struct selector_key *key) {
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->client_socket);
+
+    //calculate statistics
+    add_bytes_recieved(readBytes);   
 
     // Process the request
 
@@ -364,6 +368,9 @@ static unsigned request_forward_ready(struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return REQUEST_FORWARD;
 
+    //statistics
+    add_sent_bytes(sentBytes);
+ 
     return RESPONSE_READ;
 
 }
@@ -405,6 +412,9 @@ static unsigned response_read_ready(struct selector_key *key) {
     strncpy((char *) raw_res_proc, (char *) raw_res, readBytes);
     buffer_write_adv(&(key->item->write_buffer), readBytes);
 
+    //statistics
+    add_bytes_recieved(readBytes);
+
     return RESPONSE_FORWARD;
 
 }
@@ -431,6 +441,9 @@ static unsigned response_forward_ready(struct selector_key *key) {
 
     log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
 
+    //statistics
+    add_sent_bytes(sentBytes);
+
     if ((size_t) sentBytes < size)
         return RESPONSE_FORWARD;
 
@@ -444,7 +457,7 @@ static unsigned connect_response_ready(struct selector_key *key) {
     if (! buffer_can_read(&(key->item->write_buffer)))
         return CONNECT_RESPONSE;
 
-    // Read response bytes from write buffer
+    // write response bytes to socket
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
@@ -459,6 +472,9 @@ static unsigned connect_response_ready(struct selector_key *key) {
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
     log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
+
+    //statistics
+    add_sent_bytes(sentBytes);
 
     if ((size_t) sentBytes < size)
         return CONNECT_RESPONSE;
@@ -504,6 +520,9 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->active_fd);
 
+
+    //statistics
+    add_bytes_recieved(readBytes);
     // Declare interest on writing to peer and return
 
     if (key->active_fd == key->item->client_socket)
@@ -548,7 +567,10 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 
     log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->active_fd);
 
-     // If write is over turn off interest on writing on active socket, then return
+    //statistics
+    add_sent_bytes(sentBytes);
+
+    // If write is over turn off interest on writing on active socket, then return
 
     if (((size_t) sentBytes) == size) {
         if (key->active_fd == key->item->client_socket)
@@ -579,6 +601,9 @@ static unsigned error_write_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
+    //statistics
+    add_sent_bytes(sentBytes);
+
     if ((size_t) sentBytes < size)
         return ERROR_STATE;
 
@@ -605,6 +630,9 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
 
     log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->target_socket);
 
+    //statistics
+    add_sent_bytes(sentBytes);
+
     if ((size_t) sentBytes < size)
         return CLIENT_CLOSE_CONNECTION;
 
@@ -629,6 +657,10 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
     log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
+    
+    //statistics
+    add_sent_bytes(sentBytes);
+
 
     if ((size_t) sentBytes < size)
         return TARGET_CLOSE_CONNECTION;

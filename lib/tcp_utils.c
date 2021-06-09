@@ -50,10 +50,10 @@ int create_tcp_client(const char *host, const int port) {
 
 		int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
 		if (conn != 0) {
-			log(INFO, "can't connectto %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
+			log(INFO, "can't connect to %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
 			close(sock); // Socket connection failed; try next address
 			sock = -1;
-		}
+		}	
 	}
 
 	// Release address resource and return socket number
