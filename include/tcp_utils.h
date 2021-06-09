@@ -11,6 +11,4 @@ int create_tcp_server(const char *port);
 
 int handle_connections(int server, void (*handle_creates) (struct selector_key *key));
 
-void sigterm_handler(int signal);
-
 #endif 

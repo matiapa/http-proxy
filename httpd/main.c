@@ -15,6 +15,10 @@ void handle_creates(struct selector_key *key);
 
 void handle_close(struct selector_key * key);
 
+void sigpipe_handler(int signum);
+
+void sigterm_handler(int signal);
+
 pthread_t thread_monitor;
 
 int main(int argc, char **argv) {
@@ -32,6 +36,7 @@ int main(int argc, char **argv) {
 
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
+    signal(SIGPIPE, sigpipe_handler);
 
     // Initialize DOH client
 
@@ -115,11 +120,13 @@ void handle_creates(struct selector_key *key) {
 }
 
 void sigterm_handler(int signal) {
-
     printf("signal %d, cleaning up selector and exiting\n",signal);
     selector_destroy(selector_fd); // destruyo al selector
-    pthread_kill(thread_monitor, SIGINT);
+    pthread_kill(thread_monitor, SIGINT); // destruyo al monitor
     _exit(EXIT_SUCCESS);
+}
 
+void sigpipe_handler(int signum) {
+    printf("Caught signal SIGPIPE %d\n",signum);
 }
 

@@ -186,11 +186,13 @@ int get_machine_fqdn(char * fqdn) {
 
 
 int is_number(const char * str) {
+    int i = 0;
     while(*str != '\0') {
         if (*str > '9' || *str < '0') return 0;
         str++;
+        i++;
     }
-    return 1;
+    return i > 0 ? 1 : 0;
 }
 
 int parse_url(char * text, struct url * url) {
