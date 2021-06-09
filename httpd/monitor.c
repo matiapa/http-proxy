@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <config.h>
 #include <monitor.h>
+#include <statistics.h>
 
 #define REQ_BUFF_SIZE 1024
 #define RES_BUFF_SIZE 1024
@@ -75,6 +76,7 @@ void parse_request(char * command, char * response) {
       sprintf(response,
         "> Available commands:\n"
         ">> SHOW CONFIG:                          Display current values of config variables\n"
+        ">> SHOW STATISTICS:                      Display current values of statistics\n"
         ">> SET variable value:                   Set a config variable value\n"
         ">> HELP:                                 Show this help screen\n\n"
 
@@ -105,6 +107,17 @@ void parse_request(char * command, char * response) {
 
       sprintf(response, format, PF.maxClients, PF.connectionTimeout, PF.statisticsEnabled, PF.disectorsEnabled,
         PF.viaProxyName, PF.clientBlacklist, PF.targetBlacklist, levelDescription(PF.logLevel));
+
+    } else if (strncmp(command, "SHOW STATISTICS", 15) == 0) {
+
+      char * format =
+        "current connections: %d\n"
+        "total connections since server restart: %d\n"
+        "total bytes sent: %ld \n" 
+        "total bytes recieved: %ld\n";
+      statistics * stats=get_statistics(malloc(sizeof(statistics)));
+      sprintf(response, format,stats->current_connections,stats->total_connections,stats->total_sent,stats->total_recieved );
+      free(stats);
 
     } else if (strncmp(command, "SET", 3) == 0) {
   

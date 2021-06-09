@@ -8,7 +8,11 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 
+  
+  
+  
 
 long global_total_connections=0;
 int global_concurent_connections=0;
@@ -60,6 +64,11 @@ void update(int signal_recv){
         log(DEBUG, "Error opening statistics.txt!");   
         exit(1);
     }
+    time_t rawtime;
+    struct tm * timeinfo; 
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    fprintf(fptr,"time and date of last statistics backup: %s", asctime(timeinfo) );
     fprintf(fptr,"Number of total connections since server start: %ld\n",global_total_connections);
     fprintf(fptr,"Number of current concurrent connections: %d\n",global_concurent_connections);
     fprintf(fptr,"Number of total bytes sent since server start: %ld\n",total_bytes_sent);
@@ -77,4 +86,17 @@ void add_sent_bytes(int bytes){
 }
 void add_bytes_recieved(int bytes){
     total_bytes_recieved+=bytes;
+}
+void force_update(){
+    signal(SIGALRM,update);
+}
+
+statistics * get_statistics(statistics * stats){
+    force_update();
+    stats->current_connections=global_concurent_connections;
+    stats->total_connections=global_total_connections;
+    stats->total_recieved=total_bytes_recieved;
+    stats->total_sent=total_bytes_sent;
+
+    return stats;
 }
