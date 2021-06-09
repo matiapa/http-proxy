@@ -17,3 +17,4 @@ CMakeLists.txt
 # OS related
 .DS_Store
 Thumbs.db
+statistics.txt

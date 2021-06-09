@@ -2,7 +2,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <pthread.h>
-
+#include <statistics.h>
 #include <tcp_utils.h>
 #include <logger.h>
 #include <args.h>
@@ -13,9 +13,12 @@
 
 void handle_creates(struct selector_key *key);
 
+void handle_creates(struct selector_key *key);
+
 void handle_close(struct selector_key * key);
 
 void sigpipe_handler(int signum);
+
 
 void sigterm_handler(int signal);
 
@@ -48,6 +51,10 @@ int main(int argc, char **argv) {
     snprintf(mng_port, 6, "%d", args.mng_port);
 
     pthread_create(&thread_monitor, NULL, start_monitor, mng_port);
+
+    // Initialize
+
+    initialize_statistics();
 
     // Start accepting connections
 
@@ -89,6 +96,7 @@ void handle_creates(struct selector_key *key) {
     if (clientSocket < 0) {
         log(FATAL, "Accepting new connection")
     }
+    add_connection();
 
     key->item->client_socket = clientSocket;
     key->item->last_activity = time(NULL);

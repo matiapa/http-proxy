@@ -14,10 +14,22 @@ else
   CFLAGS += $(UNKNOWN_CXXFLAGS)
 endif
 
+GCC_CXXFLAGS = -DMESSAGE='"Compiled with GCC"'
+CLANG_CXXFLAGS = -DMESSAGE='"Compiled with Clang"' -Wno-gnu-zero-variadic-macro-arguments
+UNKNOWN_CXXFLAGS = -DMESSAGE='"Compiled with an unknown compiler"'
+
+ifeq ($(CC),g++)
+  CFLAGS += $(GCC_CXXFLAGS)
+else ifeq ($(CC),clang)
+  CFLAGS += $(CLANG_CXXFLAGS)
+else
+  CFLAGS += $(UNKNOWN_CXXFLAGS)
+endif
+
 all: httpd
 
 PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/http.o lib/logger.o lib/selector.o\
- lib/http_parser.o lib/parser.o lib/http_chars.o lib/tcp_utils.o lib/udp_utils.o lib/stm.o\
+ lib/http_parser.o lib/parser.o lib/http_chars.o lib/tcp_utils.o lib/udp_utils.o lib/statistics.o lib/stm.o\
  httpd/main.o httpd/monitor.o httpd/proxy_stm.o httpd/doh_client.o
 
 httpd: $(PROXY_OBJ)

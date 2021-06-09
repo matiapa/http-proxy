@@ -17,7 +17,7 @@
 #include <selector.h>
 #include <logger.h>
 #include <config.h>
-
+#include <statistics.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -87,7 +87,7 @@ selector_status selector_init(const struct selector_init  *c) {
         goto finally;
     }
     sigemptyset(&emptyset);
-
+    
 finally:
     return ret;
 }
@@ -639,6 +639,7 @@ selector_status selector_select(fd_selector s) {
         switch(errno) {
             case EAGAIN:
             case EINTR:
+                log(DEBUG,"interrupted pselect");
                 break;
             default:
                 ret = SELECTOR_IO;

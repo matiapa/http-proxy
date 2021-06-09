@@ -55,7 +55,7 @@ char * status_code_message[8] = {
         position += request->body_length;
     }
 
-    string = realloc(string, position);
+    string = realloc(string, position+1);
     string[position] = '\0';
     return string;
 }
@@ -97,7 +97,7 @@ char * create_response(struct response * response) {
 
     if (response->body_length > 0) position += copy(string + position, response->body);
 
-    string = realloc(string, position);
+    string = realloc(string, position+1);
     string[position] = '\0';
 
     return string;
