@@ -10,13 +10,12 @@
 #include <doh_client.h>
 #include <selector_enums.h>
 #include <proxy_stm.h>
-#include <address.h>
-
-
-static void sigterm_handler(const int signal);
 
 void handle_creates(struct selector_key *key);
 
+void handle_close(struct selector_key * key);
+
+pthread_t thread_monitor;
 
 int main(int argc, char **argv) {
 
@@ -43,8 +42,7 @@ int main(int argc, char **argv) {
     char mng_port[6] = {0};
     snprintf(mng_port, 6, "%d", args.mng_port);
 
-    pthread_t thread_id;
-    pthread_create(&thread_id, NULL, start_monitor, mng_port);
+    pthread_create(&thread_monitor, NULL, start_monitor, mng_port);
 
     // Start accepting connections
 
@@ -85,7 +83,6 @@ void handle_creates(struct selector_key *key) {
     int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t *) &addrlen);
     if (clientSocket < 0) {
         log(FATAL, "Accepting new connection")
-        exit(EXIT_FAILURE);
     }
 
     key->item->client_socket = clientSocket;
@@ -117,11 +114,12 @@ void handle_creates(struct selector_key *key) {
 
 }
 
+void sigterm_handler(int signal) {
 
-static void sigterm_handler(const int signal) {
-
-    printf("signal %d, cleaning up and exiting\n",signal);
-    exit(EXIT_SUCCESS);
+    printf("signal %d, cleaning up selector and exiting\n",signal);
+    selector_destroy(selector_fd); // destruyo al selector
+    pthread_kill(thread_monitor, SIGINT);
+    _exit(EXIT_SUCCESS);
 
 }
 

@@ -24,8 +24,7 @@
 #define ERROR_DEFAULT_MSG "something failed"
 
 /** retorna una descripción humana del fallo */
-const char *
-selector_error(const selector_status status) {
+const char * selector_error(const selector_status status) {
     const char *msg;
     switch(status) {
         case SELECTOR_SUCCESS:
@@ -50,8 +49,7 @@ selector_error(const selector_status status) {
 }
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
-static void
-wake_handler(const int signal) {
+static void wake_handler(const int signal) {
     // nada que hacer. está solo para interrumpir el select
 }
 
@@ -59,8 +57,7 @@ wake_handler(const int signal) {
 struct selector_init conf;
 static sigset_t emptyset, blockset;
 
-selector_status
-selector_init(const struct selector_init  *c) {
+selector_status selector_init(const struct selector_init  *c) {
     memcpy(&conf, c, sizeof(conf));
 
     // inicializamos el sistema de comunicación entre threads y el selector
@@ -95,8 +92,7 @@ finally:
     return ret;
 }
 
-selector_status
-selector_close(void) {
+selector_status selector_close(void) {
     // Nada para liberar.
     // TODO(juan): podriamos reestablecer el handler de la señal.
     return SELECTOR_SUCCESS;
@@ -134,8 +130,7 @@ static const int FD_UNUSED = -1;
  * determina el tamaño a crecer, generando algo de slack para no tener
  * que realocar constantemente.
  */
-static
-size_t next_capacity(const size_t n) {
+static size_t next_capacity(const size_t n) {
     unsigned bits = 0;
     size_t tmp = n;
     while(tmp != 0) {
@@ -152,8 +147,7 @@ size_t next_capacity(const size_t n) {
     return tmp + 1;
 }
 
-static inline void
-item_init(struct item *item) {
+static inline void item_init(struct item *item) {
     item->client_socket = FD_UNUSED;
 }
 
@@ -161,8 +155,7 @@ item_init(struct item *item) {
  * inicializa los nuevos items. `last' es el indice anterior.
  * asume que ya está blanqueada la memoria.
  */
-static void
-items_init(fd_selector s, const size_t last) {
+static void items_init(fd_selector s, const size_t last) {
     assert(last <= s->fd_size);
     for(size_t i = last; i < s->fd_size; i++) {
         item_init(s->fds + i);
@@ -187,8 +180,8 @@ void item_kill(fd_selector s, struct item * item) {
 
     // Release connection buffers
 
-    free(item->read_buffer.data);
-    free(item->write_buffer.data);
+    free_buffer(&item->read_buffer);
+    free_buffer(&item->write_buffer);
 
     FD_CLR(item->client_socket, &s->master_r);
     FD_CLR(item->client_socket, &s->master_w);
@@ -197,14 +190,14 @@ void item_kill(fd_selector s, struct item * item) {
 
     // Marks item as unused
 
-    item->client_socket = -1;
+    item->client_socket = FD_UNUSED;
+    item->target_socket = FD_UNUSED;
 }
 
 /**
  * calcula el fd maximo para ser utilizado en select()
  */
-static int
-items_max_fd(fd_selector s) {
+static int items_max_fd(fd_selector s) {
     int max = 0;
     for(int i = 0; i <= s->max_fd; i++) {
         struct item *item = s->fds + i;
@@ -218,8 +211,7 @@ items_max_fd(fd_selector s) {
 }
 
 
-static selector_status
-ensure_capacity(fd_selector s, const size_t n) {
+static selector_status ensure_capacity(fd_selector s, const size_t n) {
     selector_status ret = SELECTOR_SUCCESS;
 
     const size_t element_size = sizeof(*s->fds);
@@ -263,8 +255,7 @@ ensure_capacity(fd_selector s, const size_t n) {
 }
 
 
-fd_selector
-selector_new(const size_t initial_elements) {
+fd_selector selector_new(const size_t initial_elements) {
     size_t size = sizeof(struct fdselector);
     fd_selector ret = malloc(size);
     if(ret != NULL) {
@@ -283,8 +274,7 @@ selector_new(const size_t initial_elements) {
 }
 
 
-void
-selector_destroy(fd_selector s) {
+void selector_destroy(fd_selector s) {
     // lean ya que se llama desde los casos fallidos de _new.
     if(s != NULL) {
         if(s->fds != NULL) {
@@ -312,8 +302,7 @@ selector_destroy(fd_selector s) {
 /***************************************************************
   Configures fdset based on item permissions
 ****************************************************************/
-void
-selector_update_fdset(fd_selector s, const struct item * item) {
+void selector_update_fdset(fd_selector s, const struct item * item) {
     if(ITEM_USED(item)) {
 
         // Check that client socket is set
@@ -358,8 +347,7 @@ selector_update_fdset(fd_selector s, const struct item * item) {
 /***************************************************************
   Registers a new fd, in the proxy case, the passive socket
 ****************************************************************/
-selector_status
-selector_register(
+selector_status selector_register(
     fd_selector s, const int fd, const fd_handler  *handler,
     const fd_interest interest, void *data
 ) {
@@ -415,8 +403,7 @@ finally:
 /***************************************************************
   Unregisters a fd, in the proxy case, the passive socket
 ****************************************************************/
-selector_status
-selector_unregister_fd(fd_selector s, const int fd) {
+selector_status selector_unregister_fd(fd_selector s, const int fd) {
 
     selector_status ret = SELECTOR_SUCCESS;
 
@@ -431,8 +418,11 @@ selector_unregister_fd(fd_selector s, const int fd) {
         goto finally;
     }
 
-    if(s->handlers.handle_close != NULL) {
-        struct selector_key key = { .s = s };
+    if (s->handlers.handle_close != NULL) {
+        struct selector_key key = {
+            .s    = s,
+            .item = item
+        };
         s->handlers.handle_close(&key);
     }
 
@@ -452,8 +442,7 @@ finally:
 /***************************************************************
   Handles the result of pselect, ie. availables reads/writes
 ****************************************************************/
-static void
-handle_iteration(fd_selector s) {
+static void handle_iteration(fd_selector s) {
 
     // Check for item timeouts
 
@@ -556,8 +545,7 @@ handle_iteration(fd_selector s) {
 }
 
 
-static void
-handle_block_notifications(fd_selector s) {
+static void handle_block_notifications(fd_selector s) {
     struct selector_key key = {
         .s = s,
     };
@@ -578,8 +566,7 @@ handle_block_notifications(fd_selector s) {
 }
 
 
-selector_status
-selector_notify_block(fd_selector s, const int fd) {
+selector_status selector_notify_block(fd_selector s, const int fd) {
 
     selector_status ret = SELECTOR_SUCCESS;
 
@@ -610,8 +597,7 @@ finally:
 /***************************************************************
   Begins the iteration awaiting for available reads/writes
 ****************************************************************/
-selector_status
-selector_select(fd_selector s) {
+selector_status selector_select(fd_selector s) {
     selector_status ret = SELECTOR_SUCCESS;
 
     memcpy(&s->slave_r, &s->master_r, sizeof(s->slave_r));
@@ -670,8 +656,7 @@ finally:
 }
 
 
-int
-selector_fd_set_nio(const int fd) {
+int selector_fd_set_nio(const int fd) {
     int ret = 0;
     int flags = fcntl(fd, F_GETFD, 0);
     if(flags == -1) {
