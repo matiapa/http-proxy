@@ -319,7 +319,7 @@ static unsigned request_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->item->client_socket, raw_req, space);
 
     if(readBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to read from client");
         return CLIENT_CLOSE_CONNECTION;
     }
@@ -350,7 +350,7 @@ static unsigned request_forward_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->item->target_socket, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to write request to target");
         return TARGET_CLOSE_CONNECTION;
     }
@@ -381,7 +381,7 @@ static unsigned response_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->item->target_socket, raw_res, space);
 
     if(readBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to read response from target");
         return TARGET_CLOSE_CONNECTION;
     }
@@ -420,7 +420,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to write response to client");
         return CLIENT_CLOSE_CONNECTION;
     }
@@ -449,7 +449,7 @@ static unsigned connect_response_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to write connect response to client");
         return END;
     }
@@ -490,7 +490,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->active_fd, ptr, space);
 
     if (readBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to read from active socket");
         return END;
     }
@@ -537,7 +537,7 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->active_fd, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != SIGPIPE)
             log_error("Failed to write to active socket");
         return END;
     }

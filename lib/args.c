@@ -55,7 +55,6 @@ usage(const char *progname) {
         "   --doh-port  <port>  XXX\n"
         "   --doh-host  <host>  XXX\n"
         "   --doh-path  <host>  XXX\n"
-        "   --doh-query <host>  XXX\n"
         "\n",
         progname
     );
@@ -79,7 +78,6 @@ parse_args(const int argc, char **argv, struct proxy_args *args) {
     args->doh.ip   = "0.0.0.0";
     args->doh.port = 8053;
     args->doh.path = "/getnsrecord";
-    args->doh.query = "?dns="; // esto no va
 
     int c;
 
@@ -90,7 +88,6 @@ parse_args(const int argc, char **argv, struct proxy_args *args) {
             { "doh-port",  required_argument, 0, 0xD002 },
             { "doh-host",  required_argument, 0, 0xD003 },
             { "doh-path",  required_argument, 0, 0xD004 },
-            { "doh-query", required_argument, 0, 0xD005 },
             { 0,           0,                 0, 0 }
         };
 
@@ -132,9 +129,6 @@ parse_args(const int argc, char **argv, struct proxy_args *args) {
                 break;
             case 0xD004:
                 args->doh.path = optarg;
-                break;
-            case 0xD005:
-                args->doh.query = optarg;
                 break;
             default:
                 fprintf(stderr, "unknown argument %d.\n", c);
