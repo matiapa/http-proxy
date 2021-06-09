@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include <http.h>
+#include <netdb.h>
 
 #define LINK_LENGTH 100
 #define PATH_LENGTH 100

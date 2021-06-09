@@ -12,6 +12,9 @@
 #define MAX_PENDING_CONN 5
 #define ADDR_BUFFER_SIZE 128
 
+void handle_close(struct selector_key * key);
+
+fd_selector selector_fd;
 
 int create_tcp_client(const char *host, const int port) {
 
@@ -162,30 +165,30 @@ int handle_connections( int serverSocket, void (*handle_creates) (struct selecto
 
     // Create new selector
 
-    fd_selector selector = selector_new(1024);
-    if(selector == NULL) {
+    selector_fd = selector_new(1024);
+    if(selector_fd == NULL) {
         log(ERROR, "Creating new selector");
         selector_close();
         return -1;
     }
 
     // Fill in handlers
-    
+
     const struct fd_handler handlers = {
         .handle_create     = handle_creates,
-        .handle_close      = NULL,  // TODO: Add a close handler
+        .handle_close      = handle_close,  // TODO: Add a close handler
         .handle_block      = NULL
     };
 
     // Register master socket
-    
+
     selector_status ss = SELECTOR_SUCCESS;
 
-    ss = selector_register(selector, serverSocket, &handlers, OP_READ + OP_WRITE, NULL);
+    ss = selector_register(selector_fd, serverSocket, &handlers, OP_READ + OP_WRITE, NULL);
 
     if(ss != SELECTOR_SUCCESS) {
         log(ERROR, "Registering master socket on selector");
-        selector_destroy(selector);
+        selector_destroy(selector_fd);
         selector_close();
         return -1;
     }
@@ -193,14 +196,19 @@ int handle_connections( int serverSocket, void (*handle_creates) (struct selecto
     // Start listening selector
 
     while(1) {
-        ss = selector_select(selector);
+        ss = selector_select(selector_fd);
 
         if(ss != SELECTOR_SUCCESS) {
             log(ERROR, "Serving on selector");
-            selector_destroy(selector);
+            selector_destroy(selector_fd);
             selector_close();
             return -1;
         }
     }
 
+}
+
+void handle_close(struct selector_key * key) {
+    log(INFO, "Destroying item with client socket %d and target socket %d", key->item->client_socket, key->item->target_socket);
+    item_kill(key->s, key->item);
 }

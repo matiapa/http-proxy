@@ -177,8 +177,7 @@ selector_fd_set_nio(const int fd);
 
 /** notifica que un trabajo bloqueante terminó */
 selector_status
-selector_notify_block(fd_selector s,
-                 const int   fd);
+selector_notify_block(fd_selector s, const int   fd);
 
 // estructuras internas item_def
 struct item {
