@@ -88,7 +88,6 @@ void change_configuration(struct doh * args) {
 
 // https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
 int doh_client(const char * target, const int sin_port, struct addrinfo ** restrict addrinfo, int family) {
-    unsigned char * reader;
     struct sockaddr_in dest;
     memset(buf, 0, BUFF_SIZE);
 
@@ -233,7 +232,6 @@ void send_doh_request(const char * target, int s, int type) {
 
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, unsigned char * body, int initial_size) {
 
-    char name[30];
     unsigned char * reader = get_name(body + (int)(sizeof(struct DNS_HEADER))) + sizeof(struct QUESTION); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
     int sin_family, cant = initial_size;

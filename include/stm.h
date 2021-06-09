@@ -53,6 +53,8 @@ struct state_definition {
 
     rst_buffer rst_buffer;
 
+    char * description;     // Used for logging
+
     /** ejecutado al arribar al estado */
     unsigned (*on_arrival)    (const unsigned state, struct selector_key *key);
 

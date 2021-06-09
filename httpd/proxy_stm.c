@@ -10,6 +10,9 @@
 #include <ctype.h>
 #include <proxy_stm.h>
 
+// Many of the state transition handlers don't use the state param so we are ignoring this warning
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
 enum proxy_state {
@@ -181,17 +184,17 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
 static unsigned end_arrival(const unsigned state, struct selector_key *key);
 
 /* ------------------------------------------------------------
-  Handles proxy errors.
------------------------------------------------------------- */
-static unsigned error_arrival(const unsigned state, struct selector_key *key);
-
-/* ------------------------------------------------------------
   Notifies proxy errors.
 ------------------------------------------------------------ */
 static unsigned error_write_ready(struct selector_key *key);
 
 
-/* -------------------------------------- PROCESSORS PROTOTYPES -------------------------------------- */
+/* -------------------------------------- AUXILIARS PROTOTYPES -------------------------------------- */
+
+/* ------------------------------------------------------------
+  Writes error information on buffer and returns error state.
+------------------------------------------------------------ */
+static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state);
 
 /* ------------------------------------------------------------
   Processes an HTTP request and returns next state.
@@ -204,7 +207,7 @@ static unsigned process_request(struct selector_key * key);
 static unsigned connect_target(struct selector_key * key, char * target, int port);
 
 /* ------------------------------------------------------------
-  Processes request headers according to RFC 7230 specifications
+  Processes request headers according to RFC 7230 specs.
 ------------------------------------------------------------ */
 static void process_request_headers(struct request * req, char * target_host, char * proxy_host);
 
@@ -218,12 +221,14 @@ static const struct state_definition state_defs[] = {
         .client_interest  = OP_READ,
         .target_interest  = OP_NOOP,
         .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
+        .description      = "REQUEST_READ",
         .on_read_ready    = request_read_ready,
     },
     {
         .state            = REQUEST_FORWARD,
         .client_interest  = OP_NOOP,
         .target_interest  = OP_WRITE,
+        .description      = "REQUEST_FORWARD",
         .on_write_ready   = request_forward_ready,
     },
     {
@@ -231,24 +236,28 @@ static const struct state_definition state_defs[] = {
         .client_interest  = OP_NOOP,
         .target_interest  = OP_READ,
         .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
+        .description      = "RESPONSE_READ",
         .on_read_ready    = response_read_ready,
     },
     {
         .state            = RESPONSE_FORWARD,
         .client_interest  = OP_WRITE,
         .target_interest  = OP_NOOP,
+        .description      = "RESPONSE_FORWARD",
         .on_write_ready   = response_forward_ready,
     },
     {
         .state            = CONNECT_RESPONSE,
         .client_interest  = OP_WRITE,
         .target_interest  = OP_NOOP,
+        .description      = "CONNECT_RESPONSE",
         .on_write_ready   = connect_response_ready,
     },
     {
         .state            = TCP_TUNNEL,
         .client_interest  = OP_READ,
         .target_interest  = OP_READ,
+        .description      = "TCP_TUNNEL",
         .on_read_ready    = tcp_tunnel_read_ready,
         .on_write_ready   = tcp_tunnel_forward_ready,
     },
@@ -256,26 +265,28 @@ static const struct state_definition state_defs[] = {
         .state            = CLIENT_CLOSE_CONNECTION,
         .client_interest  = OP_READ,
         .target_interest  = OP_WRITE,
+        .description      = "CLIENT_CLOSE_CONNECTION",
         .on_arrival       = client_close_connection_arrival
     },
     {
         .state            = TARGET_CLOSE_CONNECTION,
         .client_interest  = OP_WRITE,
         .target_interest  = OP_READ,
+        .description      = "TARGET_CLOSE_CONNECTION",
         .on_arrival       = target_close_connection_arrival
     },
     {
         .state            = END,
         .client_interest  = OP_NOOP,
         .target_interest  = OP_NOOP,
+        .description      = "END",
         .on_arrival       = end_arrival
     },
     {
         .state            = ERROR_STATE,
         .client_interest  = OP_WRITE,
         .target_interest  = OP_NOOP,
-        .rst_buffer       = WRITE_BUFFER,
-        .on_arrival       = error_arrival,
+        .description      = "ERROR_STATE",
         .on_write_ready   = error_write_ready
     }
 };
@@ -287,20 +298,8 @@ state_machine proto_stm = {
     .max_state = ERROR_STATE
 };
 
-typedef struct proxy_error {
-    int status_code;
-    unsigned next_state;
-} proxy_error;
-
-proxy_error error;
-
 #define log_error(_description) \
     log(ERROR, "At state %d: %s", key->item->stm.current->state, _description);
-
-#define notify_error(_status_code, _next_state) \
-    error.status_code = _status_code; \
-    error.next_state = _next_state; \
-    return ERROR_STATE; \
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
@@ -310,7 +309,7 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     if (! buffer_can_write(&(key->item->read_buffer))) {
         log_error("Read buffer limit reached")
-        notify_error(PAYLOAD_TOO_LARGE, REQUEST_READ);
+        return notify_error(key, PAYLOAD_TOO_LARGE, REQUEST_READ);
     }
 
     // Read request bytes into read buffer
@@ -372,7 +371,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     if (! buffer_can_write(&(key->item->read_buffer))) {
         log_error("Read buffer limit reached")
-        notify_error(BAD_GATEWAY, REQUEST_READ);
+        return notify_error(key, BAD_GATEWAY, REQUEST_READ);
     }
 
     // Read response bytes into read buffer
@@ -554,33 +553,11 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
             key->item->client_interest &= ~OP_WRITE;
         else
             key->item->target_interest &= ~OP_WRITE;
-            
+
         selector_update_fdset(key->s, key->item);
     }
 
     return TCP_TUNNEL;
-
-}
-
-
-
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-static unsigned error_arrival(const unsigned state, struct selector_key *key) {
-
-    struct response res = { .status_code = error.status_code };
-    char * raw_res = create_response(&res);
-
-    size_t space;
-    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
-
-    strncpy(ptr, raw_res, space);
-    buffer_write_adv(&(key->item->write_buffer), strlen(ptr));
-
-    log(ERROR, "Writed %ld bytes to write buffer", strlen(ptr));
-
-    log(ERROR, "%s", raw_res);
-
-    return ERROR_STATE;
 
 }
 
@@ -603,7 +580,8 @@ static unsigned error_write_ready(struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return ERROR_STATE;
 
-    return error.next_state;
+    #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
+    return (unsigned) key->item->data;
 
 }
 
@@ -667,7 +645,25 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 }
 
 
-/* -------------------------------------- PROCESSORS IMPLEMENTATIONS -------------------------------------- */
+/* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
+
+static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
+
+    struct response res = { .status_code = status_code };
+    char * raw_res = create_response(&res);
+
+    size_t space;
+    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+    strncpy(ptr, raw_res, space);
+    buffer_write_adv(&(key->item->write_buffer), strlen(ptr));
+
+    #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
+    key->item->data = (void *) next_state;
+
+    return ERROR_STATE;
+
+}
 
 
 static unsigned process_request(struct selector_key * key) {
@@ -690,7 +686,7 @@ static unsigned process_request(struct selector_key * key) {
 
     if (parser_state == FAILED) {
         log_error("Invalid request received");
-        notify_error(BAD_REQUEST, REQUEST_READ);
+        return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     // Parse the request target URL
@@ -699,7 +695,7 @@ static unsigned process_request(struct selector_key * key) {
     parse_url(request->url, &url);
 
     if (strlen(request->url) == 0) {
-        notify_error(BAD_REQUEST, REQUEST_READ);
+        return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     // Establish connection to target
@@ -785,14 +781,14 @@ static unsigned connect_target(struct selector_key * key, char * target_host, in
 
     if (strstr(proxy_conf.targetBlacklist, target_host) != NULL) {
         log(INFO, "Rejected connection to %s due to target blacklist", target_host);
-        notify_error(FORBIDDEN, REQUEST_READ);
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 
     // Check that target is not the proxy itself
 
     if (strcmp(target_host, "localhost") == 0 && target_port == proxy_conf.proxyArgs.proxy_port) {
         log(INFO, "Rejected connection to proxy itself");
-        notify_error(FORBIDDEN, REQUEST_READ);
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 
     // Open connection with target
@@ -800,7 +796,7 @@ static unsigned connect_target(struct selector_key * key, char * target_host, in
     int targetSocket = create_tcp_client(target_host, target_port);
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
-        notify_error(INTERNAL_SERVER_ERROR, REQUEST_READ);
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
     }
 
     key->item->target_socket = targetSocket;
@@ -821,8 +817,6 @@ static unsigned connect_target(struct selector_key * key, char * target_host, in
 static void process_request_headers(struct request * req, char * target_host, char * proxy_host) {
 
     char * raw_req = create_request(req);
-    log(DEBUG, "Original request");
-    log(DEBUG, "%s", raw_req);
     free(raw_req);
 
     bool replaced_host_header = false;
@@ -869,7 +863,6 @@ static void process_request_headers(struct request * req, char * target_host, ch
             }
         }
 
-
     }
 
     // If a Host header was not present but a hostname was given, add it
@@ -890,9 +883,11 @@ static void process_request_headers(struct request * req, char * target_host, ch
 
     // TODO: Handle close detected
 
+    if (close_detected) {
+        log(DEBUG, "Should close connection");
+    }
+
     raw_req = create_request(req);
-    log(DEBUG, "Processed request");
-    log(DEBUG, "%s", raw_req);
     free(raw_req);
 
 }

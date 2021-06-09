@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <http.h>
 
 #define LINK_LENGTH 100

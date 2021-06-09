@@ -632,7 +632,7 @@ selector_select(fd_selector s) {
     }
 
     s->max_fd = maxSocket;
-    log(DEBUG, "Max fd is %d", s->max_fd);
+    // log(DEBUG, "Max fd is %d", s->max_fd);
 
     // log(DEBUG, "Entering pselect()");
     // log(DEBUG, "read_fd[4] = %d  | read_fd[5] = %d",
@@ -645,7 +645,7 @@ selector_select(fd_selector s) {
     s->selector_thread = pthread_self();
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &t, &emptyset); // sacar el NULL despues
 
-    log(DEBUG, "Exited pselect() with %d", fds);
+    // log(DEBUG, "Exited pselect() with %d", fds);
 
     if(-1 == fds) {
         perror("pselect");
