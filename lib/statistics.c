@@ -46,7 +46,7 @@ void update(int signal_recv){
     log(DEBUG, "statistics update");
     // use appropriate location if you are using MacOS or Linux
 
-    
+    log(DEBUG,"total connections: %ld, current connections :%d",global_total_connections,global_concurent_connections);
     sprintf(buffer,"Number of total connections since server start: %ld\n",global_total_connections);
     sprintf(buffer + strlen(buffer),"Number of concurrent connections at alarm: %d\n",global_concurent_connections);
     write(fd,buffer,strlen(buffer));
