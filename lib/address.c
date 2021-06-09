@@ -196,7 +196,7 @@ int is_number(const char * str) {
 }
 
 int parse_url(char * text, struct url * url) {
-	char * aux = malloc(strlen(text));
+	char * aux = malloc(strlen(text)+1);
 	strcpy(aux, text);
 
     memset(url, 0, sizeof(*url));

@@ -14,6 +14,9 @@
 // Many of the state transition handlers don't use the state param so we are ignoring this warning
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+// Many of the state transition handlers don't use the state param so we are ignoring this warning
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
 enum proxy_state {
@@ -320,9 +323,8 @@ static unsigned request_read_ready(struct selector_key *key) {
     uint8_t * raw_req = buffer_write_ptr(&(key->item->read_buffer), &space);
     ssize_t readBytes = read(key->item->client_socket, raw_req, space);
 
-
     if(readBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to read from client");
         return CLIENT_CLOSE_CONNECTION;
     }
@@ -356,7 +358,7 @@ static unsigned request_forward_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->item->target_socket, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to write request to target");
         return TARGET_CLOSE_CONNECTION;
     }
@@ -390,7 +392,7 @@ static unsigned response_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->item->target_socket, raw_res, space);
 
     if(readBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to read response from target");
         return TARGET_CLOSE_CONNECTION;
     }
@@ -432,7 +434,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to write response to client");
         return CLIENT_CLOSE_CONNECTION;
     }
@@ -464,7 +466,7 @@ static unsigned connect_response_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to write connect response to client");
         return END;
     }
@@ -508,7 +510,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     ssize_t readBytes = read(key->active_fd, ptr, space);
 
     if (readBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to read from active socket");
         return END;
     }
@@ -533,9 +535,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     selector_update_fdset(key->s, key->item);
 
     return TCP_TUNNEL;
-
 }
-
 
 static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 
@@ -558,7 +558,7 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
     ssize_t sentBytes = write(key->active_fd, ptr, size);
 
     if (sentBytes < 0) {
-        if(errno != EBADF)
+        if(errno != EBADF && errno != EPIPE)
             log_error("Failed to write to active socket");
         return END;
     }
@@ -734,6 +734,7 @@ static unsigned process_request(struct selector_key * key) {
     if (strlen(request->url) == 0) {
         free(key->item->pdata.request);
         key->item->pdata.request = NULL;
+        
 
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
@@ -940,3 +941,5 @@ static void process_request_headers(struct request * req, char * target_host, ch
     free(raw_req);
 
 }
+
+
