@@ -685,6 +685,9 @@ static unsigned process_request(struct selector_key * key) {
         return REQUEST_READ;
 
     if (parser_state == FAILED) {
+        free(key->item->pdata.request);
+        key->item->pdata.request = NULL;
+
         log_error("Invalid request received");
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
@@ -695,15 +698,21 @@ static unsigned process_request(struct selector_key * key) {
     parse_url(request->url, &url);
 
     if (strlen(request->url) == 0) {
+        free(key->item->pdata.request);
+        key->item->pdata.request = NULL;
+
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     // Establish connection to target
 
     unsigned ret = connect_target(key, url.hostname, url.port);
-    if (ret == ERROR_STATE)
+    if (ret == ERROR_STATE) {
+        free(key->item->pdata.request);
+        key->item->pdata.request = NULL;
         return ret;
-
+    }
+        
     if (request->method == CONNECT) {
 
         // The request method is CONNECT, a response shall be sent
@@ -721,6 +730,9 @@ static unsigned process_request(struct selector_key * key) {
         buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
 
         // Go to send response state
+
+        free(key->item->pdata.request);
+        key->item->pdata.request = NULL;
 
         return CONNECT_RESPONSE;
 
@@ -753,6 +765,9 @@ static unsigned process_request(struct selector_key * key) {
         buffer_write_adv(&(key->item->write_buffer), writeBytes);
 
         // Go to forward request state
+
+        free(key->item->pdata.request);
+        key->item->pdata.request = NULL;
 
         return REQUEST_FORWARD;
 

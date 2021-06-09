@@ -1,6 +1,6 @@
 PHONY = clean all
 
-CFLAGS = -I include/ -Wall -Wextra -pedantic -pedantic-errors -std=c11 -g -D_POSIX_C_SOURCE=200112L -Wno-gnu-zero-variadic-macro-arguments
+CFLAGS = -I include/ -Wall -Wextra -pedantic -pedantic-errors -std=c11 -g -D_POSIX_C_SOURCE=200112L
 
 all: httpd
 

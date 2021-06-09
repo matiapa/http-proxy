@@ -194,15 +194,18 @@ int is_number(const char * str) {
 }
 
 int parse_url(char * text, struct url * url) {
+	char * aux = malloc(strlen(text));
+	strcpy(aux, text);
 
     memset(url, 0, sizeof(*url));
     char * token = NULL;
-    char * rest = text;
+    char * rest = aux;
     url->port = 0;
     int flag = 0, num_flag;
 
     if (rest[0] == '/') { // esta en formato origin
         strcpy(url->path, rest);
+		free(aux);
         return 0;
     }
 
@@ -222,7 +225,7 @@ int parse_url(char * text, struct url * url) {
     }
 
     token = NULL;
-    while ((token = strtok_r(rest, "/", &rest))) {
+    while (strchr(rest, '/') != NULL &&(token = strtok_r(rest, "/", &rest))) {
         num_flag = is_number(token);
         if (!num_flag) {
             if (!flag) {
@@ -241,7 +244,21 @@ int parse_url(char * text, struct url * url) {
         }
     }
 
+    if (rest != NULL) {
+        num_flag = is_number(rest);
+        if (!num_flag) {
+            if (flag) {
+                snprintf(url->path, PATH_LENGTH, "/%s", rest);
+            } else {
+                strcpy(url->hostname, rest);
+            }
+        } else {
+            url->port = atoi(rest);
+        }
+    }
+
     if (url->port == 0) url->port = 80;
 
+	free(aux);
     return 0;
 }
