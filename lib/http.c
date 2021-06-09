@@ -3,17 +3,25 @@
 #include <stdio.h>
 #include <string.h>
 
-#define BLOCK_SIZE 200
-#define STRING_SIZE 2000
+#define STRING_SIZE 300
 #define HTTP_VERSION "HTTP/1.1"
 
-int copy(char * dst, char * src);
+
 int requestFirstLine(char * string, struct request * request);
-int responseFirstLine(char * string, struct response * request);
-int headersSection(char * string, char ** headers[2], int header_count);
+
+int responseFirstLine(char * string, struct response * response);
+
+int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count);
+
 
 char * methods_strings[3] = {"GET", "POST", "CONNECT"};
 
+int status_code_num[8] = {200, 400, 403, 409, 413, 500, 502, 504};
+
+char * status_code_message[8] = {
+    "OK", "Bad Request", "Forbidden", "Conflict", "Payload Too Large",
+    "Internal Server Error", "Bad Gateway", "Gateway Timeout"
+};
 
 
 /*-----------------------------------------
@@ -25,23 +33,27 @@ char * methods_strings[3] = {"GET", "POST", "CONNECT"};
  *  BODY...
  */
 
-char * create_request(struct request * request) {
-    char * string = (char *) malloc(STRING_SIZE);
-    memset(string, 0, STRING_SIZE);
-    int position = 0;
+ char * create_request(struct request * request) {
+     char * string = (char *) malloc(STRING_SIZE);
+     memset(string, 0, STRING_SIZE);
+     int position = 0;
 
-    if (request->method == POST || request->method == GET || request->method == CONNECT) {
-        position = requestFirstLine(string, request);
-        if (position < 0) return NULL;
-    } else {
-        free(string);
-        return NULL;
+     if (request->method == POST || request->method == GET || request->method == CONNECT) {
+         position = requestFirstLine(string, request);
+         if (position < 0) return NULL;
+     } else {
+         free(string);
+         return NULL;
+     }
+
+    if (request->header_count > 0) position += headersSection(string + position, request->headers, request->header_count);
+
+    position += copy(string + position, "\r\n");
+
+    if (request->body_length > 0) {
+        memcpy(string + position, request->body, request->body_length);
+        position += request->body_length;
     }
-
-    if (request->headers != NULL) position += headersSection(string + position, request->headers, request->header_count);
-    else position += copy(string + position, "\n");
-
-    if (request->body != NULL) position += copy(string + position, request->body);
 
     string = realloc(string, position);
     string[position] = '\0';
@@ -51,18 +63,13 @@ char * create_request(struct request * request) {
 int requestFirstLine(char * string, struct request * request) {
     int position = snprintf(string, STRING_SIZE, "%s ", methods_strings[request->method]);
 
-    if ((request->method == CONNECT || request->method == GET) && request->url != NULL) {
+    if ((request->method == CONNECT || request->method == GET || request->method == POST)) {
         position += copy(string + position, request->url);
-    } else if (request->method == GET || request->method == POST) {
-        position += copy(string + position, "/");
-        if (request->method == GET) {
-            position += copy(string + position, request->file);
-        }
     } else {
         return -1;
     }
 
-    position += snprintf(string + position, STRING_SIZE - position, " %s\n", HTTP_VERSION);
+    position += snprintf(string + position, STRING_SIZE - position, " %s\r\n", HTTP_VERSION);
     return position;
 }
 
@@ -83,29 +90,27 @@ char * create_response(struct response * response) {
     memset(string, 0, STRING_SIZE);
 
     int position = responseFirstLine(string, response);
-    if (position < 0) {
-        free(string);
-        return NULL;
-    }
 
-    if (response->headers != NULL)
+    if (response->header_count > 0)
         position += headersSection(string + position, response->headers, response->header_count);
-    else position += copy(string + position, "\n");
+    else position += copy(string + position, "\r\n");
 
-    if (response->body != NULL) position += copy(string + position, response->body);
+    if (response->body_length > 0) position += copy(string + position, response->body);
 
     string = realloc(string, position);
     string[position] = '\0';
+
     return string;
+    
 }
 
 
 int responseFirstLine(char * string, struct response * response) {
 
-    if (response->status_message == NULL || response->status_code < 100)
-        return -1;
-
-    return snprintf(string, STRING_SIZE, "%s %d %s\n", HTTP_VERSION, response->status_code, response->status_message);
+    return snprintf(
+        string, STRING_SIZE, "%s %d %s\n", HTTP_VERSION,
+        status_code_num[response->status_code], status_code_message[response->status_code]
+    );
 }
 
 
@@ -113,10 +118,10 @@ int responseFirstLine(char * string, struct response * response) {
  *  Funciones axuiliares
  *-----------------------------------------*/
 
-int headersSection(char * string, char *** headers, int header_count) {
+int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count) {
     int position = 0;
     for (int i = 0; i < header_count; i++)
-        position += snprintf(string + position, STRING_SIZE - position, "%s: %s\n", headers[i][0], headers[i][1]);
+        position += snprintf(string + position, STRING_SIZE - position, "%s: %s\r\n", headers[i][0], headers[i][1]);
 
     return position;
 }

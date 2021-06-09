@@ -7,6 +7,7 @@
 #include "buffer.h"
 #include "http.h"
 #include "stm.h"
+#include "http_parser.h"
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -49,6 +50,8 @@
 
 #define CONN_BUFFER 1024
 
+#define SELECTOR_TIMEOUT_SECS 60
+
 typedef struct fdselector * fd_selector;
 
 /** valores de retorno. */
@@ -90,7 +93,7 @@ selector_close(void);
 
 /* instancia un nuevo selector. returna NULL si no puede instanciar  */
 fd_selector
-selector_new(const size_t initial_elements, const char * targetHost, const char * targetPost);
+selector_new(const size_t initial_elements);
 
 /** destruye un selector creado por _new. Tolera NULLs */
 void
@@ -105,14 +108,9 @@ selector_destroy(fd_selector s);
  * Argumento de todas las funciones callback del handler
  */
 struct selector_key {
-    /** el selector que dispara el evento */
-    fd_selector s;
-    /** el file descriptor de la fuente */
-    int         src_socket;
-    /** el file descriptor del destino */
-    int         dst_socket;
-    /** el item de la conexion */
-    struct item * item;
+    fd_selector s;          // The selector that activated the event
+    int active_fd;          // The file descriptor that activated the event
+    struct item * item;     // The connection item
 };
 
 /**
@@ -179,8 +177,7 @@ selector_fd_set_nio(const int fd);
 
 /** notifica que un trabajo bloqueante terminó */
 selector_status
-selector_notify_block(fd_selector s,
-                 const int   fd);
+selector_notify_block(fd_selector s, const int   fd);
 
 // estructuras internas item_def
 struct item {
@@ -194,6 +191,10 @@ struct item {
     buffer              write_buffer;
     
     state_machine       stm;
+    parser_data         pdata;
+    
+    time_t              last_activity;
+    char                target_name[50];
 
     void *              data;
 };
@@ -227,12 +228,6 @@ struct fdselector {
      * notificados.
      */
     struct blocking_job    *resolution_jobs;
-
-    // ip del target
-    const char * targetHost;
-
-    // port del target
-    const char * targetPort;
 
     // handlers a utilizar en los items
     fd_handler handlers;

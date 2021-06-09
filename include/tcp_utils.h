@@ -1,17 +1,14 @@
-#ifndef TCP_SERVER_UTILS_H_
-#define TCP_SERVER_UTILS_H_
+#ifndef TCP_UTILS_H_
+#define TCP_UTILS_H_
 
 #include <selector.h>
 
-char *targetHost, *targetPort;
+extern fd_selector selector_fd;
 
-// Create, bind, and listen a new TCP server socket
+int create_tcp_client(const char *host, const int port);
+
 int create_tcp_server(const char *port);
 
-// Accept a new TCP connection on a server socket
-int handle_connections(
-    int server,
-    void (*handle_creates) (struct selector_key *key)
-);
+int handle_connections(int server, void (*handle_creates) (struct selector_key *key));
 
 #endif 

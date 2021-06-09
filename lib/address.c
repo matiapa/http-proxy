@@ -3,7 +3,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
-#include "../include/address.h"
+#include <address.h>
 
 const char *
 printFamily(struct addrinfo *aip)
@@ -154,4 +154,113 @@ int sockAddrsEqual(const struct sockaddr *addr1, const struct sockaddr *addr2) {
 			&& ipv6Addr1->sin6_port == ipv6Addr2->sin6_port;
 	} else
 		return 0;
+}
+
+
+int get_machine_fqdn(char * fqdn) {
+	// Get unqualified hostname
+
+	char hostname[1024] = {0};
+	gethostname(hostname, 1023);
+
+	// Get FQDN if available
+
+	struct addrinfo hints = {0};
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_CANONNAME;
+
+	struct addrinfo * info;
+	int gai_result;
+	if ((gai_result = getaddrinfo(hostname, "http", &hints, &info)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_result));
+		return -1;
+	}
+
+	strcpy(fqdn, info->ai_canonname);
+
+	freeaddrinfo(info);
+
+	return 0;
+}
+
+
+int is_number(const char * str) {
+    int i = 0;
+    while(*str != '\0') {
+        if (*str > '9' || *str < '0') return 0;
+        str++;
+        i++;
+    }
+    return i > 0 ? 1 : 0;
+}
+
+int parse_url(char * text, struct url * url) {
+	char * aux = malloc(strlen(text));
+	strcpy(aux, text);
+
+    memset(url, 0, sizeof(*url));
+    char * token = NULL;
+    char * rest = aux;
+    url->port = 0;
+    int flag = 0, num_flag;
+
+    if (rest[0] == '/') { // esta en formato origin
+        strcpy(url->path, rest);
+		free(aux);
+        return 0;
+    }
+
+    while (strchr(rest, ':') != NULL && (token = strtok_r(rest, ":", &rest))) {
+        num_flag = is_number(token);
+        if (!num_flag && !flag) {
+            if (strcmp(token, "http") == 0 || strcmp(token, "https") == 0) {
+                strcpy(url->protocol, token);
+                rest += 2; // por ://
+            } else {
+                strcpy(url->hostname, token);
+                flag = 1;
+            }
+        } else if (num_flag) {
+            url->port = atoi(token);
+        } else break;
+    }
+
+    token = NULL;
+    while (strchr(rest, '/') != NULL &&(token = strtok_r(rest, "/", &rest))) {
+        num_flag = is_number(token);
+        if (!num_flag) {
+            if (!flag) {
+                strcpy(url->hostname, token);
+                flag = 1;
+            } else {
+                if (rest != NULL){
+                    snprintf(url->path, PATH_LENGTH, "/%s/%s", token, rest);
+                    rest = NULL;
+                } else {
+                    snprintf(url->path, PATH_LENGTH, "/%s", token);
+                }
+            }
+        } else {
+            url->port = atoi(token);
+        }
+    }
+
+    if (rest != NULL) {
+        num_flag = is_number(rest);
+        if (!num_flag) {
+            if (flag) {
+                snprintf(url->path, PATH_LENGTH, "/%s", rest);
+            } else {
+                strcpy(url->hostname, rest);
+            }
+        } else {
+            url->port = atoi(rest);
+        }
+    }
+
+    if (url->port == 0) url->port = 80;
+
+	free(aux);
+    return 0;
 }

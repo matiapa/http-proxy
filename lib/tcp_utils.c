@@ -1,14 +1,66 @@
 #include <netdb.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 
 #include <address.h>
 #include <logger.h>
 #include <selector.h>
+#include <doh_client.h>
 #include <tcp_utils.h>
 
 #define MAX_PENDING_CONN 5
 #define ADDR_BUFFER_SIZE 128
+
+void handle_close(struct selector_key * key);
+
+fd_selector selector_fd;
+
+int create_tcp_client(const char *host, const int port) {
+
+	// Create address criteria
+
+	char addrBuffer[ADDR_BUFFER_SIZE];
+	struct addrinfo addrCriteria;
+	memset(&addrCriteria, 0, sizeof(addrCriteria));
+
+	addrCriteria.ai_family = AF_UNSPEC;
+	addrCriteria.ai_socktype = SOCK_STREAM;
+	addrCriteria.ai_protocol = IPPROTO_TCP;
+
+    struct addrinfo * servAddr;
+
+	// Resolve host string for posible addresses
+	int getaddr = doh_client(host, port, &servAddr, AF_UNSPEC);
+
+	if (getaddr != 0) {
+		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
+		return -1;
+	}
+
+	// Try to connect to an address
+
+	int sock = -1;
+	for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+		sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+		if (sock < 0){
+			log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer))
+			continue;
+		}
+
+		int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
+		if (conn != 0) {
+			log(INFO, "can't connectto %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
+			close(sock); // Socket connection failed; try next address
+			sock = -1;
+		}
+	}
+
+	// Release address resource and return socket number
+    free(servAddr);
+	return sock;
+
+}
 
 
 int create_tcp_server(const char *port) {
@@ -89,10 +141,7 @@ int create_tcp_server(const char *port) {
 }
 
 
-int handle_connections(
-    int serverSocket,
-    void (*handle_creates) (struct selector_key *key)
-) {
+int handle_connections( int serverSocket, void (*handle_creates) (struct selector_key *key)) {
 
     if(selector_fd_set_nio(serverSocket) == -1) {
         log(ERROR, "Setting master socket flags");
@@ -116,30 +165,30 @@ int handle_connections(
 
     // Create new selector
 
-    fd_selector selector = selector_new(1024, targetHost, targetPort);
-    if(selector == NULL) {
+    selector_fd = selector_new(1024);
+    if(selector_fd == NULL) {
         log(ERROR, "Creating new selector");
         selector_close();
         return -1;
     }
 
     // Fill in handlers
-    
+
     const struct fd_handler handlers = {
         .handle_create     = handle_creates,
-        .handle_close      = NULL,  // TODO: Add a close handler
+        .handle_close      = handle_close,  // TODO: Add a close handler
         .handle_block      = NULL
     };
 
     // Register master socket
-    
+
     selector_status ss = SELECTOR_SUCCESS;
 
-    ss = selector_register(selector, serverSocket, &handlers, OP_READ + OP_WRITE, NULL);
+    ss = selector_register(selector_fd, serverSocket, &handlers, OP_READ + OP_WRITE, NULL);
 
     if(ss != SELECTOR_SUCCESS) {
         log(ERROR, "Registering master socket on selector");
-        selector_destroy(selector);
+        selector_destroy(selector_fd);
         selector_close();
         return -1;
     }
@@ -147,11 +196,11 @@ int handle_connections(
     // Start listening selector
 
     while(1) {
-        ss = selector_select(selector);
+        ss = selector_select(selector_fd);
 
         if(ss != SELECTOR_SUCCESS) {
             log(ERROR, "Serving on selector");
-            selector_destroy(selector);
+            selector_destroy(selector_fd);
             selector_close();
             return -1;
         }
@@ -159,3 +208,7 @@ int handle_connections(
 
 }
 
+void handle_close(struct selector_key * key) {
+    log(INFO, "Destroying item with client socket %d and target socket %d", key->item->client_socket, key->item->target_socket);
+    item_kill(key->s, key->item);
+}
