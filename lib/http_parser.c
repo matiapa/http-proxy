@@ -291,27 +291,27 @@ static struct parser_definition definition = {
 
 #define COPY(dst, src, srcBytes) memcpy(dst, src, MIN(srcBytes, N(dst)));
 
-void http_parser_init(struct parserData * data){
+void http_parser_init(struct parser_data * data){
     if(data != NULL){
         data->parser = parser_init(init_char_class(), &definition);
-        buffer_init(&(data->parseBuffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
+        buffer_init(&(data->parse_buffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
     }
 }
 
-void http_parser_reset(parserData * data){
+void http_parser_reset(parser_data * data){
     parser_reset(data->parser);
-    buffer_reset(&(data->parseBuffer));
+    buffer_reset(&(data->parse_buffer));
 }
 
-void http_parser_destroy(parserData * data){
+void http_parser_destroy(parser_data * data){
     parser_destroy(data->parser);
-    free(data->parseBuffer.data);
+    free(data->parse_buffer.data);
     free(data);
 }
 
-void assign_method(struct request * httpRequest, parserData * data){
+void assign_method(struct request * httpRequest, parser_data * data){
     size_t size;
-    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
+    char * ptr = (char *) buffer_read_ptr(&(data->parse_buffer), &size);
 
     if(strncmp(ptr, "GET", size) == 0)
         httpRequest->method = GET;
@@ -321,37 +321,37 @@ void assign_method(struct request * httpRequest, parserData * data){
         httpRequest->method = CONNECT;
 }
 
-void assign_target(struct request * req, parserData * data){
+void assign_target(struct request * req, parser_data * data){
     size_t size;
-    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
+    char * ptr = (char *) buffer_read_ptr(&(data->parse_buffer), &size);
 
     COPY(req->url, ptr, size);
 }
 
-void assign_version(struct request * req, parserData * data){
+void assign_version(struct request * req, parser_data * data){
     size_t size;
-    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
+    char * ptr = (char *) buffer_read_ptr(&(data->parse_buffer), &size);
 
     COPY(req->version, ptr, size);
 }
 
-void assign_header_name(struct request * req, parserData * data){
+void assign_header_name(struct request * req, parser_data * data){
     size_t size;
-    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
+    char * ptr = (char *) buffer_read_ptr(&(data->parse_buffer), &size);
 
     COPY(req->headers[req->header_count][0], ptr, size);
 }
 
-void assign_header_value(struct request * req, parserData * data){
+void assign_header_value(struct request * req, parser_data * data){
     size_t size;
-    char * ptr = (char *) buffer_read_ptr(&(data->parseBuffer), &size);
+    char * ptr = (char *) buffer_read_ptr(&(data->parse_buffer), &size);
 
     COPY(req->headers[req->header_count][1], ptr, size);
     req->header_count += 1;
 }
 
 
-parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest, parserData * data) {
+parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest, parser_data * data) {
 
     parse_state result = PENDING;
 
@@ -364,48 +364,48 @@ parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest,
 
         switch(e->type) {
             case METHOD_NAME:
-                buffer_write(&(data->parseBuffer), toupper(e->data[0]));
+                buffer_write(&(data->parse_buffer), toupper(e->data[0]));
                 break;
 
             case METHOD_NAME_END:
                 assign_method(httpRequest, data);
-                buffer_reset(&(data->parseBuffer));
+                buffer_reset(&(data->parse_buffer));
                 break;
 
             case TARGET_VAL:
-                buffer_write(&(data->parseBuffer), tolower(e->data[0]));
+                buffer_write(&(data->parse_buffer), tolower(e->data[0]));
                 break;
 
             case TARGET_VAL_END:
                 assign_target(httpRequest, data);
-                buffer_reset(&(data->parseBuffer));
+                buffer_reset(&(data->parse_buffer));
                 break;
 
             case VERSION_VAL:
-                buffer_write(&(data->parseBuffer), toupper(e->data[0]));
+                buffer_write(&(data->parse_buffer), toupper(e->data[0]));
                 break;
 
             case VERSION_VAL_END:
                 assign_version(httpRequest, data);
-                buffer_reset(&(data->parseBuffer));
+                buffer_reset(&(data->parse_buffer));
                 break;
 
             case HEADER_NAME_VAL:
-                buffer_write(&(data->parseBuffer), e->data[0]);
+                buffer_write(&(data->parse_buffer), e->data[0]);
                 break;
 
             case HEADER_NAME_END:
                 assign_header_name(httpRequest, data);
-                buffer_reset(&(data->parseBuffer));
+                buffer_reset(&(data->parse_buffer));
                 break;
 
             case HEADER_VALUE_VAL:
-                buffer_write(&(data->parseBuffer), e->data[0]);
+                buffer_write(&(data->parse_buffer), e->data[0]);
                 break;
             
             case HEADER_VALUE_END:
                 assign_header_value(httpRequest, data);
-                buffer_reset(&(data->parseBuffer));
+                buffer_reset(&(data->parse_buffer));
                 break;
 
             case HEADER_SECTION_END:

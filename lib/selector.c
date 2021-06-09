@@ -386,7 +386,7 @@ selector_register(
     } else {
         item->client_socket   = fd;
         item->client_interest = interest;
-        item->data            = data;
+        item->data   = data;
 
         log(DEBUG, "Registered socket %d with interests %d", fd, interest);
 
@@ -432,10 +432,7 @@ selector_unregister_fd(fd_selector s, const int fd) {
     }
 
     if(s->handlers.handle_close != NULL) {
-        struct selector_key key = {
-            .s    = s,
-            .dst_socket   = item->client_socket,
-        };
+        struct selector_key key = { .s = s };
         s->handlers.handle_close(&key);
     }
 
@@ -477,9 +474,7 @@ handle_iteration(fd_selector s) {
     int master_socket = s->fds[0].client_socket;
     int n = s->max_fd;
 
-    struct selector_key key = {
-        .s = s,
-    };
+    struct selector_key key = { .s = s };
 
     if (FD_ISSET(master_socket, &s->slave_r)) {
 
@@ -512,14 +507,13 @@ handle_iteration(fd_selector s) {
                 // There is an initialized connection on this item
 
                 key.s = s;
-                key.src_socket = item->client_socket;
-                key.dst_socket = item->target_socket;
 
                 // Check read operations
 
                 if(FD_ISSET(item->client_socket, &s->slave_r)) {
                     log(DEBUG, "Client %d has read available", item->client_socket)
                     if(OP_READ & item->client_interest) {
+                        key.active_fd = item->client_socket;
                         stm_handler_read(&(item->stm), &key);
                         continue;
                     }
@@ -528,6 +522,7 @@ handle_iteration(fd_selector s) {
                 if(FD_ISSET(item->target_socket, &s->slave_r)) {
                     log(DEBUG, "Target %d has read available", item->target_socket)
                     if(OP_READ & item->target_interest) {
+                        key.active_fd = item->target_socket;
                         stm_handler_read(&(item->stm), &key);
                         continue;
                     }
@@ -538,6 +533,7 @@ handle_iteration(fd_selector s) {
                 if(FD_ISSET(item->client_socket, &s->slave_w)) {
                     log(DEBUG, "Client %d has write available", item->client_socket)
                     if(OP_WRITE & item->client_interest) {
+                        key.active_fd = item->client_socket;
                         stm_handler_write(&(item->stm), &key);
                         continue;
                     }
@@ -546,6 +542,7 @@ handle_iteration(fd_selector s) {
                 if(FD_ISSET(item->target_socket, &s->slave_w)) {
                     log(DEBUG, "Target %d has write available", item->target_socket)
                     if(OP_WRITE & item->target_interest) {
+                        key.active_fd = item->target_socket;
                         stm_handler_write(&(item->stm), &key);
                         continue;
                     }
@@ -571,7 +568,6 @@ handle_block_notifications(fd_selector s) {
 
         struct item *item = s->fds + j->fd;
         if(ITEM_USED(item)) {
-            key.src_socket   = item->client_socket;
             s->handlers.handle_block(&key);
         }
 

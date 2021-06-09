@@ -108,14 +108,9 @@ selector_destroy(fd_selector s);
  * Argumento de todas las funciones callback del handler
  */
 struct selector_key {
-    /** el selector que dispara el evento */
-    fd_selector s;
-    /** el file descriptor de la fuente */
-    int         src_socket;
-    /** el file descriptor del destino */
-    int         dst_socket;
-    /** el item de la conexion */
-    struct item * item;
+    fd_selector s;          // The selector that activated the event
+    int active_fd;          // The file descriptor that activated the event
+    struct item * item;     // The connection item
 };
 
 /**
@@ -197,11 +192,12 @@ struct item {
     buffer              write_buffer;
     
     state_machine       stm;
-    parserData          parser_data;
-
-    void *              data;
+    parser_data         pdata;
+    
     time_t              last_activity;
     char                target_name[50];
+
+    void *              data;
 };
 
 struct fdselector {

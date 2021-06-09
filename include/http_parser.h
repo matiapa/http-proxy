@@ -7,15 +7,16 @@
 #include <http.h>
 
 
-typedef struct parserData{
+typedef struct parser_data{
     struct parser * parser;
-    buffer parseBuffer;
-}parserData;
+    struct buffer parse_buffer;
+    struct request * request;
+}parser_data;
 
-void http_parser_init(parserData * data);
+void http_parser_init(parser_data * data);
 
-parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest, parserData * data);
+parse_state http_parser_parse(buffer * readBuffer, struct request * httpRequest, parser_data * data);
 
-void http_parser_destroy(parserData * data);
+void http_parser_destroy(parser_data * data);
 
 #endif //PC_2021A_06_HTTP_PARSER_H

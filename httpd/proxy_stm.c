@@ -13,20 +13,6 @@
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
 enum proxy_state {
-    
-    /*
-     * Sends CONNECT response message to client
-     *
-     * Interests:
-     *   - Client: OP_WRITE
-     *
-     * Transitions:
-     *   - CONNECT_WRITE    While message is not ready
-     *   - REQUEST_READ     When message is over
-     *   - ERROR_STATE            Parsing/IO error
-    */
-    CONNECT_WRITE,
-
     /*
      * Recieves an HTTP request from client
      *
@@ -35,9 +21,9 @@ enum proxy_state {
      *   - Target: OP_NOOP
      *
      * Transitions:
-     *   - REQUEST_READ     While request message is not over
-     *   - REQUEST_WRITE  When request message is over
-     *   - ERROR_STATE            Parsing/IO error
+     *   - REQUEST_READ         While request message is not over
+     *   - REQUEST_FORWARD      When request message is over
+     *   - ERROR_STATE          Parsing/IO error
     */
     REQUEST_READ,
 
@@ -49,11 +35,11 @@ enum proxy_state {
      *   - Target: OP_WRITE
      *
      * Transitions:
-     *   - REQUEST_WRITE  While request message is not over
-     *   - RESPONSE_READ    When request message is over
-     *   - ERROR_STATE            IO error
+     *   - REQUEST_FORWARD      While request message is not over
+     *   - RESPONSE_READ        When request message is over
+     *   - ERROR_STATE          IO error
     */
-    REQUEST_WRITE,
+    REQUEST_FORWARD,
 
     /*
      * Recieves an HTTP request from target
@@ -63,9 +49,9 @@ enum proxy_state {
      *   - Target: OP_READ
      *
      * Transitions:
-     *   - RESPONSE_READ    While response message is not over
-     *   - RESPONSE_WRITE When response message is over
-     *   - ERROR_STATE            Parsing/IO error
+     *   - RESPONSE_READ        While response message is not over
+     *   - RESPONSE_FORWARD     When response message is over
+     *   - ERROR_STATE          Parsing/IO error
     */
     RESPONSE_READ,
 
@@ -77,11 +63,36 @@ enum proxy_state {
      *   - Target: OP_NOOP
      *
      * Transitions:
-     *   - RESPONSE_WRITE While response message is not over
-     *   - REQUEST_READ     When response message is over
-     *   - ERROR_STATE            IO error
+     *   - RESPONSE_FORWARD     While response message is not over
+     *   - REQUEST_READ         When response message is over
+     *   - ERROR_STATE          IO error
     */
-    RESPONSE_WRITE,
+    RESPONSE_FORWARD,
+
+    /*
+     * Sends CONNECT response message to client
+     *
+     * Interests:
+     *   - Client: OP_WRITE
+     *
+     * Transitions:
+     *   - CONNECT_RESPONSE     While response message is not over
+     *   - TCP_TUNNEL           When response message is over
+     *   - ERROR_STATE          IO error
+    */
+    CONNECT_RESPONSE,
+
+    /*
+     * Enables free TCP communication among peers
+     *
+     * Interests:
+     *   - Client: OP_READ, OP_WRITE
+     *   - Target: OP_READ, OP_WRITE
+     *
+     * Transitions:
+     *   - ERROR_STATE      IO error
+    */
+    TCP_TUNNEL,
 
     /*
      * Sends Clients last messages and gracefully shuts down
@@ -121,11 +132,6 @@ enum proxy_state {
 /* -------------------------------------- HANDLERS PROTOTYPES -------------------------------------- */
 
 /* ------------------------------------------------------------
-  Sends connection response to client.
------------------------------------------------------------- */
-static unsigned connect_write_ready(struct selector_key *key);
-
-/* ------------------------------------------------------------
   Reads HTTP requests from client.
 ------------------------------------------------------------ */
 static unsigned request_read_ready(struct selector_key *key);
@@ -133,7 +139,7 @@ static unsigned request_read_ready(struct selector_key *key);
 /* ------------------------------------------------------------
   Forwards HTTP requests to target.
 ------------------------------------------------------------ */
-static unsigned request_write_ready(struct selector_key *key);
+static unsigned request_forward_ready(struct selector_key *key);
 
 /* ------------------------------------------------------------
   Reads HTTP responses from target.
@@ -143,7 +149,22 @@ static unsigned response_read_ready(struct selector_key *key);
 /* ------------------------------------------------------------
   Forwards HTTP responses to client.
 ------------------------------------------------------------ */
-static unsigned response_write_ready(struct selector_key *key);
+static unsigned response_forward_ready(struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Sends connection response to client.
+------------------------------------------------------------ */
+static unsigned connect_response_ready(struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Reads TCP traffic from client or target. 
+------------------------------------------------------------ */
+static unsigned tcp_tunnel_read_ready(struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Forwards TCP traffic to corresponding peer.
+------------------------------------------------------------ */
+static unsigned tcp_tunnel_forward_ready(struct selector_key *key);
 
 /* ------------------------------------------------------------
   Sends last messages from client to target then closes connection
@@ -193,12 +214,6 @@ static void process_request_headers(struct request * req, char * target_host, ch
 
 static const struct state_definition state_defs[] = {
     {
-        .state            = CONNECT_WRITE,
-        .client_interest  = OP_WRITE,
-        .target_interest  = OP_NOOP,
-        .on_write_ready   = connect_write_ready,
-    },
-    {
         .state            = REQUEST_READ,
         .client_interest  = OP_READ,
         .target_interest  = OP_NOOP,
@@ -206,10 +221,10 @@ static const struct state_definition state_defs[] = {
         .on_read_ready    = request_read_ready,
     },
     {
-        .state            = REQUEST_WRITE,
+        .state            = REQUEST_FORWARD,
         .client_interest  = OP_NOOP,
         .target_interest  = OP_WRITE,
-        .on_write_ready   = request_write_ready,
+        .on_write_ready   = request_forward_ready,
     },
     {
         .state            = RESPONSE_READ,
@@ -219,10 +234,23 @@ static const struct state_definition state_defs[] = {
         .on_read_ready    = response_read_ready,
     },
     {
-        .state            = RESPONSE_WRITE,
+        .state            = RESPONSE_FORWARD,
         .client_interest  = OP_WRITE,
         .target_interest  = OP_NOOP,
-        .on_write_ready   = response_write_ready,
+        .on_write_ready   = response_forward_ready,
+    },
+    {
+        .state            = CONNECT_RESPONSE,
+        .client_interest  = OP_WRITE,
+        .target_interest  = OP_NOOP,
+        .on_write_ready   = connect_response_ready,
+    },
+    {
+        .state            = TCP_TUNNEL,
+        .client_interest  = OP_READ,
+        .target_interest  = OP_READ,
+        .on_read_ready    = tcp_tunnel_read_ready,
+        .on_write_ready   = tcp_tunnel_forward_ready,
     },
     {
         .state            = CLIENT_CLOSE_CONNECTION,
@@ -276,35 +304,6 @@ proxy_error error;
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
-static unsigned connect_write_ready(struct selector_key *key) {
-
-    if (! buffer_can_read(&(key->item->write_buffer)))
-        return CONNECT_WRITE;
-
-    // Read response bytes from write buffer
-
-    size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->src_socket, ptr, size);
-
-    if (sentBytes < 0) {
-        if(errno != EBADF)
-            log_error("Failed to write connect response to client");
-        return END;
-    }
-
-    buffer_read_adv(&(key->item->write_buffer), sentBytes);
-
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->src_socket);
-
-    if ((size_t) sentBytes < size)
-        return CONNECT_WRITE;
-
-    return REQUEST_READ;
-
-}
-
-
 static unsigned request_read_ready(struct selector_key *key) {
 
     key->item->last_activity = time(NULL);
@@ -318,7 +317,7 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     size_t space;
     uint8_t * raw_req = buffer_write_ptr(&(key->item->read_buffer), &space);
-    ssize_t readBytes = read(key->src_socket, raw_req, space);
+    ssize_t readBytes = read(key->item->client_socket, raw_req, space);
 
     if(readBytes < 0) {
         if(errno != EBADF)
@@ -331,7 +330,7 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
-    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->src_socket);
+    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->client_socket);
 
     // Process the request
 
@@ -340,16 +339,16 @@ static unsigned request_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned request_write_ready(struct selector_key *key) {
+static unsigned request_forward_ready(struct selector_key *key) {
 
     if (! buffer_can_read(&(key->item->write_buffer)))
-        return REQUEST_WRITE;
+        return REQUEST_FORWARD;
 
     // Read request bytes from write buffer
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->dst_socket, ptr, size);
+    ssize_t sentBytes = write(key->item->target_socket, ptr, size);
 
     if (sentBytes < 0) {
         if(errno != EBADF)
@@ -359,10 +358,10 @@ static unsigned request_write_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->dst_socket);
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->target_socket);
 
     if ((size_t) sentBytes < size)
-        return REQUEST_WRITE;
+        return REQUEST_FORWARD;
 
     return RESPONSE_READ;
 
@@ -380,7 +379,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     size_t space;
     uint8_t * raw_res = buffer_write_ptr(&(key->item->read_buffer), &space);
-    ssize_t readBytes = read(key->dst_socket, raw_res, space);
+    ssize_t readBytes = read(key->item->target_socket, raw_res, space);
 
     if(readBytes < 0) {
         if(errno != EBADF)
@@ -393,7 +392,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
-    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->dst_socket);
+    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->target_socket);
 
     // Parse the response
 
@@ -405,21 +404,21 @@ static unsigned response_read_ready(struct selector_key *key) {
     strncpy((char *) raw_res_proc, (char *) raw_res, readBytes);
     buffer_write_adv(&(key->item->write_buffer), readBytes);
 
-    return RESPONSE_WRITE;
+    return RESPONSE_FORWARD;
 
 }
 
 
-static unsigned response_write_ready(struct selector_key *key) {
+static unsigned response_forward_ready(struct selector_key *key) {
 
     if (! buffer_can_read(&(key->item->write_buffer)))
-        return RESPONSE_WRITE;
+        return RESPONSE_FORWARD;
 
     // Read response bytes from write buffer
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->src_socket, ptr, size);
+    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0) {
         if(errno != EBADF)
@@ -429,14 +428,140 @@ static unsigned response_write_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->src_socket);
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
 
     if ((size_t) sentBytes < size)
-        return RESPONSE_WRITE;
+        return RESPONSE_FORWARD;
 
     return REQUEST_READ;
 
 }
+
+
+static unsigned connect_response_ready(struct selector_key *key) {
+
+    if (! buffer_can_read(&(key->item->write_buffer)))
+        return CONNECT_RESPONSE;
+
+    // Read response bytes from write buffer
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
+    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
+
+    if (sentBytes < 0) {
+        if(errno != EBADF)
+            log_error("Failed to write connect response to client");
+        return END;
+    }
+
+    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
+
+    if ((size_t) sentBytes < size)
+        return CONNECT_RESPONSE;
+
+    return TCP_TUNNEL;
+
+}
+
+
+static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
+
+    // On this context: read_buffer = client_buffer, write_buffer = target_buffer
+
+    // Choose peer socket buffer for writing to it
+
+    int peer_fd = key->active_fd == key->item->client_socket
+        ? key->item->target_socket : key->item->client_socket;
+
+    buffer * buffer = peer_fd == key->item->client_socket
+        ? &(key->item->read_buffer) : &(key->item->write_buffer);
+
+    // If the buffer is full wait for it to be consumed
+
+    if (! buffer_can_write(buffer))
+        return TCP_TUNNEL;
+
+    // Copy active socket bytes into peer socket buffer
+
+    size_t space;
+    uint8_t * ptr = buffer_write_ptr(buffer, &space);
+    ssize_t readBytes = read(key->active_fd, ptr, space);
+
+    if (readBytes < 0) {
+        if(errno != EBADF)
+            log_error("Failed to read from active socket");
+        return END;
+    }
+
+    if (readBytes == 0)
+        return END;
+
+    buffer_write_adv(buffer, readBytes);
+
+    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->active_fd);
+
+    // Declare interest on writing to peer and return
+
+    if (key->active_fd == key->item->client_socket)
+        key->item->target_interest |= OP_WRITE;
+    else
+        key->item->client_interest |= OP_WRITE;
+
+    selector_update_fdset(key->s, key->item);
+
+    return TCP_TUNNEL;
+
+}
+
+
+static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
+
+    // On this context: read_buffer = client_buffer, write_buffer = target_buffer
+
+    // Choose active socket buffer for reading from it
+
+    buffer * buffer = key->active_fd == key->item->client_socket
+        ? &(key->item->read_buffer) : &(key->item->write_buffer);
+
+    // If the buffer is empty wait for it to be filled
+
+    if (! buffer_can_read(buffer))
+        return TCP_TUNNEL;
+
+    // Copy bytes from peer socket buffer to active socket
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(buffer, &size);
+    ssize_t sentBytes = write(key->active_fd, ptr, size);
+
+    if (sentBytes < 0) {
+        if(errno != EBADF)
+            log_error("Failed to write to active socket");
+        return END;
+    }
+
+    buffer_read_adv(buffer, sentBytes);
+
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->active_fd);
+
+     // If write is over turn off interest on writing on active socket, then return
+
+    if (((size_t) sentBytes) == size) {
+        if (key->active_fd == key->item->client_socket)
+            key->item->client_interest &= ~OP_WRITE;
+        else
+            key->item->target_interest &= ~OP_WRITE;
+            
+        selector_update_fdset(key->s, key->item);
+    }
+
+    return TCP_TUNNEL;
+
+}
+
 
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -464,7 +589,7 @@ static unsigned error_write_ready(struct selector_key *key) {
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->src_socket, ptr, size);
+    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     log(ERROR, "Read %ld bytes from write buffer", sentBytes);
 
@@ -485,20 +610,20 @@ static unsigned error_write_ready(struct selector_key *key) {
 
 static unsigned client_close_connection_arrival(const unsigned state, struct selector_key *key) {
 
-    log(DEBUG, "Client closed connection from socket %d", key->src_socket);
+    log(DEBUG, "Client closed connection from socket %d", key->item->client_socket);
 
     // Read last bytes from write buffer
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->dst_socket, ptr, size);
+    ssize_t sentBytes = write(key->item->target_socket, ptr, size);
 
     if (sentBytes < 0)
         return END;
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->dst_socket);
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->target_socket);
 
     if ((size_t) sentBytes < size)
         return CLIENT_CLOSE_CONNECTION;
@@ -510,20 +635,20 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
 
 static unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key) {
 
-    log(DEBUG, "Target Closed connection from socket %d", key->dst_socket);
+    log(DEBUG, "Target Closed connection from socket %d", key->item->target_socket);
 
     // Read last bytes from write buffer
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->src_socket, ptr, size);
+    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0)
         return END;
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->src_socket);
+    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
 
     if ((size_t) sentBytes < size)
         return TARGET_CLOSE_CONNECTION;
@@ -549,14 +674,16 @@ static unsigned process_request(struct selector_key * key) {
 
     // Instantiate a request struct or use previous one if it exists
 
-    if(key->item->data == NULL)
-        key->item->data = calloc(1, sizeof(struct request));
+    if(key->item->pdata.request == NULL)
+        key->item->pdata.request = calloc(1, sizeof(struct request));
     
-    struct request * request = key->item->data;
+    struct request * request = key->item->pdata.request;
 
     // Parse the request and check for pending and failure cases
 
-    parse_state parser_state = http_parser_parse(&(key->item->read_buffer), request, &(key->item->parser_data));
+    parse_state parser_state = http_parser_parse(
+        &(key->item->read_buffer), request, &(key->item->pdata)
+    );
 
     if (parser_state == PENDING)
         return REQUEST_READ;
@@ -566,18 +693,26 @@ static unsigned process_request(struct selector_key * key) {
         notify_error(BAD_REQUEST, REQUEST_READ);
     }
 
+    // Parse the request target URL
+
+    struct url url;
+    parse_url(request->url, &url);
+
+    if (strlen(request->url) == 0) {
+        notify_error(BAD_REQUEST, REQUEST_READ);
+    }
+
+    // Establish connection to target
+
+    unsigned ret = connect_target(key, url.hostname, url.port);
+    if (ret == ERROR_STATE)
+        return ret;
+
     if (request->method == CONNECT) {
 
-        // The request method is CONNECT, URL must be in authority form
-        // and a new connection must be established
-
-        struct url url;
-        parse_url(request->url, &url);
-
-        unsigned ret = connect_target(key, url.hostname, url.port);
-        if (ret == ERROR_STATE)
-            return ret;
-
+        // The request method is CONNECT, a response shall be sent
+        // and TCP tunnel be established
+        
         // Write response bytes into write buffer
 
         struct response res = { .status_code = RESPONSE_OK };
@@ -589,31 +724,14 @@ static unsigned process_request(struct selector_key * key) {
         strcpy((char *) ptr, raw_res);
         buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
 
-        return CONNECT_WRITE;
+        // Go to send response state
+
+        return CONNECT_RESPONSE;
 
     } else {
 
-        // The request method is a traditional one, URL must be in
-        // in absolute-form or origin-form
-
-        struct url url = {0};
-        parse_url(request->url, &url);
-        
-        if (strlen(url.hostname) > 0) {
-            // URL is in absolute-form, initiate a new connection
-            // and proceed to forward request
-
-            unsigned ret = connect_target(key, url.hostname, url.port);
-            if (ret == ERROR_STATE)
-                return ret;
-        }
-
-        // Check that a target connection is established
-
-        if (key->item->target_socket < 0) {
-            log_error("There is no target connection");
-            notify_error(CONFLICT, REQUEST_READ);
-        }
+        // The request method is a traditional one, request shall be proccessed
+        // and then forwarded
 
         // Process request headers
 
@@ -638,7 +756,9 @@ static unsigned process_request(struct selector_key * key) {
         strncpy((char *) ptr, (char *) raw_req, writeBytes);
         buffer_write_adv(&(key->item->write_buffer), writeBytes);
 
-        return REQUEST_WRITE;
+        // Go to forward request state
+
+        return REQUEST_FORWARD;
 
     }
     
@@ -702,7 +822,7 @@ static void process_request_headers(struct request * req, char * target_host, ch
 
     char * raw_req = create_request(req);
     log(DEBUG, "Original request");
-    log(DEBUG, raw_req);
+    log(DEBUG, "%s", raw_req);
     free(raw_req);
 
     bool replaced_host_header = false;
@@ -772,7 +892,7 @@ static void process_request_headers(struct request * req, char * target_host, ch
 
     raw_req = create_request(req);
     log(DEBUG, "Processed request");
-    log(DEBUG, raw_req);
+    log(DEBUG, "%s", raw_req);
     free(raw_req);
 
 }

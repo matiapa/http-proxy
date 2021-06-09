@@ -158,8 +158,6 @@ int sockAddrsEqual(const struct sockaddr *addr1, const struct sockaddr *addr2) {
 
 
 int get_machine_fqdn(char * fqdn) {
-	struct addrinfo * p;
-	
 	// Get unqualified hostname
 
 	char hostname[1024] = {0};
@@ -182,6 +180,8 @@ int get_machine_fqdn(char * fqdn) {
 	strcpy(fqdn, info->ai_canonname);
 
 	freeaddrinfo(info);
+
+	return 0;
 }
 
 
