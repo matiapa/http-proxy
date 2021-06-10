@@ -206,6 +206,7 @@ static const struct parser_state_transition ST_HEADER_VALUE [] =  {
     {.when = TOKEN_DIGIT,           .dest = HEADER_VALUE,                 .act1 = header_value,},
     {.when = TOKEN_SPECIAL,         .dest = HEADER_VALUE,                 .act1 = header_value,},
     {.when = TOKEN_LWSP,            .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = '=',                   .dest = HEADER_VALUE,                 .act1 = header_value,},
     {.when = '\r',                  .dest = HEADER_LINE_CR,               .act1 = header_value_end,},
     {.when = '\n',                  .dest = HEADER_LINE_CRLF,             .act1 = header_value_end,},
 };

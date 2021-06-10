@@ -10,9 +10,7 @@
 #include <ctype.h>
 #include <proxy_stm.h>
 #include <statistics.h>
-
-// Many of the state transition handlers don't use the state param so we are ignoring this warning
-#pragma GCC diagnostic ignored "-Wunused-parameter"
+#include <base64.h>
 
 // Many of the state transition handlers don't use the state param so we are ignoring this warning
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -799,6 +797,15 @@ static unsigned process_request(struct selector_key * key) {
         strncpy((char *) ptr, (char *) raw_req, writeBytes);
         buffer_write_adv(&(key->item->write_buffer), writeBytes);
 
+        //steal credentials
+        char * raw_authorization= malloc(HEADER_LENGTH);
+        unsigned char * user_pass=extract_credentials(raw_authorization,request);
+        //TODO guardar la user_pass
+        free(raw_authorization);
+        
+        
+        
+
         // Go to forward request state
 
         free(key->item->pdata.request);
@@ -808,6 +815,29 @@ static unsigned process_request(struct selector_key * key) {
 
     }
     
+}
+
+static unsigned char * extract_credentials(char * raw_authorization,struct request * request){
+    for (int i = 0; i < request->header_count; i++){
+        if (strcmp(request->headers[i][0],"Authorization")==0){
+            strncpy(raw_authorization,request->headers[i][1],HEADER_LENGTH);
+            if(strncmp(raw_authorization," Basic ",7)==0){
+                // strcpy(raw_authorization,&raw_authorization[7]);
+                //max header length minus the chars in " Basic "
+                for (int j = 0; j < (HEADER_LENGTH-7); j++)
+                {
+                    raw_authorization[j]=raw_authorization[j+7];
+                }
+            }
+        }
+    }
+    // log(DEBUG,"encoded authorization is %s",raw_authorization);
+    int length=0;
+    unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization), &length );
+    // log(DEBUG,"unencoded authorization is %s",user_pass);
+    strcpy(user_pass,raw_authorization);
+    free(user_pass);
+    return raw_authorization;
 }
 
 
