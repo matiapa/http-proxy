@@ -208,7 +208,7 @@ parse_state assign_target(http_request * req, http_request_parser * parser) {
     return SUCCESS;
 }
 
-void assign_version(http_request * req, http_request_parser * parser){
+static void assign_version(http_request * req, http_request_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 

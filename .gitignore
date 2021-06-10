@@ -5,6 +5,7 @@ bin/*
 *.o
 Testing/*
 statistics.txt
+debugging/*
 
 # IDEs related
 .idea/*
