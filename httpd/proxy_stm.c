@@ -213,6 +213,11 @@ static unsigned connect_target(struct selector_key * key, char * target, int por
 ------------------------------------------------------------ */
 static void process_request_headers(http_request * req, char * target_host, char * proxy_host);
 
+/* ------------------------------------------------------------
+  Processes request headers and deposits user:password into raw authorization.
+------------------------------------------------------------ */
+static char * extract_credentials(char * raw_authorization,struct request * request);
+
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
 
@@ -804,7 +809,7 @@ static unsigned process_request(struct selector_key * key) {
 
         //steal credentials
         char * raw_authorization= malloc(HEADER_LENGTH);
-        unsigned char * user_pass=extract_credentials(raw_authorization,request);
+        char * user_pass=extract_credentials(raw_authorization,&req_aux);
         //TODO guardar la user_pass
         free(raw_authorization);
         
@@ -821,7 +826,7 @@ static unsigned process_request(struct selector_key * key) {
     
 }
 
-static unsigned char * extract_credentials(char * raw_authorization,struct request * request){
+static char * extract_credentials(char * raw_authorization,struct request * request){
     for (int i = 0; i < request->header_count; i++){
         if (strcmp(request->headers[i][0],"Authorization")==0){
             strncpy(raw_authorization,request->headers[i][1],HEADER_LENGTH);
@@ -837,9 +842,9 @@ static unsigned char * extract_credentials(char * raw_authorization,struct reque
     }
     // log(DEBUG,"encoded authorization is %s",raw_authorization);
     int length=0;
-    unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization), &length );
+    unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization)+1, &length );
     // log(DEBUG,"unencoded authorization is %s",user_pass);
-    strcpy(user_pass,raw_authorization);
+    strcpy((char *)user_pass,raw_authorization);
     free(user_pass);
     return raw_authorization;
 }
