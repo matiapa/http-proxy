@@ -204,19 +204,29 @@ static unsigned notify_error(struct selector_key *key, int status_code, unsigned
 static unsigned process_request(struct selector_key * key);
 
 /* ------------------------------------------------------------
-  Initiates a connection to target and returns next state.
------------------------------------------------------------- */
-static unsigned connect_target(struct selector_key * key, char * target, int port);
-
-/* ------------------------------------------------------------
   Processes request headers according to RFC 7230 specs.
 ------------------------------------------------------------ */
 static void process_request_headers(http_request * req, char * target_host, char * proxy_host);
 
 /* ------------------------------------------------------------
+  Initiates a connection to target and returns next state.
+------------------------------------------------------------ */
+static unsigned connect_target(struct selector_key * key, char * target, int port);
+
+/* ------------------------------------------------------------
   Processes request headers and deposits user:password into raw authorization.
 ------------------------------------------------------------ */
-static char * extract_credentials(char * raw_authorization,struct request * request);
+static int extract_credentials(http_request * request);
+
+/* ------------------------------------------------------------
+  Processes an HTTP response and returns next state.
+------------------------------------------------------------ */
+static unsigned process_response(struct selector_key * key);
+
+/* ------------------------------------------------------------
+  Processes response headers according to RFC 7230 specs.
+------------------------------------------------------------ */
+static void process_response_headers(http_response * res, char * proxy_host);
 
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
@@ -339,7 +349,8 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->client_socket);
 
-    //calculate statistics
+    // Calculate statistics
+
     add_bytes_recieved(readBytes);   
 
     // Process the request
@@ -407,20 +418,13 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->target_socket);
 
-    // Parse the response
+    // Calculate statistics
 
-    // TODO: Add parser and handle pending message case
-
-    // Write processed response bytes into write buffer
-
-    uint8_t * raw_res_proc = buffer_write_ptr(&(key->item->write_buffer), &space);
-    strncpy((char *) raw_res_proc, (char *) raw_res, readBytes);
-    buffer_write_adv(&(key->item->write_buffer), readBytes);
-
-    //statistics
     add_bytes_recieved(readBytes);
 
-    return RESPONSE_FORWARD;
+    // Process the response
+
+    return process_response(key);
 
 }
 
@@ -539,6 +543,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     return TCP_TUNNEL;
 }
+
 
 static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 
@@ -684,6 +689,25 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 
 /* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
 
+#define RESET_REQUEST() \
+    http_request_parser_reset(&(key->item->req_parser)); \
+    free(key->item->req_parser.request); \
+    key->item->req_parser.request = NULL;
+
+#define RESET_RESPONSE() \
+    http_response_parser_reset(&(key->item->res_parser)); \
+    free(key->item->res_parser.response); \
+    key->item->res_parser.response = NULL;
+
+#define remove_array_elem(array, pos, size) \
+    memcpy(array+pos, array+pos+1, size-pos-1)
+
+#define rtrim(s) \
+    char* back = s + strlen(s); \
+    while(isspace(*--back)); \
+    *(back+1) = 0;
+
+
 static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
 
     struct response res = { .status_code = status_code };
@@ -703,17 +727,12 @@ static unsigned notify_error(struct selector_key *key, int status_code, unsigned
 }
 
 
-#define RESET_REQUEST() \
-    http_request_parser_reset(&(key->item->req_parser)); \
-    free(key->item->req_parser.request); \
-    key->item->req_parser.request = NULL;
-
 static unsigned process_request(struct selector_key * key) {
 
     // Instantiate a request struct or use previous one if it exists
 
     if(key->item->req_parser.request == NULL)
-        key->item->req_parser.request = calloc(1, sizeof(struct request));
+        key->item->req_parser.request = calloc(1, sizeof(http_request));
     
     http_request * request = key->item->req_parser.request;
 
@@ -787,6 +806,10 @@ static unsigned process_request(struct selector_key * key) {
         
         process_request_headers(request, url.hostname, proxy_hostname);
 
+        // Extract credentials if present
+
+        extract_credentials(request);
+
         // Write processed request bytes into write buffer
 
         struct request req_aux;
@@ -807,19 +830,6 @@ static unsigned process_request(struct selector_key * key) {
         strncpy((char *) ptr, (char *) raw_req, writeBytes);
         buffer_write_adv(&(key->item->write_buffer), writeBytes);
 
-        //steal credentials
-        char * raw_authorization= malloc(HEADER_LENGTH);
-        char * user_pass=extract_credentials(raw_authorization,&req_aux);
-        //TODO guardar la user_pass
-        if (user_pass!=NULL)
-        {
-            free(user_pass);
-        }
-        
-        
-        
-        
-
         // Go to forward request state
 
         RESET_REQUEST();
@@ -829,92 +839,7 @@ static unsigned process_request(struct selector_key * key) {
     }
     
 }
-/*retorna un puntero a raw_authorization con la user:password, si no hay authorization libera la memoria y devuelve null*/
-static char * extract_credentials(char * raw_authorization,struct request * request){
-    int found=0;
-    for (int i = 0; i < request->header_count&&!found; i++){
-        if (strcmp(request->headers[i][0],"Authorization")==0){
-            strncpy(raw_authorization,request->headers[i][1],HEADER_LENGTH);
-            if(strncmp(raw_authorization," Basic ",7)==0){
-                // strcpy(raw_authorization,&raw_authorization[7]);
-                //max header length minus the chars in " Basic "
-                for (int j = 0; j < (HEADER_LENGTH-7); j++)
-                {
-                    raw_authorization[j]=raw_authorization[j+7];
-                }
-                found=1;
-            }
-        }
-    }
-    if (found)
-    {
-       log(DEBUG,"encoded authorization is %s",raw_authorization);
-        int length=0;
-        unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization), &length );
-        log(DEBUG,"unencoded authorization is %s",user_pass);
-        strncpy((char *)user_pass,raw_authorization,length);
-        raw_authorization[length]=0;
-        free(user_pass);
-        return raw_authorization;
-    }
-    free(raw_authorization);
-    return NULL;
-    
-}
 
-
-static unsigned connect_target(struct selector_key * key, char * target_host, int target_port) {
-
-    // If there is an established connection to same target, return
-
-    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) == 0)
-        return 0;
-
-    // If there is an established connection to another target, close it
-
-    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) != 0)
-        close(key->item->target_socket);
-
-    // Get hostname and port from target
-
-    log(DEBUG, "Connection requested to %s:%d", target_host, target_port);
-
-    // Check that target is not blacklisted
-
-    if (strstr(proxy_conf.targetBlacklist, target_host) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", target_host);
-        return notify_error(key, FORBIDDEN, REQUEST_READ);
-    }
-
-    // Check that target is not the proxy itself
-
-    if (strcmp(target_host, "localhost") == 0 && target_port == proxy_conf.proxyArgs.proxy_port) {
-        log(INFO, "Rejected connection to proxy itself");
-        return notify_error(key, FORBIDDEN, REQUEST_READ);
-    }
-
-    // Open connection with target
-
-    int targetSocket = create_tcp_client(target_host, target_port);
-    if (targetSocket < 0) {
-        log_error("Failed to connect to target");
-        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-    }
-
-    key->item->target_socket = targetSocket;
-
-    return 0;
-
-}
-
-
-#define remove_array_elem(array, pos, size) \
-    memcpy(array+pos, array+pos+1, size-pos-1)
-
-#define rtrim(s) \
-    char* back = s + strlen(s); \
-    while(isspace(*--back)); \
-    *(back+1) = 0;
 
 static void process_request_headers(http_request * req, char * target_host, char * proxy_host) {
 
@@ -989,3 +914,199 @@ static void process_request_headers(http_request * req, char * target_host, char
 }
 
 
+static int extract_credentials(http_request * request) {
+    // TODO: guardar la user_pass
+
+    char raw_authorization[HEADER_LENGTH];
+    int found=0;
+
+    for (int i = 0; i < request->message.header_count&&!found; i++){
+        if (strcmp(request->message.headers[i][0],"Authorization")==0){
+            strncpy(raw_authorization,request->message.headers[i][1],HEADER_LENGTH);
+            if(strncmp(raw_authorization," Basic ",7)==0){
+                // strcpy(raw_authorization,&raw_authorization[7]);
+                //max header length minus the chars in " Basic "
+                for (int j = 0; j < (HEADER_LENGTH-7); j++)
+                {
+                    raw_authorization[j]=raw_authorization[j+7];
+                }
+                found=1;
+            }
+        }
+    }
+    
+    if (found) {
+        log(DEBUG,"encoded authorization is %s",raw_authorization);
+        int length=0;
+        unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization), &length );
+        log(DEBUG,"unencoded authorization is %s",user_pass);
+        strncpy((char *)user_pass,raw_authorization,length);
+        raw_authorization[length]=0;
+    }
+
+    return found;
+}
+
+
+static unsigned connect_target(struct selector_key * key, char * target_host, int target_port) {
+
+    // If there is an established connection to same target, return
+
+    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) == 0)
+        return 0;
+
+    // If there is an established connection to another target, close it
+
+    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) != 0)
+        close(key->item->target_socket);
+
+    // Get hostname and port from target
+
+    log(DEBUG, "Connection requested to %s:%d", target_host, target_port);
+
+    // Check that target is not blacklisted
+
+    if (strstr(proxy_conf.targetBlacklist, target_host) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", target_host);
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
+    }
+
+    // Check that target is not the proxy itself
+
+    if (strcmp(target_host, "localhost") == 0 && target_port == proxy_conf.proxyArgs.proxy_port) {
+        log(INFO, "Rejected connection to proxy itself");
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
+    }
+
+    // Open connection with target
+
+    int targetSocket = create_tcp_client(target_host, target_port);
+    if (targetSocket < 0) {
+        log_error("Failed to connect to target");
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+
+    key->item->target_socket = targetSocket;
+
+    return 0;
+
+}
+
+
+static unsigned process_response(struct selector_key * key) {
+
+    // Instantiate a response struct or use previous one if it exists
+
+    if(key->item->res_parser.response == NULL)
+        key->item->res_parser.response = calloc(1, sizeof(http_response));
+
+    http_response * response = key->item->res_parser.response;
+
+    // Parse the response and check for pending and failure cases
+
+    parse_state parser_state = http_response_parser_parse(
+        &(key->item->res_parser), &(key->item->read_buffer), response
+    );
+
+    if (parser_state == PENDING)
+        return RESPONSE_READ;
+
+    if (parser_state == FAILED) {
+        RESET_RESPONSE();
+        return notify_error(key, BAD_GATEWAY, REQUEST_READ);
+    }
+
+    // Process response headers
+
+    char proxy_hostname[128];
+    if(strlen(proxy_conf.viaProxyName) > 0) {
+        strncpy(proxy_hostname, proxy_conf.viaProxyName, 128);
+    } else {
+        get_machine_fqdn(proxy_hostname);
+    }
+
+    process_response_headers(response, proxy_hostname);
+
+    // Write processed response bytes into write buffer
+
+    struct response res_aux;
+    res_aux.status_code = response->status;
+    res_aux.header_count = response->message.header_count;
+    res_aux.body_length = response->message.body_length;
+    memcpy(res_aux.reason, response->reason, REASON_LENGTH);
+    memcpy(res_aux.headers, response->message.headers, MAX_HEADERS * HEADER_LENGTH * 2);
+    memcpy(res_aux.body, response->message.body, BODY_LENGTH);
+
+    char * raw_res = create_response(&(res_aux));
+    size_t size = strlen(raw_res);
+
+    size_t space;
+    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+    strncpy((char *) ptr, (char *) raw_res, space);
+    buffer_write_adv(&(key->item->write_buffer), size);
+
+    // Go to forward response state
+
+    RESET_RESPONSE();
+
+    return RESPONSE_FORWARD;
+        
+}
+
+
+static void process_response_headers(http_response * res, char * proxy_host) {
+
+    bool replaced_via_header = false;
+    bool close_detected = false;
+
+    for (int i=0; i < res->message.header_count; i++) {
+
+        // Right trim header names
+
+        rtrim(res->message.headers[i][0]);
+
+        // Replace Via header appending proxy hostname
+
+        if (strcmp(res->message.headers[i][0], "Via") == 0) {
+            char new_token[128];
+            sprintf(new_token, ", 1.1 %s", proxy_host);
+
+            strcat(res->message.headers[i][1], new_token);
+            
+            replaced_via_header = true;
+        }
+
+        // Remove headers listed on Connection header
+
+        if (strcmp(res->message.headers[i][0], "Connection") == 0) {
+            char * connection_headers = res->message.headers[i][1];
+
+            if (strstr(connection_headers, "Close"))
+                close_detected = true;
+
+            for(int j=0; j < res->message.header_count; j++) {
+                if (strstr(connection_headers, res->message.headers[j][0])) {
+                    remove_array_elem(res->message.headers, j, res->message.header_count);
+                    res->message.header_count -= 1;
+                }
+            }
+        }
+
+    }
+
+    // If a Via header was not present, add it
+
+    if(!replaced_via_header) {
+        res->message.header_count += 1;
+        sprintf(res->message.headers[res->message.header_count - 1][0], "Via");
+        sprintf(res->message.headers[res->message.header_count - 1][1], "1.1 %s", proxy_host);
+    }
+
+    // TODO: Handle close detected
+
+    if (close_detected) {
+        log(DEBUG, "Should close connection");
+    }
+
+}

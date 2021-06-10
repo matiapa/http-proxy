@@ -13,15 +13,7 @@ int responseFirstLine(char * string, struct response * response);
 
 int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count);
 
-
 char * methods_strings[3] = {"GET", "POST", "CONNECT"};
-
-int status_code_num[8] = {200, 400, 403, 409, 413, 500, 502, 504};
-
-char * status_code_message[8] = {
-    "OK", "Bad Request", "Forbidden", "Conflict", "Payload Too Large",
-    "Internal Server Error", "Bad Gateway", "Gateway Timeout"
-};
 
 
 /*-----------------------------------------
@@ -107,10 +99,26 @@ char * create_response(struct response * response) {
 
 int responseFirstLine(char * string, struct response * response) {
 
+    char * default_reason = NULL;
+    switch (response->status_code) {
+        case RESPONSE_OK: default_reason = "OK"; break;
+        case BAD_REQUEST: default_reason = "Bad Request"; break;
+        case FORBIDDEN: default_reason = "Forbidden"; break;
+        case CONFLICT: default_reason = "Conflict"; break;
+        case PAYLOAD_TOO_LARGE: default_reason = "Payload Too Large"; break;
+        case INTERNAL_SERVER_ERROR: default_reason = "Internal Server Error"; break;
+        case BAD_GATEWAY: default_reason = "Bad Gateway"; break;
+        case GATEWAY_TIMEOUT: default_reason = "Gateway Timeout"; break;
+    }
+
+    if (strlen(response->reason) == 0 && default_reason != NULL)
+        strncpy(response->reason, default_reason, REASON_LENGTH);
+
     return snprintf(
-        string, STRING_SIZE, "%s %d %s\n", HTTP_VERSION,
-        status_code_num[response->status_code], status_code_message[response->status_code]
+        string, STRING_SIZE, "%s %d %s\n",
+        HTTP_VERSION, response->status_code, response->reason
     );
+
 }
 
 

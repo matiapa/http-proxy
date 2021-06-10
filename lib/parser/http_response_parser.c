@@ -181,7 +181,7 @@ static struct parser_definition definition = {
 #define COPY(dst, src, srcBytes) memcpy(dst, src, MIN(srcBytes, N(dst)));
 
 
-void assign_version(http_response * res, http_response_parser * parser){
+static void assign_version(http_response * res, http_response_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
@@ -189,7 +189,7 @@ void assign_version(http_response * res, http_response_parser * parser){
 }
 
 
-void assign_status(http_response * res, http_response_parser * parser){
+static void assign_status(http_response * res, http_response_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
@@ -197,7 +197,7 @@ void assign_status(http_response * res, http_response_parser * parser){
 }
 
 
-void assign_reason(http_response * res, http_response_parser * parser){
+static void assign_reason(http_response * res, http_response_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
@@ -235,8 +235,6 @@ void http_response_parser_destroy(http_response_parser * parser){
 
 parse_state http_response_parser_parse(http_response_parser * parser, buffer * read_buffer, http_response * response) {
 
-    parse_state result = PENDING;
-
     while(buffer_can_read(read_buffer)){
 
         if (parser->parser->state != RES_LINE_CRLF) {
@@ -256,7 +254,7 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
                     break;
 
                 case STATUS_VAL:
-                    buffer_write(&(parser->parse_buffer), toupper(e->data[0]));
+                    buffer_write(&(parser->parse_buffer), e->data[0]);
                     break;
 
                 case STATUS_VAL_END:
@@ -265,7 +263,7 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
                     break;
 
                 case REASON_VAL:
-                    buffer_write(&(parser->parse_buffer), tolower(e->data[0]));
+                    buffer_write(&(parser->parse_buffer),e->data[0]);
                     break;
 
                 case REASON_VAL_END:
@@ -287,15 +285,15 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
 
         } else {
 
-            result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(response->message));
+            parse_state result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(response->message));
 
-            if (result == FAILED)
-                return FAILED;
+            if (result == SUCCESS || result == FAILED)
+                return result;
 
         }
      
     }
 
-    return result;
+    return PENDING;
 
 }

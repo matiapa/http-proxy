@@ -14,10 +14,15 @@ typedef enum {GET, POST, CONNECT, OTHER} methods;
 
 typedef enum {CONNECTION, REQUEST, RESPONSE} item_state;
 
-typedef enum {
-    RESPONSE_OK, BAD_REQUEST, FORBIDDEN, CONFLICT, PAYLOAD_TOO_LARGE,
-    INTERNAL_SERVER_ERROR, BAD_GATEWAY, GATEWAY_TIMEOUT
-} status_code;
+#define RESPONSE_OK 200
+#define BAD_REQUEST 400
+#define FORBIDDEN 403
+#define CONFLICT 409
+#define PAYLOAD_TOO_LARGE 413
+#define INTERNAL_SERVER_ERROR 500
+#define BAD_GATEWAY 502
+#define GATEWAY_TIMEOUT 504
+
 
 /* REQUEST STRUCTURE */
 struct request {
@@ -34,9 +39,13 @@ struct request {
 
 /* RESPONSE STRUCTURE */
 struct response {
+    char version[VERSION_LENGTH];
     int status_code;
+    char reason[REASON_LENGTH];
+
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
     int header_count;
+
     char body[BODY_LENGTH];
     int body_length;
 };

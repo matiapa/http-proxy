@@ -5,7 +5,7 @@
 #include <http.h>
 
 typedef struct http_response {
-    status_code status;
+    int status;
     char version[VERSION_LENGTH];
     char reason[REASON_LENGTH];
 

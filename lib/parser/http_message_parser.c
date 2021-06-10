@@ -212,18 +212,24 @@ static struct parser_definition definition = {
 
 #define COPY(dst, src, srcBytes) memcpy(dst, src, MIN(srcBytes, N(dst)));
 
-void assign_header_name(http_message * message, http_message_parser * parser){
+static void assign_header_name(http_message * message, http_message_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
     COPY(message->headers[message->header_count][0], ptr, size);
 }
 
-void assign_header_value(http_message * message, http_message_parser * parser){
+static void assign_header_value(http_message * message, http_message_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
     COPY(message->headers[message->header_count][1], ptr, size);
+
+    if (strncmp(message->headers[message->header_count][0], "Content-Length", HEADER_LENGTH) == 0) {
+        parser->expected_body_length = atoi(message->headers[message->header_count][1]);
+        log(DEBUG, "Expected body length: %d", parser->expected_body_length);
+    }
+
     message->header_count += 1;
 }
 
@@ -233,6 +239,7 @@ void assign_header_value(http_message * message, http_message_parser * parser){
 
 void http_message_parser_init(http_message_parser * parser){
     if(parser != NULL){
+        parser->expected_body_length = 0;
         parser->parser = parser_init(init_char_class(), &definition);
         buffer_init(&(parser->parse_buffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
     }
@@ -253,8 +260,6 @@ void http_message_parser_destroy(http_message_parser * parser){
 
 
 parse_state http_message_parser_parse(http_message_parser * parser, buffer * read_buffer, http_message * message) {
-
-    parse_state result = PENDING;
 
     while(buffer_can_read(read_buffer)){
 
@@ -283,14 +288,19 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
                 break;
 
             case HEADER_SECTION_END:
-                http_message_parser_reset(parser);
-                result = SUCCESS;
+                if (parser->expected_body_length == 0) {
+                    http_message_parser_reset(parser);
+                    return SUCCESS;
+                }
                 break;
 
             case BODY_VAL:
-                message->body[message->body_length++] = e->data[0];
-                http_message_parser_reset(parser);
-                result = SUCCESS;
+                message->body[message->body_length++] = e->data[0]; 
+
+                if (message->body_length >= parser->expected_body_length) {
+                    http_message_parser_reset(parser);
+                    return SUCCESS;
+                }
                 break;
 
             case WAIT_MSG:
@@ -307,6 +317,6 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
      
     }
 
-    return result;
+    return PENDING;
 
 }

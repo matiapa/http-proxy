@@ -9,6 +9,8 @@
 #include <monitor.h>
 #include <doh_client.h>
 #include <selector_enums.h>
+#include <http_request_parser.h>
+#include <http_response_parser.h>
 #include <proxy_stm.h>
 
 void handle_creates(struct selector_key *key);
@@ -118,6 +120,7 @@ void handle_creates(struct selector_key *key) {
     stm_init(&(key->item->stm));
 
     http_request_parser_init(&(key->item->req_parser));
+    http_response_parser_init(&(key->item->res_parser));
 
     // Set initial interests
 

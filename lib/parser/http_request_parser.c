@@ -239,8 +239,6 @@ void http_request_parser_destroy(http_request_parser * parser){
 
 parse_state http_request_parser_parse(http_request_parser * parser, buffer * read_buffer, http_request * request) {
 
-    parse_state result = PENDING;
-
     while(buffer_can_read(read_buffer)){
 
         if (parser->parser->state != REQ_LINE_CRLF) {
@@ -291,15 +289,15 @@ parse_state http_request_parser_parse(http_request_parser * parser, buffer * rea
 
         } else {
 
-            result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(request->message));
+            parse_state result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(request->message));
 
-            if (result == FAILED)
-                return FAILED;
+            if (result == SUCCESS || result == FAILED)
+                return result;
 
         }
      
     }
 
-    return result;
+    return PENDING;
 
 }

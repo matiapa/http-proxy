@@ -15,6 +15,7 @@ typedef struct http_message {
 typedef struct http_message_parser {
     struct parser * parser;
     buffer parse_buffer;
+    int expected_body_length;
 } http_message_parser;
 
 void http_message_parser_init(http_message_parser * parser);
