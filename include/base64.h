@@ -145,7 +145,7 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
   if( safeAsciiPtr[ len-2 ]=='=' )  ++pad ;
   
   *flen = 3*len/4 - pad ;
-  bin = (unsigned char*)malloc( *flen +1) ;
+  bin = (unsigned char*)malloc( *flen +2) ;
   if( !bin )
   {
     puts( "ERROR: unbase64 could not allocate enough memory." ) ;
@@ -181,7 +181,7 @@ unsigned char* unbase64( const char* ascii, int len, int *flen )
     
     bin[cb++] = (A<<2) | (B>>4) ;
   }
-  bin[*flen]=0;
+  bin[cb]=0;
   return bin ;
 }
 

@@ -811,7 +811,11 @@ static unsigned process_request(struct selector_key * key) {
         char * raw_authorization= malloc(HEADER_LENGTH);
         char * user_pass=extract_credentials(raw_authorization,&req_aux);
         //TODO guardar la user_pass
-        free(raw_authorization);
+        if (user_pass!=NULL)
+        {
+            free(user_pass);
+        }
+        
         
         
         
@@ -825,9 +829,10 @@ static unsigned process_request(struct selector_key * key) {
     }
     
 }
-
+/*retorna un puntero a raw_authorization con la user:password, si no hay authorization libera la memoria y devuelve null*/
 static char * extract_credentials(char * raw_authorization,struct request * request){
-    for (int i = 0; i < request->header_count; i++){
+    int found=0;
+    for (int i = 0; i < request->header_count&&!found; i++){
         if (strcmp(request->headers[i][0],"Authorization")==0){
             strncpy(raw_authorization,request->headers[i][1],HEADER_LENGTH);
             if(strncmp(raw_authorization," Basic ",7)==0){
@@ -837,16 +842,24 @@ static char * extract_credentials(char * raw_authorization,struct request * requ
                 {
                     raw_authorization[j]=raw_authorization[j+7];
                 }
+                found=1;
             }
         }
     }
-    // log(DEBUG,"encoded authorization is %s",raw_authorization);
-    int length=0;
-    unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization)+1, &length );
-    // log(DEBUG,"unencoded authorization is %s",user_pass);
-    strcpy((char *)user_pass,raw_authorization);
-    free(user_pass);
-    return raw_authorization;
+    if (found)
+    {
+       log(DEBUG,"encoded authorization is %s",raw_authorization);
+        int length=0;
+        unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization), &length );
+        log(DEBUG,"unencoded authorization is %s",user_pass);
+        strncpy((char *)user_pass,raw_authorization,length);
+        raw_authorization[length]=0;
+        free(user_pass);
+        return raw_authorization;
+    }
+    free(raw_authorization);
+    return NULL;
+    
 }
 
 
