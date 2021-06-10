@@ -747,7 +747,7 @@ static unsigned process_request(struct selector_key * key) {
 
     if (parser_state == FAILED) {
         RESET_REQUEST();
-        return notify_error(key, BAD_REQUEST, REQUEST_READ);
+        return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
     }
 
     // Parse the request target URL
@@ -757,7 +757,7 @@ static unsigned process_request(struct selector_key * key) {
 
     if (strlen(request->url) == 0) {
         RESET_REQUEST();
-        return notify_error(key, BAD_REQUEST, REQUEST_READ);
+        return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
     }
 
     // Establish connection to target
@@ -847,7 +847,7 @@ static void process_request_headers(http_request * req, char * target_host, char
     bool replaced_via_header = false;
     bool close_detected = false;
 
-    for (int i=0; i < req->message.header_count; i++) {
+    for (size_t i=0; i < req->message.header_count; i++) {
 
         // Right trim header names
 
@@ -879,7 +879,7 @@ static void process_request_headers(http_request * req, char * target_host, char
             if (strstr(connection_headers, "Close"))
                 close_detected = true;
 
-            for(int j=0; j < req->message.header_count; j++) {
+            for(size_t j=0; j < req->message.header_count; j++) {
                 if (strstr(connection_headers, req->message.headers[j][0])) {
                     remove_array_elem(req->message.headers, j, req->message.header_count);
                     req->message.header_count -= 1;
@@ -920,7 +920,7 @@ static int extract_credentials(http_request * request) {
     char raw_authorization[HEADER_LENGTH];
     int found=0;
 
-    for (int i = 0; i < request->message.header_count&&!found; i++){
+    for (size_t i = 0; i < request->message.header_count&&!found; i++){
         if (strcmp(request->message.headers[i][0],"Authorization")==0){
             strncpy(raw_authorization,request->message.headers[i][1],HEADER_LENGTH);
             if(strncmp(raw_authorization," Basic ",7)==0){
@@ -1060,7 +1060,7 @@ static void process_response_headers(http_response * res, char * proxy_host) {
     bool replaced_via_header = false;
     bool close_detected = false;
 
-    for (int i=0; i < res->message.header_count; i++) {
+    for (size_t i=0; i < res->message.header_count; i++) {
 
         // Right trim header names
 
@@ -1085,7 +1085,7 @@ static void process_response_headers(http_response * res, char * proxy_host) {
             if (strstr(connection_headers, "Close"))
                 close_detected = true;
 
-            for(int j=0; j < res->message.header_count; j++) {
+            for(size_t j=0; j < res->message.header_count; j++) {
                 if (strstr(connection_headers, res->message.headers[j][0])) {
                     remove_array_elem(res->message.headers, j, res->message.header_count);
                     res->message.header_count -= 1;

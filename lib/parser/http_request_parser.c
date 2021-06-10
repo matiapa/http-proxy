@@ -6,6 +6,7 @@
 #include <http_chars.h>
 #include <parser.h>
 #include <logger.h>
+#include <http.h>
 #include <http_request_parser.h>
 
 #define PARSE_BUFF_SIZE 1024
@@ -193,13 +194,19 @@ void assign_method(http_request * httpRequest, http_request_parser * parser){
 }
 
 
-void assign_target(http_request * req, http_request_parser * parser){
+parse_state assign_target(http_request * req, http_request_parser * parser) {
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
+    
+    if (N(req->url) <= size) {
+        parser->error_code = URI_TOO_LONG;
+        return ERROR;
+    }
 
     COPY(req->url, ptr, size);
-}
 
+    return SUCCESS;
+}
 
 void assign_version(http_request * req, http_request_parser * parser){
     size_t size;
@@ -244,8 +251,10 @@ parse_state http_request_parser_parse(http_request_parser * parser, buffer * rea
         if (parser->parser->state != REQ_LINE_CRLF) {
             const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
-            log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-            log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+            // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
+            // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+
+            parse_state s;
 
             switch(e->type) {
                 case METHOD_NAME:
@@ -262,7 +271,9 @@ parse_state http_request_parser_parse(http_request_parser * parser, buffer * rea
                     break;
 
                 case TARGET_VAL_END:
-                    assign_target(parser->request, parser);
+                    s = assign_target(parser->request, parser);
+                    if (s == FAILED)
+                        return FAILED;
                     buffer_reset(&(parser->parse_buffer));
                     break;
 
@@ -279,17 +290,21 @@ parse_state http_request_parser_parse(http_request_parser * parser, buffer * rea
                     break;
 
                 case UNEXPECTED_VALUE:
-                    http_request_parser_reset(parser);
+                    parser->error_code = BAD_REQUEST;
                     return FAILED;
 
                 default:
                     log(ERROR, "Unexpected event type %d", e->type);
+                    parser->error_code = INTERNAL_SERVER_ERROR;
                     return FAILED;
             }
 
         } else {
 
             parse_state result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(request->message));
+
+            if (result == FAILED)
+                parser->error_code = parser->message_parser.error_code;
 
             if (result == SUCCESS || result == FAILED)
                 return result;

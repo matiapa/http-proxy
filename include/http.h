@@ -3,26 +3,41 @@
 
 #include <buffer.h>
 
-#define URL_LENGTH 50
-#define VERSION_LENGTH 50
-#define MAX_HEADERS 30
-#define HEADER_LENGTH 50
-#define BODY_LENGTH 1024
-#define REASON_LENGTH 128
+/*---------------------- Size definitions ----------------------*/
 
-typedef enum {GET, POST, CONNECT, OTHER} methods;
+// A version has exactly 8 chars 
+#define VERSION_LENGTH 8
 
-typedef enum {CONNECTION, REQUEST, RESPONSE} item_state;
+// Suggested length (RFC 7230 - Section 3.1.1), larger URLs return 414 - URI Too Long
+#define URL_LENGTH 8000
+
+// Chosen arbitrarily (RFC 7230 - Section 3.1.2), larger reasons are truncated
+#define REASON_LENGTH 128           
+
+// Chosen arbitrarily (RFC 7230 - Section 3.2.5), more headers are discarded
+#define MAX_HEADERS 128
+
+// Chosen arbitrarily (RFC 7230 - Section 3.2.5), larger headers are truncated
+#define HEADER_LENGTH 512
+
+// Chosen arbitrarily, larger bodies return 413 - Payload Too Large
+#define BODY_LENGTH 1024*1024
+
+/*---------------------- Keywords definitions ----------------------*/
+
+typedef enum methods {GET, POST, CONNECT, OTHER} methods;
 
 #define RESPONSE_OK 200
 #define BAD_REQUEST 400
 #define FORBIDDEN 403
 #define CONFLICT 409
 #define PAYLOAD_TOO_LARGE 413
+#define URI_TOO_LONG 414
 #define INTERNAL_SERVER_ERROR 500
 #define BAD_GATEWAY 502
 #define GATEWAY_TIMEOUT 504
 
+/*---------------------- Structs definitions ----------------------*/
 
 /* REQUEST STRUCTURE */
 struct request {
@@ -39,8 +54,8 @@ struct request {
 
 /* RESPONSE STRUCTURE */
 struct response {
-    char version[VERSION_LENGTH];
     int status_code;
+    char version[VERSION_LENGTH];
     char reason[REASON_LENGTH];
 
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
@@ -59,30 +74,3 @@ char * create_response(struct response * response);
 int copy(char * dst, char * src);
 
 #endif
-
-/* EJEMPLO DE USO REQUEST FACTORY
-    struct request request = {
-            .method = GET,
-            .file = "holamundo.txt",
-            .headers = headers,
-            .header_count = header_count
-    };
-    char * string = create_request(&request);
-    printf("%s\n", string);
-    free(string);
-    free(headers);
-*/
-
-/* EJEMPLO DE USO RESPONSE FACTORY
-    struct response response = {
-            .status_code = 200,
-            .status_message = "OK",
-            .headers = headers,
-            .header_count = header_count
-    };
-    char * string = create_response(&response);
-    printf("%s\n", string);
-    free(string);
-    free(headers);
-*/
-

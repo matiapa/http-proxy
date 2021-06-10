@@ -240,8 +240,8 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
         if (parser->parser->state != RES_LINE_CRLF) {
             const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
-            log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-            log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+            // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
+            // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
             switch(e->type) {
                 case VERSION_VAL:
@@ -275,17 +275,21 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
                     break;
 
                 case UNEXPECTED_VALUE:
-                    http_response_parser_reset(parser);
+                    parser->error_code = BAD_REQUEST;
                     return FAILED;
 
                 default:
                     log(ERROR, "Unexpected event type %d", e->type);
+                    parser->error_code = INTERNAL_SERVER_ERROR;
                     return FAILED;
             }
 
         } else {
 
             parse_state result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(response->message));
+
+            if (result == FAILED)
+                parser->error_code = parser->message_parser.error_code;
 
             if (result == SUCCESS || result == FAILED)
                 return result;

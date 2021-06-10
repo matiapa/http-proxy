@@ -6,7 +6,7 @@
 
 typedef struct http_message {
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
-    int header_count;
+    size_t header_count;
 
     char body[BODY_LENGTH];
     int body_length;
@@ -16,6 +16,7 @@ typedef struct http_message_parser {
     struct parser * parser;
     buffer parse_buffer;
     int expected_body_length;
+    int error_code;
 } http_message_parser;
 
 void http_message_parser_init(http_message_parser * parser);

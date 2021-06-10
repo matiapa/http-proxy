@@ -16,6 +16,7 @@ typedef struct http_request_parser{
     struct parser * parser;
     buffer parse_buffer;
     http_request * request;
+    int error_code;
 
     http_message_parser message_parser;
 } http_request_parser;

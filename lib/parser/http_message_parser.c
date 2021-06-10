@@ -216,12 +216,18 @@ static void assign_header_name(http_message * message, http_message_parser * par
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
+    if (message->header_count >= N(message->headers))
+        return;
+
     COPY(message->headers[message->header_count][0], ptr, size);
 }
 
 static void assign_header_value(http_message * message, http_message_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
+
+    if (message->header_count >= N(message->headers))
+        return;
 
     COPY(message->headers[message->header_count][1], ptr, size);
 
@@ -265,8 +271,8 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
 
         const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
-        log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-        log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+        // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
+        // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
         switch(e->type) {
             case HEADER_NAME_VAL:
@@ -307,11 +313,12 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
                 break;
 
             case UNEXPECTED_VALUE:
-                http_message_parser_reset(parser);
+                parser->error_code = BAD_REQUEST;
                 return FAILED;
 
             default:
                 log(ERROR, "Unexpected event type %d", e->type);
+                parser->error_code = INTERNAL_SERVER_ERROR;
                 return FAILED;
         }
      
