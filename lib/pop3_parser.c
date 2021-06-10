@@ -8,6 +8,7 @@
 #include <pop3_parser.h>
 #include <http_chars.h>
 #include <parser.h>
+#include <logger.h>
 
 #define PARSE_BUFF_SIZE 1024
 
@@ -58,7 +59,7 @@ static void command_end(struct parser_event *ret, const uint8_t c) {
     ret->data[0] = c;
 }
 
-static void wait(struct parser_event *ret, const uint8_t c) {
+static void wait_msg(struct parser_event *ret, const uint8_t c) {
     ret->type    = WAIT_MSG;
     ret->n       = 1;
     ret->data[0] = c;
@@ -228,12 +229,12 @@ pop3_state pop3_parse(buffer * readBuffer, pop3_parser_data * data, char * pop3_
                 break;
 
             case COMMAND_VALUE:
-                //log(DEBUG, "TARGET_VAL %c", e->data[0]);
+                log(DEBUG, "TARGET_VAL %c", e->data[0]);
                 buffer_write(&(data->popBuffer), e->data[0]);
                 break;
 
             case COMMAND_VALUE_END:
-                //log(DEBUG, "TARGET_VAL_END %c", e->data[0]);
+                log(DEBUG, "TARGET_VAL_END %c", e->data[0]);
                 assign_value(data, cmd);
                 if(data->pass == 1 && data->user == 0){
                     data->pass = 0;

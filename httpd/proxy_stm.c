@@ -528,8 +528,39 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     buffer_write_adv(buffer, readBytes);
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->active_fd);
+    char * credentials;
+    pop3_state  state = pop3_parse(buffer, &(key->item->pop3_parser), key->item->pop3_parser.credentials);
 
+    switch (state) {
+        case POP3_FAILED:
 
+            break;
+        case FAILED_PASS_NO_USER:
+        log(DEBUG,"Pop State is FAILED_PASS_NO_USER" )
+            break;
+        case NO_USER_PASS:
+        log(DEBUG,"Pop State is NO_USER_PASS")
+        //idem pending
+            break;
+        case POP3_PENDING:
+        log(DEBUG,"Pop State is POP3_PENDING")
+            //revisar
+            break;
+        case USER_SUCCESS:
+            log(DEBUG,"Pop State is USER_SUCCESS");
+            break;
+        case USER_PASS_SUCCESS:
+            log(DEBUG,"Pop State is USER_PASS_SUCCESS");
+            credentials = calloc(MAX_CREDENTIALS_LENGTH, sizeof(char ));
+            strcpy(credentials, key->item->pop3_parser.credentials);
+            break;
+        default:
+            log(ERROR,"Unexpected state %d",state);
+            break;
+
+    }
+
+    log(DEBUG,"credentials: %s", credentials);
     //statistics
     add_bytes_recieved(readBytes);
     // Declare interest on writing to peer and return
