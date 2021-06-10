@@ -4,6 +4,7 @@ bin/*
 *.log
 *.o
 Testing/*
+statistics.txt
 
 # IDEs related
 .idea/*
@@ -17,4 +18,3 @@ CMakeLists.txt
 # OS related
 .DS_Store
 Thumbs.db
-statistics.txt

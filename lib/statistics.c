@@ -8,12 +8,10 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <config.h>
 #include <time.h>
 
   
-  
-  
-
 long global_total_connections=0;
 int global_concurent_connections=0;
 
@@ -26,6 +24,9 @@ int fd=-1;
 void update(int signal_recv);
 
 void initialize_statistics(){
+    if (proxy_conf.statisticsFrequency < 0)
+        return;
+
     log(DEBUG, "initialized statistics");
     fd=open("./statistics.txt", O_RDWR | O_CREAT | O_TRUNC, S_IRWXU|S_IRWXG|S_IRWXO);
     global_total_connections=0;
@@ -36,7 +37,7 @@ void initialize_statistics(){
 
     signal(SIGALRM,update);
 
-    alarm(STATISTICS_TIMER);
+    // alarm(proxy_conf);
 }
 
 void add_connection(){
@@ -50,7 +51,7 @@ void remove_conection(){
 }
 
 
- 
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 void update(int signal_recv){
     log(DEBUG, "statistics update");
     log(DEBUG,"total connections: %ld, current connections :%d, total bytes sent: %ld, total bytes recieved: %ld",
@@ -74,9 +75,8 @@ void update(int signal_recv){
     fprintf(fptr,"Number of total bytes sent since server start: %ld\n",total_bytes_sent);
     fprintf(fptr,"Number of total bytes recieved since server start: %ld\n\n",total_bytes_recieved);
     fclose(fptr);
-    
 
-    alarm(STATISTICS_TIMER);
+    alarm(proxy_conf.statisticsFrequency);
     signal(SIGALRM,update);
 
 }

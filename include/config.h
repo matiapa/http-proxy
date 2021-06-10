@@ -10,8 +10,8 @@
 typedef struct Config {
     int maxClients;                             // Max allowed clients (up to 1000). Default is 1000.
     int connectionTimeout;                      // Max inactivity time before disconnection, or -1 to disable it. Default is -1.
-
-    bool statisticsEnabled;                     // Whether to log connection statistics. Default is 1.
+    int statisticsFrequency;                    // Frequency of statistics logging, or -1 to disable it.
+    
     bool disectorsEnabled;                      // Whether to extract plain text credentials. Default is 1.
 
     char viaProxyName[VIA_PROXY_NAME_SIZE];     // Host name to use on RFC 7230 required 'Via' header. Default is proxy hostname.

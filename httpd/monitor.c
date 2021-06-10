@@ -22,8 +22,8 @@ void set_variable(char * command, char * response);
 Config proxy_conf = {
     .maxClients = 1000,
     .connectionTimeout = -1,
+    .statisticsFrequency = 3600,
 
-    .statisticsEnabled = true,
     .disectorsEnabled = true,
 
     .viaProxyName = "",
@@ -83,7 +83,7 @@ void parse_request(char * command, char * response) {
         "> Available config variables:\n"
         ">> maxClients:                           Max allowed clients (up to 1000). Default is 1000.\n"
         ">> connectionTimeout:                    Max inactivity time before disconnection, or -1 to disable it. Default is -1.\n"
-        ">> statisticsEnabled:                    Whether to log connection statistics. Default is 1.\n"
+        ">> statisticsFrequency:                  Frequency of statistics logging, or -1 to disable it.\n"
         ">> disectorsEnabled:                     Whether to extract plain text credentials. Default is 1.\n"
         ">> viaProxyName:                         Host name to use on RFC 7230 required 'Via' header, up to %d characters. Default is proxy hostname.\n"
         ">> clientBlacklist:                      Comma separated list of client IPs to which service must be denied. Max size of list is %d.\n"
@@ -98,14 +98,14 @@ void parse_request(char * command, char * response) {
       char * format =
         "maxClients: %d\n"
         "connectionTimeout: %d\n"
-        "statisticsEnabled: %d\n"
+        "statisticsFrequency: %d\n"
         "disectorsEnabled: %d\n"
         "viaProxyName: %s\n"
         "clientBlacklist: %s\n"
         "targetBlacklist: %s\n"
         "logLevel: %s\n";
 
-      sprintf(response, format, PF.maxClients, PF.connectionTimeout, PF.statisticsEnabled, PF.disectorsEnabled,
+      sprintf(response, format, PF.maxClients, PF.connectionTimeout, PF.statisticsFrequency, PF.disectorsEnabled,
         PF.viaProxyName, PF.clientBlacklist, PF.targetBlacklist, levelDescription(PF.logLevel));
 
     } else if (strncmp(command, "SHOW STATISTICS", 15) == 0) {
@@ -170,11 +170,11 @@ void set_variable(char * command, char * response) {
       sprintf(response, "ERROR: Value must be a natural n such that 0 < n or n = -1\n");
     }
 
-  } else if (strncmp(variable, "statisticsEnabled", 17) == 0) {
+  } else if (strncmp(variable, "statisticsFrequency", 19) == 0) {
 
     int num = atoi(value);
     if (num == 0 || num == 1) {
-      PF.statisticsEnabled = num;
+      PF.statisticsFrequency = num;
       sprintf(response, "OK: Statistics %s\n", num ? "enabled" : "disabled");
     } else {
       sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
