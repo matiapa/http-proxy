@@ -268,7 +268,8 @@ void http_message_parser_destroy(http_message_parser * parser){
 parse_state http_message_parser_parse(http_message_parser * parser, buffer * read_buffer, http_message * message) {
 
     while(buffer_can_read(read_buffer)){
-
+        size_t nbytes;
+        char * pointer = (char *)buffer_read_ptr(read_buffer, &nbytes);
         const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
         // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
@@ -301,13 +302,8 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
                 break;
 
             case BODY_VAL:
-                message->body[message->body_length++] = e->data[0]; 
-
-                if (message->body_length >= parser->expected_body_length) {
-                    http_message_parser_reset(parser);
-                    return SUCCESS;
-                }
-                break;
+                message->body = pointer;
+                return SUCCESS;
 
             case WAIT_MSG:
                 break;

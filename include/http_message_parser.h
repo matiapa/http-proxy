@@ -8,7 +8,7 @@ typedef struct http_message {
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
     size_t header_count;
 
-    char body[BODY_LENGTH];
+    char * body;
     int body_length;
 } http_message;
 

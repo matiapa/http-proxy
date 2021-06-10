@@ -48,7 +48,7 @@ struct request {
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
     int header_count;
 
-    char body[BODY_LENGTH];
+    char * body;
     int body_length;
 };
 
@@ -61,7 +61,7 @@ struct response {
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
     int header_count;
 
-    char body[BODY_LENGTH];
+    char * body;
     int body_length;
 };
 

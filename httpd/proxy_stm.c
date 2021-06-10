@@ -814,11 +814,12 @@ static unsigned process_request(struct selector_key * key) {
 
         struct request req_aux;
         req_aux.method = request->method;
-        req_aux.header_count = request->message.header_count;
+        req_aux.header_count = (int)request->message.header_count;
         req_aux.body_length = request->message.body_length;
         strncpy(req_aux.url, request->url, URL_LENGTH);
         memcpy(req_aux.headers, request->message.headers, MAX_HEADERS * HEADER_LENGTH * 2);
-        memcpy(req_aux.body, request->message.body, BODY_LENGTH);
+        if (request->message.body != NULL)
+            req_aux.body = request->message.body;
 
         char * raw_req = create_request(&(req_aux));
         size_t size = strlen(raw_req);
@@ -1031,11 +1032,12 @@ static unsigned process_response(struct selector_key * key) {
 
     struct response res_aux;
     res_aux.status_code = response->status;
-    res_aux.header_count = response->message.header_count;
+    res_aux.header_count = (int)response->message.header_count;
     res_aux.body_length = response->message.body_length;
     memcpy(res_aux.reason, response->reason, REASON_LENGTH);
     memcpy(res_aux.headers, response->message.headers, MAX_HEADERS * HEADER_LENGTH * 2);
-    memcpy(res_aux.body, response->message.body, BODY_LENGTH);
+    if (response->message.body != NULL)
+        res_aux.body = response->message.body;
 
     char * raw_res = create_response(&(res_aux));
     size_t size = strlen(raw_res);

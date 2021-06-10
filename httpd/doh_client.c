@@ -119,6 +119,8 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
     int types[2] = {A, AAAA};
 
     for (int k = 0; k < 2; k++) {
+        buffer_reset(&buff);
+        memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
 
         if (family != AF_UNSPEC && family != types[k])
             continue;
@@ -126,7 +128,7 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
         /*----------- Mando el request DOH para IPv4 -----------*/
         send_doh_request(target, s, types[k]);
         buffer_reset(&buff);
-        memset(buff.read, 0, BUFF_SIZE); // Limpio el buffer
+        memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
 
         /*----------- Recivo el response DOH -----------*/
         int dim = sizeof(struct sockaddr_in);
@@ -192,9 +194,9 @@ char * create_post(int length, char * body) {
     struct request request = {
             .method = POST,
             .header_count = header_count,
-            .body_length = length
+            .body_length = length,
+            .body = body
     };
-    memcpy(request.body, body, length);
     strcpy(request.headers[0][0], "Accept");
     strcpy(request.headers[0][1], "application/dns-message");
     strcpy(request.headers[1][0], "Content-Type");
@@ -246,7 +248,7 @@ void send_doh_request(const char * target, int s, int type) {
     char * aux_buff = (char *)buffer_read_ptr(&buff, &nbyte);
     char * string = create_post((int)nbyte, aux_buff); // crea el http request
 
-    if( send(s, string, nbyte + strlen(string) + 1, 0) < 0) { // manda el paquete al servidor DOH
+    if( send(s, string, nbyte + strlen(string), 0) < 0) { // manda el paquete al servidor DOH
         log(ERROR, "Sending DOH request")
     }
 
@@ -258,7 +260,7 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, i
     int sin_family, cant = initial_size;
     size_t nbytes;
     for (int i = 0 + initial_size; i < ans_count + initial_size; i++) {
-        buffer_read_adv(&buff, get_name(buffer_read_ptr(&buff, &nbytes)));
+        buffer_read_adv(&buff, get_name(buffer_read_ptr(&buff, &nbytes)) + 1);
         struct R_DATA * data = (struct R_DATA *)buffer_read_ptr(&buff, &nbytes);
         buffer_read_adv(&buff, sizeof(struct R_DATA));
 
@@ -366,5 +368,5 @@ int get_name(unsigned char * body) {
         cant++;
     }
 
-    return cant + 1;
+    return cant;
 }

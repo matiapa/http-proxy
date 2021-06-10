@@ -49,7 +49,7 @@
  *  - destruir los recursos de la librería `selector_close'
  */
 
-#define CONN_BUFFER 1024
+#define CONN_BUFFER (1024 * 1000)
 
 #define SELECTOR_TIMEOUT_SECS 60
 
