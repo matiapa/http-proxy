@@ -182,7 +182,7 @@ void item_kill(fd_selector s, struct item * item) {
 
     free_buffer(&item->read_buffer);
     free_buffer(&item->write_buffer);
-    free_buffer(&item->pdata.parse_buffer);
+    free_buffer(&item->req_parser.parse_buffer);
 
     FD_CLR(item->client_socket, &s->master_r);
     FD_CLR(item->client_socket, &s->master_w);

@@ -29,7 +29,8 @@ endif
 all: httpd
 
 PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/http.o lib/logger.o lib/selector.o\
- lib/http_parser.o lib/parser.o lib/http_chars.o lib/tcp_utils.o lib/udp_utils.o lib/statistics.o lib/stm.o\
+ lib/parser.o lib/tcp_utils.o lib/udp_utils.o lib/statistics.o lib/stm.o lib/parser/http_chars.o\
+ lib/parser/http_message_parser.o lib/parser/http_request_parser.o\
  httpd/main.o httpd/monitor.o httpd/proxy_stm.o httpd/doh_client.o
 
 httpd: $(PROXY_OBJ)

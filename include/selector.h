@@ -7,7 +7,7 @@
 #include "buffer.h"
 #include "http.h"
 #include "stm.h"
-#include "http_parser.h"
+#include "http_request_parser.h"
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -191,7 +191,7 @@ struct item {
     buffer              write_buffer;
     
     state_machine       stm;
-    parser_data         pdata;
+    http_request_parser req_parser;
     
     time_t              last_activity;
     char                target_name[50];

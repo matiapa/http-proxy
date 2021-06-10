@@ -5,7 +5,7 @@
 #include <stm.h>
 #include <selector.h>
 #include <tcp_utils.h>
-#include <http_parser.h>
+#include <http_request_parser.h>
 #include <address.h>
 #include <ctype.h>
 #include <proxy_stm.h>
@@ -213,7 +213,7 @@ static unsigned connect_target(struct selector_key * key, char * target, int por
 /* ------------------------------------------------------------
   Processes request headers according to RFC 7230 specs.
 ------------------------------------------------------------ */
-static void process_request_headers(struct request * req, char * target_host, char * proxy_host);
+static void process_request_headers(http_request * req, char * target_host, char * proxy_host);
 
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
@@ -397,7 +397,7 @@ static unsigned response_read_ready(struct selector_key *key) {
         return TARGET_CLOSE_CONNECTION;
     }
 
-    if (readBytes <= 0)
+    if (readBytes == 0)
         return TARGET_CLOSE_CONNECTION;
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
@@ -700,29 +700,31 @@ static unsigned notify_error(struct selector_key *key, int status_code, unsigned
 }
 
 
+#define RESET_REQUEST() \
+    http_request_parser_reset(&(key->item->req_parser)); \
+    free(key->item->req_parser.request); \
+    key->item->req_parser.request = NULL;
+
 static unsigned process_request(struct selector_key * key) {
 
     // Instantiate a request struct or use previous one if it exists
 
-    if(key->item->pdata.request == NULL)
-        key->item->pdata.request = calloc(1, sizeof(struct request));
+    if(key->item->req_parser.request == NULL)
+        key->item->req_parser.request = calloc(1, sizeof(struct request));
     
-    struct request * request = key->item->pdata.request;
+    http_request * request = key->item->req_parser.request;
 
     // Parse the request and check for pending and failure cases
 
-    parse_state parser_state = http_parser_parse(
-        &(key->item->read_buffer), request, &(key->item->pdata)
+    parse_state parser_state = http_request_parser_parse(
+        &(key->item->req_parser), &(key->item->read_buffer), request
     );
 
     if (parser_state == PENDING)
         return REQUEST_READ;
 
     if (parser_state == FAILED) {
-        free(key->item->pdata.request);
-        key->item->pdata.request = NULL;
-
-        log_error("Invalid request received");
+        RESET_REQUEST();
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
@@ -732,10 +734,7 @@ static unsigned process_request(struct selector_key * key) {
     parse_url(request->url, &url);
 
     if (strlen(request->url) == 0) {
-        free(key->item->pdata.request);
-        key->item->pdata.request = NULL;
-        
-
+        RESET_REQUEST();
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
@@ -743,8 +742,7 @@ static unsigned process_request(struct selector_key * key) {
 
     unsigned ret = connect_target(key, url.hostname, url.port);
     if (ret == ERROR_STATE) {
-        free(key->item->pdata.request);
-        key->item->pdata.request = NULL;
+        RESET_REQUEST();
         return ret;
     }
         
@@ -766,8 +764,7 @@ static unsigned process_request(struct selector_key * key) {
 
         // Go to send response state
 
-        free(key->item->pdata.request);
-        key->item->pdata.request = NULL;
+        RESET_REQUEST();
 
         return CONNECT_RESPONSE;
 
@@ -789,7 +786,15 @@ static unsigned process_request(struct selector_key * key) {
 
         // Write processed request bytes into write buffer
 
-        char * raw_req = create_request(request);
+        struct request req_aux;
+        req_aux.method = request->method;
+        req_aux.header_count = request->message.header_count;
+        req_aux.body_length = request->message.body_length;
+        strncpy(req_aux.url, request->url, URL_LENGTH);
+        memcpy(req_aux.headers, request->message.headers, MAX_HEADERS * HEADER_LENGTH * 2);
+        memcpy(req_aux.body, request->message.body, BODY_LENGTH);
+
+        char * raw_req = create_request(&(req_aux));
         size_t size = strlen(raw_req);
 
         size_t space;
@@ -801,8 +806,7 @@ static unsigned process_request(struct selector_key * key) {
 
         // Go to forward request state
 
-        free(key->item->pdata.request);
-        key->item->pdata.request = NULL;
+        RESET_REQUEST();
 
         return REQUEST_FORWARD;
 
@@ -864,51 +868,48 @@ static unsigned connect_target(struct selector_key * key, char * target_host, in
     while(isspace(*--back)); \
     *(back+1) = 0;
 
-static void process_request_headers(struct request * req, char * target_host, char * proxy_host) {
-
-    char * raw_req = create_request(req);
-    free(raw_req);
+static void process_request_headers(http_request * req, char * target_host, char * proxy_host) {
 
     bool replaced_host_header = false;
     bool replaced_via_header = false;
     bool close_detected = false;
 
-    for (int i=0; i < req->header_count; i++) {
+    for (int i=0; i < req->message.header_count; i++) {
 
         // Right trim header names
 
-        rtrim(req->headers[i][0]);
+        rtrim(req->message.headers[i][0]);
 
         // Replace Host header if target hostname is not empty
 
-        if (strcmp(req->headers[i][0], "Host") == 0 && strlen(target_host) > 0) {
-            strcpy(req->headers[i][1], target_host);
+        if (strcmp(req->message.headers[i][0], "Host") == 0 && strlen(target_host) > 0) {
+            strcpy(req->message.headers[i][1], target_host);
             replaced_host_header = true;
         }
 
         // Replace Via header appending proxy hostname
 
-        if (strcmp(req->headers[i][0], "Via") == 0) {
+        if (strcmp(req->message.headers[i][0], "Via") == 0) {
             char new_token[128];
             sprintf(new_token, ", 1.1 %s", proxy_host);
 
-            strcat(req->headers[i][1], new_token);
+            strcat(req->message.headers[i][1], new_token);
             
             replaced_via_header = true;
         }
 
         // Remove headers listed on Connection header
 
-        if (strcmp(req->headers[i][0], "Connection") == 0) {
-            char * connection_headers = req->headers[i][1];
+        if (strcmp(req->message.headers[i][0], "Connection") == 0) {
+            char * connection_headers = req->message.headers[i][1];
 
             if (strstr(connection_headers, "Close"))
                 close_detected = true;
 
-            for(int j=0; j < req->header_count; j++) {
-                if (strstr(connection_headers, req->headers[j][0])) {
-                    remove_array_elem(req->headers, j, req->header_count);
-                    req->header_count -= 1;
+            for(int j=0; j < req->message.header_count; j++) {
+                if (strstr(connection_headers, req->message.headers[j][0])) {
+                    remove_array_elem(req->message.headers, j, req->message.header_count);
+                    req->message.header_count -= 1;
                 }
             }
         }
@@ -918,17 +919,17 @@ static void process_request_headers(struct request * req, char * target_host, ch
     // If a Host header was not present but a hostname was given, add it
 
     if(!replaced_host_header && strlen(target_host) > 0) {
-        req->header_count += 1;
-        strcpy(req->headers[req->header_count - 1][0], "Host");
-        strcpy(req->headers[req->header_count - 1][1], target_host);
+        req->message.header_count += 1;
+        strcpy(req->message.headers[req->message.header_count - 1][0], "Host");
+        strcpy(req->message.headers[req->message.header_count - 1][1], target_host);
     }
 
     // If a Via header was not present, add it
 
     if(!replaced_via_header) {
-        req->header_count += 1;
-        sprintf(req->headers[req->header_count - 1][0], "Via");
-        sprintf(req->headers[req->header_count - 1][1], "1.1 %s", proxy_host);
+        req->message.header_count += 1;
+        sprintf(req->message.headers[req->message.header_count - 1][0], "Via");
+        sprintf(req->message.headers[req->message.header_count - 1][1], "1.1 %s", proxy_host);
     }
 
     // TODO: Handle close detected
@@ -936,9 +937,6 @@ static void process_request_headers(struct request * req, char * target_host, ch
     if (close_detected) {
         log(DEBUG, "Should close connection");
     }
-
-    raw_req = create_request(req);
-    free(raw_req);
 
 }
 

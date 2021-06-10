@@ -8,12 +8,11 @@
 #define MAX_HEADERS 30
 #define HEADER_LENGTH 30
 #define BODY_LENGTH 1024
+#define REASON_LENGTH 128
 
 typedef enum {GET, POST, CONNECT, OTHER} methods;
 
 typedef enum {CONNECTION, REQUEST, RESPONSE} item_state;
-
-typedef enum {SUCCESS, PENDING, FAILED} parse_state;
 
 typedef enum {
     RESPONSE_OK, BAD_REQUEST, FORBIDDEN, CONFLICT, PAYLOAD_TOO_LARGE,

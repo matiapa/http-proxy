@@ -17,6 +17,9 @@
  * Evento que retorna el parser.
  * Cada tipo de evento tendrá sus reglas en relación a data.
  */
+
+typedef enum parse_state {SUCCESS, PENDING, FAILED} parse_state;
+
 struct parser_event {
     /** tipo de evento */
     unsigned type;
