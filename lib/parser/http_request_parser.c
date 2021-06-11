@@ -187,10 +187,16 @@ void assign_method(http_request * httpRequest, http_request_parser * parser){
 
     if(strncmp(ptr, "GET", size) == 0)
         httpRequest->method = GET;
-    if(strncmp(ptr, "POST", size) == 0)
+    else if(strncmp(ptr, "POST", size) == 0)
         httpRequest->method = POST;
-    if(strncmp(ptr, "CONNECT", size) == 0)
+    else if(strncmp(ptr, "CONNECT", size) == 0)
         httpRequest->method = CONNECT;
+    else if(strncmp(ptr, "DELETE", size) == 0)
+        httpRequest->method = DELETE;
+    else if(strncmp(ptr, "PUT", size) == 0)
+        httpRequest->method = PUT;
+    else
+        httpRequest->method = OTHER;
 }
 
 
