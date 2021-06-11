@@ -13,6 +13,7 @@
 #define AAAA 28
 #define ANY 255
 #define BUFF_SIZE 6000
+#define BIG_NUM 30
 
 //DNS header structure
 struct DNS_HEADER {
@@ -152,11 +153,8 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
         struct DNS_HEADER * dns = (struct DNS_HEADER *)buffer_read_ptr(&buff, &nbyte); // Obtengo el DNS_HEADER
         buffer_read_adv(&buff, sizeof(struct DNS_HEADER));
         int ans_count = ntohs(dns->ans_count); // Cantidad de respuestas
-        if (out == NULL) {
-            out = calloc(1, ans_count * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
-        } else {
-            out = realloc(out, (ans_count + cant) * sizeof(*out) + 1);
-        }
+        if (out == NULL)  // TODO: cambiar secuencia de pedido
+            out = calloc(1, BIG_NUM * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
 
         buffer_read_adv(&buff, get_name(buffer_read_ptr(&buff, &nbyte)) + sizeof(struct QUESTION)); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
@@ -164,29 +162,10 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
         cant = read_response(out, sin_port, family, ans_count, cant);
     }
 
-    out = realloc(out, cant * sizeof(*out) + 1); // Reacomodo la memoria
+    // out = realloc(out, cant * sizeof(*out) + 1); // Reacomodo la memoria
     *addrinfo = &out->ai;
 
     return 0;
-}
-
-// TODO: borrarlo cuando pongan el parser
-unsigned char * get_body(unsigned char * str) {
-    int i = 0;
-    int done = 1;
-    int flag = 0;
-    putchar('\n');
-    while (done) {
-        if (str[i+1] == '\n' && str[i] == '\r') {
-            if (flag) done = 0;
-            else flag = 1;
-            i++;
-        } else {
-            flag = 0;
-        }
-        i++;
-    }
-    return str + i;
 }
 
 char * create_post(int length, char * body) {
