@@ -168,31 +168,47 @@ static void items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
+    if (getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen)==-1){
+        log(INFO, "Item kill Master socket\n");
+    }
+    else{
+        log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+    }
     
-    getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
-    log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+    //para el caso del master socket
+    if (item->read_buffer.write!=NULL&&item->read_buffer.read!=NULL)
+    {
+        buffer_reset(&(item->read_buffer));
+        buffer_reset(&(item->write_buffer));
 
-    buffer_reset(&(item->read_buffer));
-    buffer_reset(&(item->write_buffer));
+        
+        close(item->target_socket);
 
+        // Release connection buffers
+
+        free_buffer(&item->read_buffer);
+        free_buffer(&item->write_buffer);
+        free_buffer(&item->req_parser.parse_buffer);
+
+       
+       // Marks item as unused
+        FD_CLR(item->target_socket, &s->master_r);
+        FD_CLR(item->target_socket, &s->master_w);
+
+        
+
+        
+    }
     close(item->client_socket);
-    close(item->target_socket);
-
-    // Release connection buffers
-
-    free_buffer(&item->read_buffer);
-    free_buffer(&item->write_buffer);
-    free_buffer(&item->req_parser.parse_buffer);
-
-    FD_CLR(item->client_socket, &s->master_r);
-    FD_CLR(item->client_socket, &s->master_w);
-    FD_CLR(item->target_socket, &s->master_r);
-    FD_CLR(item->target_socket, &s->master_w);
 
     // Marks item as unused
+    FD_CLR(item->client_socket, &s->master_r);
+    FD_CLR(item->client_socket, &s->master_w);
+   
 
     item->client_socket = FD_UNUSED;
     item->target_socket = FD_UNUSED;
+    
 }
 
 /**
