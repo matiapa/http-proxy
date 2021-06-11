@@ -149,6 +149,7 @@ static size_t next_capacity(const size_t n) {
 
 static inline void item_init(struct item *item) {
     item->client_socket = FD_UNUSED;
+    item->target_socket = FD_UNUSED;
 }
 
 /**
@@ -168,14 +169,16 @@ static void items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    if (getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen)==-1){
+    log(INFO, "Closed connection - Client: %d - Target: %d\n", item->client_socket, item->target_socket);
+    if (item->client_socket == 0){
         log(INFO, "Item kill Master socket\n");
     }
     else{
-        log(INFO, "Closed connection - IP: %s - Port: %d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+        getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+        log(INFO, "Closed connection - Client: %d - Target: %d - IP: %s - Port: %d\n", item->client_socket, item->target_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
     }
     
-    //para el caso del master socket
+    // cuando no es el master socket
     if (item->read_buffer.write!=NULL&&item->read_buffer.read!=NULL)
     {
         buffer_reset(&(item->read_buffer));
@@ -195,7 +198,7 @@ void item_kill(fd_selector s, struct item * item) {
         FD_CLR(item->target_socket, &s->master_r);
         FD_CLR(item->target_socket, &s->master_w);
 
-        
+
 
         
     }
