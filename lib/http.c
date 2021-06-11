@@ -30,13 +30,13 @@ char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT"};
      memset(string, 0, STRING_SIZE);
      int position = 0;
 
-     if (request->method == POST || request->method == GET || request->method == CONNECT || request->method == DELETE || request->method == PUT) {
-         position = requestFirstLine(string, request);
-         if (position < 0) return NULL;
-     } else {
-         free(string);
-         return NULL;
-     }
+    if (request->method == POST || request->method == GET || request->method == CONNECT || request->method == DELETE || request->method == PUT) {
+        position = requestFirstLine(string, request);
+        if (position < 0) return NULL;
+    } else {
+        free(string);
+        return NULL;
+    }
 
     if (request->header_count > 0) position += headersSection(string + position, request->headers, request->header_count);
 

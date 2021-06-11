@@ -822,6 +822,11 @@ static unsigned process_request(struct selector_key * key) {
             req_aux.body = request->message.body;
 
         char * raw_req = create_request(&(req_aux));
+        if (raw_req==NULL)
+        {
+            return notify_error(key,BAD_REQUEST,REQUEST_READ);
+        }
+        
         size_t size = strlen(raw_req);
 
         size_t space;
