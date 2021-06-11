@@ -169,8 +169,8 @@ static void items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    log(INFO, "Closed connection - Client: %d - Target: %d\n", item->client_socket, item->target_socket);
-    if (item->client_socket == 0){
+    // log(INFO, "Closed connection - Client: %d - Target: %d\n", item->client_socket, item->target_socket);
+    if (item->client_socket==s->fds[0].client_socket){
         log(INFO, "Item kill Master socket\n");
     }
     else{
