@@ -218,7 +218,7 @@ static unsigned connect_target(struct selector_key * key, char * target, int por
 /* ------------------------------------------------------------
   Processes request headers and deposits user:password into raw authorization.
 ------------------------------------------------------------ */
-static int extract_credentials(http_request * request);
+static int extract_http_credentials(http_request * request);
 
 /* ------------------------------------------------------------
   Processes an HTTP response and returns next state.
@@ -530,41 +530,28 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     buffer_write_adv(buffer, readBytes);
 
     log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->active_fd);
-    char * credentials;
-    pop3_state  state = pop3_parse(buffer, &(key->item->pop3_parser), key->item->pop3_parser.credentials);
 
-    switch (state) {
-        case POP3_FAILED:
+    struct buffer aux_buffer;
+    memcpy(&aux_buffer, buffer, sizeof(struct buffer));
 
-            break;
-        case FAILED_PASS_NO_USER:
-        log(DEBUG,"Pop State is FAILED_PASS_NO_USER" )
-            break;
-        case NO_USER_PASS:
-        log(DEBUG,"Pop State is NO_USER_PASS")
-        //idem pending
-            break;
-        case POP3_PENDING:
-        log(DEBUG,"Pop State is POP3_PENDING")
-            //revisar
-            break;
-        case USER_SUCCESS:
-            log(DEBUG,"Pop State is USER_SUCCESS");
-            break;
-        case USER_PASS_SUCCESS:
-            log(DEBUG,"Pop State is USER_PASS_SUCCESS");
-            credentials = calloc(MAX_CREDENTIALS_LENGTH, sizeof(char ));
-            strcpy(credentials, key->item->pop3_parser.credentials);
-            break;
-        default:
-            log(ERROR,"Unexpected state %d",state);
-            break;
+    pop3_state state = pop3_parse(&aux_buffer, &(key->item->pop3_parser));
 
+    if (state == POP3_SUCCESS) {
+        if (key->item->pop3_parser.user != NULL) {
+            log(DEBUG, "User: %s", key->item->pop3_parser.user);
+            key->item->pop3_parser.user[key->item->pop3_parser.user_len] = '\n';
+        }
+        if (key->item->pop3_parser.pass != NULL) {
+            log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
+            key->item->pop3_parser.pass[key->item->pop3_parser.pass_len] = '\n';
+        }
+        pop3_parser_reset(&(key->item->pop3_parser));
     }
 
-    log(DEBUG,"credentials: %s", credentials);
-    //statistics
+    // Calculate statistics
+
     add_bytes_recieved(readBytes);
+
     // Declare interest on writing to peer and return
 
     if (key->active_fd == key->item->client_socket)
@@ -841,7 +828,8 @@ static unsigned process_request(struct selector_key * key) {
 
         // Extract credentials if present
 
-        extract_credentials(request);
+        if (proxy_conf.disectorsEnabled)
+            extract_http_credentials(request);
 
         // Write processed request bytes into write buffer
 
@@ -936,7 +924,7 @@ static void process_request_headers(http_request * req, char * target_host, char
 }
 
 
-static int extract_credentials(http_request * request) {
+static int extract_http_credentials(http_request * request) {
     // TODO: guardar la user_pass
 
     char raw_authorization[HEADER_LENGTH];
