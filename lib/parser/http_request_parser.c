@@ -3,7 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#include <http_chars.h>
+#include <abnf_chars.h>
 #include <parser.h>
 #include <logger.h>
 #include <http.h>
@@ -108,29 +108,25 @@ static void error(struct parser_event *ret, const uint8_t c) {
 
 static const struct parser_state_transition ST_METHOD [] =  {
     {.when = TOKEN_ALPHA,           .dest = METHOD,                       .act1 = method,},
-    {.when = ' ',                   .dest = TARGET,                       .act1 = method_end,},
+    {.when = TOKEN_SP,                   .dest = TARGET,                       .act1 = method_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_TARGET [] =  {
-    {.when = TOKEN_ALPHA,           .dest = TARGET,                       .act1 = target,},
-    {.when = TOKEN_DIGIT,           .dest = TARGET,                       .act1 = target,},
-    {.when = TOKEN_SPECIAL,         .dest = TARGET,                       .act1 = target,},
-    {.when = ' ',                   .dest = VERSION,                      .act1 = target_end,},
+    {.when = TOKEN_SP,                   .dest = VERSION,                      .act1 = target_end,},
+    {.when = TOKEN_VCHAR,           .dest = TARGET,                       .act1 = target,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_VERSION [] =  {
-    {.when = TOKEN_ALPHA,           .dest = VERSION,                      .act1 = version,},
-    {.when = TOKEN_DIGIT,           .dest = VERSION,                      .act1 = version,},
-    {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},
-    {.when = '\r',                  .dest = REQ_LINE_CR,                  .act1 = version_end,},
-    {.when = '\n',                  .dest = REQ_LINE_CRLF,                .act1 = version_end,},
+    {.when = TOKEN_VCHAR,           .dest = VERSION,                      .act1 = version,},
+    {.when = TOKEN_CR,              .dest = REQ_LINE_CR,                  .act1 = version_end,},
+    {.when = TOKEN_LF,              .dest = REQ_LINE_CRLF,                .act1 = version_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_REQ_LINE_CR[] =  {
-    {.when = '\n',                  .dest = REQ_LINE_CRLF,                .act1 = wait_msg,},
+    {.when = TOKEN_LF,              .dest = REQ_LINE_CRLF,                .act1 = wait_msg,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 

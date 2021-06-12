@@ -3,7 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#include <http_chars.h>
+#include <abnf_chars.h>
 #include <parser.h>
 #include <logger.h>
 #include <http_response_parser.h>
@@ -106,31 +106,28 @@ static void error(struct parser_event *ret, const uint8_t c) {
 // TRANSITIONS
 
 static const struct parser_state_transition ST_VERSION [] =  {
-    {.when = TOKEN_ALPHA,           .dest = VERSION,                      .act1 = version,},
-    {.when = TOKEN_DIGIT,           .dest = VERSION,                      .act1 = version,},
-    {.when = TOKEN_SPECIAL,         .dest = VERSION,                      .act1 = version,},
-    {.when = ' ',                   .dest = STATUS,                       .act1 = version_end,},
+    {.when = TOKEN_SP,              .dest = STATUS,                       .act1 = version_end,},
+    {.when = TOKEN_VCHAR,           .dest = VERSION,                      .act1 = version,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_STATUS [] =  {
     {.when = TOKEN_DIGIT,           .dest = STATUS,                       .act1 = status,},
-    {.when = ' ',                   .dest = REASON,                       .act1 = status_end,},
+    {.when = TOKEN_SP,                   .dest = REASON,                  .act1 = status_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_REASON [] =  {
-    {.when = TOKEN_ALPHA,           .dest = REASON,                       .act1 = reason,},
-    {.when = TOKEN_DIGIT,           .dest = REASON,                       .act1 = reason,},
-    {.when = TOKEN_SPECIAL,         .dest = REASON,                       .act1 = reason,},
-    {.when = ' ',                   .dest = REASON,                       .act1 = reason,},
-    {.when = '\r',                  .dest = RES_LINE_CR,                  .act1 = reason_end,},
-    {.when = '\n',                  .dest = RES_LINE_CRLF,                .act1 = reason_end,},
+    {.when = TOKEN_HTAB,            .dest = REASON,                       .act1 = reason,},
+    {.when = TOKEN_VCHAR,           .dest = REASON,                       .act1 = reason,},
+    {.when = TOKEN_SP,              .dest = REASON,                       .act1 = reason,},
+    {.when = TOKEN_CR,              .dest = RES_LINE_CR,                  .act1 = reason_end,},
+    {.when = TOKEN_LF,              .dest = RES_LINE_CRLF,                .act1 = reason_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_RES_LINE_CR[] =  {
-    {.when = '\n',                  .dest = RES_LINE_CRLF,                .act1 = wait_msg,},
+    {.when = TOKEN_LF,              .dest = RES_LINE_CRLF,                .act1 = wait_msg,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 

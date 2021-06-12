@@ -6,7 +6,7 @@
 #include <ctype.h> //toUpper
 
 #include <pop3_parser.h>
-#include <http_chars.h>
+#include <abnf_chars.h>
 #include <parser.h>
 
 #define PARSE_BUFF_SIZE 1024
