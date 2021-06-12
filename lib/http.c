@@ -11,6 +11,7 @@ char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT","HEAD"};
 	position += snprintf(buffer + position, space, ##__VA_ARGS__); \
     if ((space -= position) <= 0) return space;
 
+#define min(x,y) x < y ? x : y
 
 /*-----------------------------------------
  *          REQUEST SYNTAX
@@ -29,11 +30,10 @@ int write_request(http_request * request, char * buffer, int space) {
     for (size_t i = 0; i < request->message.header_count; i++) {
         print("%s: %s\r\n", request->message.headers[i][0], request->message.headers[i][1])
     }
+    print("\r\n%s", request->message.body);
 
-    if (request->message.body != NULL) {
-        request->message.body[request->message.body_length] = 0;
-        print("\r\n%s", request->message.body);
-    }
+    if (request->message.body != NULL)
+        memcpy(buffer + position, request->message.body, min(request->message.body_length, space));
 
     return position;
 }
@@ -72,11 +72,8 @@ int write_response(http_response * response, char * buffer, int space) {
         print("%s: %s\r\n", response->message.headers[i][0], response->message.headers[i][1])
     }
 
-    if (response->message.body != NULL) {
-        response->message.body[response->message.body_length] = 0;
-        print("\r\n%s", response->message.body);
-    }
+    if (response->message.body != NULL)
+        memcpy(buffer + position, response->message.body, min(response->message.body_length, space));
     
     return position;
-
 }

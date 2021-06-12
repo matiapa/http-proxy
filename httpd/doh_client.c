@@ -156,7 +156,8 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
         if (out == NULL)  // TODO: cambiar secuencia de pedido
             out = calloc(1, BIG_NUM * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
 
-        buffer_read_adv(&buff, get_name(buffer_read_ptr(&buff, &nbyte)) + sizeof(struct QUESTION)); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
+        int n = get_name(buffer_read_ptr(&buff, &nbyte)) + sizeof(struct QUESTION);
+        buffer_read_adv(&buff, n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
         /*----------- Lectura del response DOH -----------*/
         cant = read_response(out, sin_port, family, ans_count, cant);
