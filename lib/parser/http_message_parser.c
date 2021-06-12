@@ -124,6 +124,7 @@ static const struct parser_state_transition ST_HEADERS_BEGIN [] =  {
 static const struct parser_state_transition ST_HEADER_NAME [] =  {
     {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = '-',                   .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = TOKEN_DIGIT,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
@@ -273,7 +274,7 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
         const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
         // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-        // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+        //log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
         switch(e->type) {
             case HEADER_NAME_VAL:
