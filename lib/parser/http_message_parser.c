@@ -232,7 +232,8 @@ static void assign_header_value(http_message * message, http_message_parser * pa
 
     COPY(message->headers[message->header_count][1], ptr, size);
 
-    if (strncmp(message->headers[message->header_count][0], "Content-Length", HEADER_LENGTH) == 0) {
+    if (parser->method != HEAD && strncmp(message->headers[message->header_count][0],
+            "Content-Length", HEADER_LENGTH) == 0) {
         parser->expected_body_length = atoi(message->headers[message->header_count][1]);
         log(DEBUG, "Expected body length: %d", parser->expected_body_length);
     }

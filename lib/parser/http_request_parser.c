@@ -199,6 +199,8 @@ void assign_method(http_request * httpRequest, http_request_parser * parser){
         httpRequest->method = HEAD;
     else
         httpRequest->method = OTHER;
+
+    parser->message_parser.method = httpRequest->method;
 }
 
 

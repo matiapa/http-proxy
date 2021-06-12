@@ -6,6 +6,8 @@
 #include <selector.h>
 #include <tcp_utils.h>
 #include <http_request_parser.h>
+#include <http_response_parser.h>
+#include <http.h>
 #include <address.h>
 #include <ctype.h>
 #include <proxy_stm.h>
