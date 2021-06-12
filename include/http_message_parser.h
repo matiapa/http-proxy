@@ -7,7 +7,6 @@
 typedef struct http_message_parser {
     struct parser * parser;
     buffer parse_buffer;
-    int expected_body_length;
     int error_code;
     int method;         // Only for requests, used to check if Content-Length should be ignored
 } http_message_parser;

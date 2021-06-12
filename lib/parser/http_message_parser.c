@@ -234,8 +234,8 @@ static void assign_header_value(http_message * message, http_message_parser * pa
 
     if (parser->method != HEAD && strncmp(message->headers[message->header_count][0],
             "Content-Length", HEADER_LENGTH) == 0) {
-        parser->expected_body_length = atoi(message->headers[message->header_count][1]);
-        log(DEBUG, "Expected body length: %d", parser->expected_body_length);
+        message->body_length = atoi(message->headers[message->header_count][1]);
+        log(DEBUG, "Expecting body length of %d", message->body_length);
     }
 
     message->header_count += 1;
@@ -247,7 +247,6 @@ static void assign_header_value(http_message * message, http_message_parser * pa
 
 void http_message_parser_init(http_message_parser * parser){
     if(parser != NULL){
-        parser->expected_body_length = 0;
         parser->parser = parser_init(init_char_class(), &definition);
         buffer_init(&(parser->parse_buffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
     }
@@ -297,7 +296,7 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
                 break;
 
             case HEADER_SECTION_END:
-                if (parser->expected_body_length == 0) {
+                if (message->body_length == 0) {
                     http_message_parser_reset(parser);
                     return SUCCESS;
                 }
