@@ -41,7 +41,7 @@ int create_udp_server(const char *port) {
 		// Create socket and make it reusable
 
 		servSock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (servSock < 0){
+		if (servSock < 0) {
 			log(ERROR, "Creating passive socket");
 			continue;
 		}
