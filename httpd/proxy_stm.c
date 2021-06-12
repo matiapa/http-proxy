@@ -761,6 +761,8 @@ static unsigned process_request(struct selector_key * key) {
         return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
     }
 
+    log_client_access(key->item->client_socket, request->url);
+
     // Establish connection to target
 
     unsigned ret = connect_target(key, url.hostname, url.port);

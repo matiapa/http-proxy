@@ -10,7 +10,8 @@
 #include <errno.h>
 #include <config.h>
 #include <time.h>
-
+#include <unistd.h>
+#include <arpa/inet.h>
   
 long global_total_connections=0;
 int global_concurent_connections=0;
@@ -27,8 +28,12 @@ void initialize_statistics(){
     if (proxy_conf.statisticsFrequency < 0)
         return;
 
+    struct stat st;
+    if (stat("./logs", &st) == -1)
+        mkdir("./logs", 0700);
+
     log(DEBUG, "initialized statistics");
-    fd=open("./statistics.txt", O_RDWR | O_CREAT | O_TRUNC, S_IRWXU|S_IRWXG|S_IRWXO);
+    fd=open("./logs/statistics.txt", O_RDWR | O_CREAT | O_TRUNC, S_IRWXU|S_IRWXG|S_IRWXO);
     global_total_connections=0;
     global_concurent_connections=0;
     total_bytes_sent=0;
@@ -46,10 +51,10 @@ void add_connection(){
     global_total_connections++;
     log(DEBUG,"connections active %d total %ld",global_concurent_connections,global_total_connections);
 }
+
 void remove_conection(){
     global_concurent_connections--;
 }
-
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 void update(int signal_recv){
@@ -57,9 +62,12 @@ void update(int signal_recv){
     log(DEBUG,"total connections: %ld, current connections :%d, total bytes sent: %ld, total bytes recieved: %ld",
     global_total_connections,global_concurent_connections,total_bytes_sent,total_bytes_recieved);
 
+    struct stat st;
+    if (stat("./logs", &st) == -1)
+        mkdir("./logs", 0700);
 
     FILE * fptr;
-    fptr = fopen("./statistics.txt","w+");
+    fptr = fopen("./logs/statistics.txt","w+");
 
     if(fptr == NULL){
         log(DEBUG, "Error opening statistics.txt!");   
@@ -84,9 +92,11 @@ void update(int signal_recv){
 void add_sent_bytes(int bytes){
     total_bytes_sent+=bytes;
 }
+
 void add_bytes_recieved(int bytes){
     total_bytes_recieved+=bytes;
 }
+
 void force_update(){
     signal(SIGALRM,update);
 }
@@ -99,4 +109,35 @@ statistics * get_statistics(statistics * stats){
     stats->total_sent=total_bytes_sent;
 
     return stats;
+}
+
+
+void log_client_access(int client_socket, char * url) {
+
+    struct sockaddr_in address;
+    int addrlen = sizeof(struct sockaddr_in);
+    getpeername(client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
+
+    time_t rawtime; time(&rawtime);
+    struct tm * timeinfo = localtime(&rawtime);
+    char * date = asctime(timeinfo);
+    date[strlen(date)-2] = 0;   // Remove /n
+
+    struct stat st;
+    if (stat("./logs", &st) == -1)
+        mkdir("./logs", 0700);
+
+    int fd = open("./logs/access.txt", O_RDWR | O_CREAT | O_APPEND, S_IRWXU | S_IRWXG | S_IRWXO);
+    if (fd < 0) {
+        log(ERROR, "Failed to open access.txt file with ERRNO %d", errno);
+        perror("Opening access.txt file");
+    }
+
+    char buffer[1024];
+    int written = sprintf(buffer, "%s: %s accesed %s\n", date, inet_ntoa(address.sin_addr), url);
+
+    write(fd, buffer, written);
+
+    close(fd);
+
 }

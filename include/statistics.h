@@ -18,11 +18,19 @@ typedef struct statistics
 
 
 void initialize_statistics();
+
 void add_connection();
+
 void remove_conection();
+
 void add_sent_bytes(int bytes);
+
 void add_bytes_recieved(int bytes);
+
 void force_update();
+
+void log_client_access(int client_socket, char * url);
+
 statistics * get_statistics(statistics * stats);
 
 
