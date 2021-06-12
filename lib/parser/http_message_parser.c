@@ -130,6 +130,7 @@ static const struct parser_state_transition ST_HEADER_NAME [] =  {
 
 static const struct parser_state_transition ST_HEADER_VALUE [] =  {
     {.when = TOKEN_VCHAR,           .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = TOKEN_SP,              .dest = HEADER_VALUE,                 .act1 = header_value,},
     {.when = TOKEN_CR,              .dest = HEADER_LINE_CR,               .act1 = header_value_end,},
     {.when = TOKEN_LF,              .dest = HEADER_LINE_CRLF,             .act1 = header_value_end,},
 };

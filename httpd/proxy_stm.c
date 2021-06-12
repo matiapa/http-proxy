@@ -866,7 +866,8 @@ static void process_request_headers(http_request * req, char * target_host, char
         // Replace Host header if target hostname is not empty
 
         if (strcmp(req->message.headers[i][0], "Host") == 0 && strlen(target_host) > 0) {
-            strcpy(req->message.headers[i][1], target_host);
+            strcpy(req->message.headers[i][1], " ");
+            strcpy(req->message.headers[i][1] + 1, target_host);
             replaced_host_header = true;
         }
 
@@ -904,7 +905,8 @@ static void process_request_headers(http_request * req, char * target_host, char
     if(!replaced_host_header && strlen(target_host) > 0) {
         req->message.header_count += 1;
         strcpy(req->message.headers[req->message.header_count - 1][0], "Host");
-        strcpy(req->message.headers[req->message.header_count - 1][1], target_host);
+        strcpy(req->message.headers[req->message.header_count - 1][1], " ");
+        strcpy(req->message.headers[req->message.header_count - 1][1] + 1, target_host);
     }
 
     // If a Via header was not present, add it
@@ -912,7 +914,7 @@ static void process_request_headers(http_request * req, char * target_host, char
     if(!replaced_via_header) {
         req->message.header_count += 1;
         sprintf(req->message.headers[req->message.header_count - 1][0], "Via");
-        sprintf(req->message.headers[req->message.header_count - 1][1], "1.1 %s", proxy_host);
+        sprintf(req->message.headers[req->message.header_count - 1][1], " 1.1 %s", proxy_host);
     }
 
     // TODO: Handle close detected
