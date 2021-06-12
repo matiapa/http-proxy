@@ -4,8 +4,7 @@ bin/*
 *.log
 *.o
 Testing/*
-statistics.txt
-access.txt
+logs/*
 debugging/*
 
 # IDEs related
