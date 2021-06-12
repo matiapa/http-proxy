@@ -4,14 +4,6 @@
 #include <parser.h>
 #include <http.h>
 
-typedef struct http_message {
-    char headers[MAX_HEADERS][2][HEADER_LENGTH];
-    size_t header_count;
-
-    char * body;
-    int body_length;
-} http_message;
-
 typedef struct http_message_parser {
     struct parser * parser;
     buffer parse_buffer;

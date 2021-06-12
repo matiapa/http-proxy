@@ -3,68 +3,40 @@
 #include <stdio.h>
 #include <string.h>
 
-#define STRING_SIZE 300
 #define HTTP_VERSION "HTTP/1.1"
 
-
-int requestFirstLine(char * string, struct request * request);
-
-int responseFirstLine(char * string, struct response * response);
-
-int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count);
-
 char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT","HEAD"};
+
+#define print(...) \
+	position += snprintf(buffer + position, space, ##__VA_ARGS__); \
+    if ((space -= position) <= 0) return space;
 
 
 /*-----------------------------------------
  *          REQUEST SYNTAX
  *-----------------------------------------
- *  METHOD /<target> HTTP/1.1
+ *  METHOD <target> HTTP/1.1
  *  HEADERS: ....
  *
  *  BODY...
  */
 
- char * create_request(struct request * request) {
-     char * string = (char *) malloc(STRING_SIZE);
-     memset(string, 0, STRING_SIZE);
-     int position = 0;
+int write_request(http_request * request, char * buffer, int space) {
+    int position = 0;
+    
+    print("%s %s %s\r\n", methods_strings[request->method - 1], request->url, HTTP_VERSION)
 
-    if (request->method == POST || request->method == GET || request->method == CONNECT || request->method == DELETE || request->method == PUT || request->method == HEAD) {
-        position = requestFirstLine(string, request);
-        if (position < 0) return NULL;
-    } else {
-        free(string);
-        return NULL;
+    for (size_t i = 0; i < request->message.header_count; i++) {
+        print("%s: %s\r\n", request->message.headers[i][0], request->message.headers[i][1])
     }
 
-    if (request->header_count > 0) position += headersSection(string + position, request->headers, request->header_count);
-
-    position += copy(string + position, "\r\n");
-
-    if (request->body_length > 0) {
-        memcpy(string + position, request->body, request->body_length);
-        position += request->body_length;
+    if (request->message.body != NULL) {
+        request->message.body[request->message.body_length] = 0;
+        print("\r\n%s", request->message.body);
     }
 
-    string = realloc(string, position+1);
-    string[position] = '\0';
-    return string;
-}
-
-int requestFirstLine(char * string, struct request * request) {
-    int position = snprintf(string, STRING_SIZE, "%s ", methods_strings[request->method]);
-
-    if (request->method == CONNECT || request->method == GET || request->method == POST || request->method == DELETE || request->method == PUT || request->method == HEAD) {
-        position += copy(string + position, request->url);
-    } else {
-        return -1;
-    }
-
-    position += snprintf(string + position, STRING_SIZE - position, " %s\r\n", HTTP_VERSION);
     return position;
 }
-
 
 
 /*-----------------------------------------
@@ -76,31 +48,11 @@ int requestFirstLine(char * string, struct request * request) {
  *  BODY...
  */
 
-char * create_response(struct response * response) {
-
-    char * string = (char *) malloc(STRING_SIZE);
-    memset(string, 0, STRING_SIZE);
-
-    int position = responseFirstLine(string, response);
-
-    if (response->header_count > 0)
-        position += headersSection(string + position, response->headers, response->header_count);
-    else position += copy(string + position, "\r\n");
-
-    if (response->body_length > 0) position += copy(string + position, response->body);
-
-    string = realloc(string, position+1);
-    string[position] = '\0';
-
-    return string;
-    
-}
-
-
-int responseFirstLine(char * string, struct response * response) {
+int write_response(http_response * response, char * buffer, int space) {
+    int position = 0;
 
     char * default_reason = NULL;
-    switch (response->status_code) {
+    switch (response->status) {
         case RESPONSE_OK: default_reason = "OK"; break;
         case BAD_REQUEST: default_reason = "Bad Request"; break;
         case FORBIDDEN: default_reason = "Forbidden"; break;
@@ -113,30 +65,18 @@ int responseFirstLine(char * string, struct response * response) {
 
     if (strlen(response->reason) == 0 && default_reason != NULL)
         strncpy(response->reason, default_reason, REASON_LENGTH);
+    
+    print("%s %d %s\r\n", HTTP_VERSION, response->status, response->reason)
 
-    return snprintf(
-        string, STRING_SIZE, "%s %d %s\n",
-        HTTP_VERSION, response->status_code, response->reason
-    );
+    for (size_t i = 0; i < response->message.header_count; i++) {
+        print("%s: %s\r\n", response->message.headers[i][0], response->message.headers[i][1])
+    }
 
-}
-
-
-/*-----------------------------------------
- *  Funciones axuiliares
- *-----------------------------------------*/
-
-int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count) {
-    int position = 0;
-    for (int i = 0; i < header_count; i++)
-        position += snprintf(string + position, STRING_SIZE - position, "%s: %s\r\n", headers[i][0], headers[i][1]);
-
+    if (response->message.body != NULL) {
+        response->message.body[response->message.body_length] = 0;
+        print("\r\n%s", response->message.body);
+    }
+    
     return position;
-}
 
-int copy(char * dst, char * src) {
-    int length = strlen(src);
-    memcpy(dst, src, length);
-    return length;
 }
-

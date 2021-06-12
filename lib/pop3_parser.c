@@ -58,11 +58,11 @@ static void command_end(struct parser_event *ret, const uint8_t c) {
     ret->data[0] = c;
 }
 
-static void wait_msg(struct parser_event *ret, const uint8_t c) {
-    ret->type    = WAIT_MSG;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
+// static void wait_msg(struct parser_event *ret, const uint8_t c) {
+//     ret->type    = WAIT_MSG;
+//     ret->n       = 1;
+//     ret->data[0] = c;
+// }
 
 static void error(struct parser_event *ret, const uint8_t c) {
     ret->type    = UNEXPECTED_VALUE;

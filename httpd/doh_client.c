@@ -70,7 +70,7 @@ struct aibuf {
 int change_to_dns_format(char* dns, const char * host);
 unsigned char * get_body(unsigned char * str);
 int get_name(unsigned char * body);
-char * create_post(int length, char * body);
+int create_post(int length, char * body, char * write_buffer, int space);
 void send_doh_request(const char * target, int s, int type);
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, int initial_size);
 int resolve_string(struct addrinfo ** addrinfo, const char * target, int port);
@@ -168,25 +168,25 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
     return 0;
 }
 
-char * create_post(int length, char * body) {
+int create_post(int length, char * body, char * write_buffer, int space) {
     int header_count = 4;
-    struct request request = {
-            .method = POST,
-            .header_count = header_count,
-            .body_length = length,
-            .body = body
+    http_request request = {
+        .method = POST,
+        .message.header_count = header_count,
+        .message.body_length = length,
+        .message.body = body
     };
-    strcpy(request.headers[0][0], "Accept");
-    strcpy(request.headers[0][1], "application/dns-message");
-    strcpy(request.headers[1][0], "Content-Type");
-    strcpy(request.headers[1][1], "application/dns-message");
-    strcpy(request.headers[2][0], "Host");
-    snprintf(request.headers[2][1], HEADER_LENGTH, "%s:%d", configurations.host, configurations.port);
-    strcpy(request.headers[3][0], "Content-Length");
-    snprintf(request.headers[3][1], 4, "%d", length);
+    strcpy(request.message.headers[0][0], "Accept");
+    strcpy(request.message.headers[0][1], "application/dns-message");
+    strcpy(request.message.headers[1][0], "Content-Type");
+    strcpy(request.message.headers[1][1], "application/dns-message");
+    strcpy(request.message.headers[2][0], "Host");
+    snprintf(request.message.headers[2][1], HEADER_LENGTH, "%s:%d", configurations.host, configurations.port);
+    strcpy(request.message.headers[3][0], "Content-Length");
+    snprintf(request.message.headers[3][1], 4, "%d", length);
     strcpy(request.url, configurations.path);
 
-    return create_request(&request);
+    return write_request(&request, write_buffer, space);
 }
 
 void send_doh_request(const char * target, int s, int type) {
@@ -225,13 +225,15 @@ void send_doh_request(const char * target, int s, int type) {
     buffer_write_adv(&buff, sizeof(struct QUESTION));
 
     char * aux_buff = (char *)buffer_read_ptr(&buff, &nbyte);
-    char * string = create_post((int)nbyte, aux_buff); // crea el http request
 
-    if( send(s, string, nbyte + strlen(string), 0) < 0) { // manda el paquete al servidor DOH
+    char * write_buffer = malloc(1024); // TODO: Choose a number
+    int written = create_post((int)nbyte, aux_buff, write_buffer, 1024); // crea el http request
+
+    if( send(s, write_buffer, nbyte + written, 0) < 0) { // manda el paquete al servidor DOH
         log(ERROR, "Sending DOH request")
     }
 
-    free(string); // Libera el request http
+    free(write_buffer); // Libera el request http
 }
 
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, int initial_size) {

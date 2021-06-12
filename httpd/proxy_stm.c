@@ -712,14 +712,13 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 
 static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
 
-    struct response res = { .status_code = status_code };
-    char * raw_res = create_response(&res);
-
     size_t space;
     char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
-    strncpy(ptr, raw_res, space);
-    buffer_write_adv(&(key->item->write_buffer), strlen(ptr));
+    http_response res = { .status = status_code };
+    int written = write_response(&res, ptr, space);
+
+    buffer_write_adv(&(key->item->write_buffer), written);
 
     #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
     key->item->data = (void *) next_state;
@@ -777,14 +776,13 @@ static unsigned process_request(struct selector_key * key) {
         
         // Write response bytes into write buffer
 
-        struct response res = { .status_code = RESPONSE_OK };
-        char * raw_res = create_response(&res);
-
         size_t space;
-        uint8_t * ptr = buffer_write_ptr(&(key->item->write_buffer), &space);
+        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
-        strcpy((char *) ptr, raw_res);
-        buffer_write_adv(&(key->item->write_buffer), strlen(raw_res));
+        http_response res = { .status = RESPONSE_OK };
+        int written = write_response(&res, ptr, space);
+
+        buffer_write_adv(&(key->item->write_buffer), written);
 
         // Go to send response state
 
@@ -814,29 +812,12 @@ static unsigned process_request(struct selector_key * key) {
 
         // Write processed request bytes into write buffer
 
-        struct request req_aux;
-        req_aux.method = request->method;
-        req_aux.header_count = (int)request->message.header_count;
-        req_aux.body_length = request->message.body_length;
-        strncpy(req_aux.url, request->url, URL_LENGTH);
-        memcpy(req_aux.headers, request->message.headers, MAX_HEADERS * HEADER_LENGTH * 2);
-        if (request->message.body != NULL)
-            req_aux.body = request->message.body;
-
-        char * raw_req = create_request(&(req_aux));
-        if (raw_req==NULL)
-        {
-            return notify_error(key,BAD_REQUEST,REQUEST_READ);
-        }
-        
-        size_t size = strlen(raw_req);
-
         size_t space;
         char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
-        int writeBytes = size < space ? size : space;
-        strncpy((char *) ptr, (char *) raw_req, writeBytes);
-        buffer_write_adv(&(key->item->write_buffer), writeBytes);
+        int written = write_request(request, ptr, space);
+
+        buffer_write_adv(&(key->item->write_buffer), written);
 
         // Go to forward request state
 
@@ -1037,23 +1018,12 @@ static unsigned process_response(struct selector_key * key) {
 
     // Write processed response bytes into write buffer
 
-    struct response res_aux;
-    res_aux.status_code = response->status;
-    res_aux.header_count = (int)response->message.header_count;
-    res_aux.body_length = response->message.body_length;
-    memcpy(res_aux.reason, response->reason, REASON_LENGTH);
-    memcpy(res_aux.headers, response->message.headers, MAX_HEADERS * HEADER_LENGTH * 2);
-    if (response->message.body != NULL)
-        res_aux.body = response->message.body;
-
-    char * raw_res = create_response(&(res_aux));
-    size_t size = strlen(raw_res);
-
     size_t space;
     char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
-    strncpy((char *) ptr, (char *) raw_res, space);
-    buffer_write_adv(&(key->item->write_buffer), size);
+    int written = write_response(response, ptr, space);
+
+    buffer_write_adv(&(key->item->write_buffer), written);
 
     // Go to forward response state
 

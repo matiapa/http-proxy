@@ -4,14 +4,6 @@
 #include <http_message_parser.h>
 #include <http.h>
 
-typedef struct http_request {
-    methods method;
-    char url[URL_LENGTH];
-    char version[VERSION_LENGTH];
-
-    http_message message;
-} http_request;
-
 typedef struct http_request_parser{
     struct parser * parser;
     buffer parse_buffer;

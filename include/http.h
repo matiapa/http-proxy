@@ -39,38 +39,37 @@ typedef enum methods {GET=1, POST, CONNECT,DELETE,PUT,HEAD, OTHER} methods;
 
 /*---------------------- Structs definitions ----------------------*/
 
-/* REQUEST STRUCTURE */
-struct request {
+typedef struct http_message {
+    char headers[MAX_HEADERS][2][HEADER_LENGTH];
+    size_t header_count;
+
+    char * body;
+    int body_length;
+} http_message;
+
+
+typedef struct http_request {
     methods method;
     char url[URL_LENGTH];
     char version[VERSION_LENGTH];
 
-    char headers[MAX_HEADERS][2][HEADER_LENGTH];
-    int header_count;
+    http_message message;
+} http_request;
 
-    char * body;
-    int body_length;
-};
 
-/* RESPONSE STRUCTURE */
-struct response {
-    int status_code;
+typedef struct http_response {
+    int status;
     char version[VERSION_LENGTH];
     char reason[REASON_LENGTH];
 
-    char headers[MAX_HEADERS][2][HEADER_LENGTH];
-    int header_count;
+    http_message message;
+} http_response;
 
-    char * body;
-    int body_length;
-};
 
-/* REQUEST FACTORY */
-char * create_request(struct request * request);
+/*---------------------- Methods definitions ----------------------*/
 
-/* RESPONSE FACTORY */
-char * create_response(struct response * response);
+int write_request(http_request * request, char * write_buffer, int space);
 
-int copy(char * dst, char * src);
+int write_response(http_response * response, char * write_buffer, int space);
 
 #endif

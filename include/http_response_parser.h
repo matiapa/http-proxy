@@ -4,14 +4,6 @@
 #include <http_message_parser.h>
 #include <http.h>
 
-typedef struct http_response {
-    int status;
-    char version[VERSION_LENGTH];
-    char reason[REASON_LENGTH];
-
-    http_message message;
-} http_response;
-
 typedef struct http_response_parser{
     struct parser * parser;
     buffer parse_buffer;
