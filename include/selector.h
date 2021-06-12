@@ -7,6 +7,7 @@
 #include "buffer.h"
 #include "http.h"
 #include "stm.h"
+#include "selector_enums.h"
 #include "http_request_parser.h"
 #include "http_response_parser.h"
 
