@@ -11,12 +11,14 @@
 #include <monitor.h>
 #include <statistics.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
 
 #define BUFFER_SIZE 1024
 #define PF proxy_conf
 
 #define PASSWORD "quic"
 #define CURRENT_VERSION 1
+#define MASTER_SOCKET_SIZE 2
 
 enum req_status {
     REQ_SUCCESS = 0,
@@ -46,6 +48,7 @@ union format {
     unsigned short clients;
     short time;
     unsigned char boolean :1;
+    unsigned char level :2;
 };
 
 int process_request(char * body, struct request_header * request_header);
@@ -54,7 +57,7 @@ void send_retrieve_response(struct request_header * request_header, int body_len
 
 void send_success(struct request_header * request_header);
 
-void send_no_authorization_message();
+void send_no_authorization_message(struct request_header * req);
 
 void send_error(int status);
 
@@ -65,7 +68,7 @@ Config proxy_conf = {
     .connectionTimeout = -1,
     .statisticsFrequency = 3600,
 
-    .disectorsEnabled = true,
+    .disectorsEnabled = false,
 
     .viaProxyName = "",
     .clientBlacklist = "",
@@ -83,44 +86,83 @@ char res_buffer[BUFFER_SIZE];
 struct sockaddr_storage clientAddress;
 socklen_t clientAddressSize = sizeof(clientAddress);
 int udp_socket;
+int udp6_socket;
+int sockets[MASTER_SOCKET_SIZE];
 
 
-_Noreturn void * start_monitor(void * port) {
+void * start_monitor(void * port) {
 
-    udp_socket = create_udp_server(port);
-    if (udp_socket < 0)
-    log(FATAL, "Creating server socket: %s ", strerror(errno))
 
+    // Creo el socket para ipv4
+    sockets[0] = create_udp_server(port);
+    if (sockets[0] == -1) {
+        log(FATAL, "Creating server socket for ipv4: %s ", strerror(errno))
+    }
+    log(INFO, "Server socket for ipv4 created: %d ", sockets[0])
+
+    // Creo el socket para ipv6
+    sockets[1] = create_udp6_server(port);
+    if (sockets[1] == -1) {
+        log(FATAL, "Creating server socket for ipv6: %s ", strerror(errno))
+    }
+    log(INFO, "Server socket for ipv6 created: %d ", sockets[1])
+
+
+    fd_set readfds;
     ssize_t n;
+    int max_fd;
     while(1) {
+        FD_ZERO(&readfds);
         memset(req_buffer, 0, BUFFER_SIZE);
         memset(res_buffer, 0, BUFFER_SIZE);
 
-        n = recvfrom(udp_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &clientAddressSize);
-        if (n < 0) { // si hubo un error
-            log(ERROR, "Receiving request from client")
+        max_fd = 0;
+        for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
+            FD_SET(sockets[i], &readfds);
+            max_fd = max_fd > sockets[i] ? max_fd : sockets[i];
         }
 
-        if (n > 0) { // puede que no haya leido nada y no sea un error
-            struct request_header *request_header = (struct request_header *) req_buffer;
-            if (!validate_client((char *)request_header->pass)) {
-                send_no_authorization_message(udp_socket);
-            } else {
-                int status = process_request(req_buffer + sizeof(struct request_header), request_header);
-                if (status != REQ_SUCCESS)
-                    send_error(status);
+        int fds = pselect(max_fd + 1, &readfds, NULL, 0, NULL, NULL);
+        if (fds == -1) {
+            log(ERROR, "Exiting pselect")
+            continue;
+        }
+
+        for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
+
+            if (!FD_ISSET(sockets[i], &readfds)) {
+                continue;
+            }
+
+            n = recvfrom(udp_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &clientAddressSize);
+            if (n < 0) { // si hubo un error
+                log(ERROR, "Receiving request from client")
+            }
+
+            if (n > 0) { // puede que no haya leido nada y no sea un error
+                struct request_header *request_header = (struct request_header *) req_buffer;
+                if (!validate_client((char *)request_header->pass)) {
+                    send_no_authorization_message(request_header);
+                } else {
+                    int status = process_request(req_buffer + sizeof(struct request_header), request_header);
+                    if (status != REQ_SUCCESS)
+                        send_error(status);
+                }
             }
         }
     }
 }
 
-void send_no_authorization_message() {
+void send_no_authorization_message(struct request_header * req) {
     char message[61] = "Acceso denegado\n¿Que protocolo de UDP salió recientemente?";
 
     struct response_header res_header = {
             .version = CURRENT_VERSION,
             .status = REQ_UNAUTHORIZED,
             .length = strlen(message) + 1,
+            .id = req->id,
+            .method = req->method,
+            .type = req->type,
     };
     memcpy(res_buffer, &res_header, sizeof(res_header));
     strcpy(res_buffer + sizeof(res_header), message);
@@ -173,6 +215,7 @@ int process_request(char * body, struct request_header * req) {
             return REQ_BAD_REQUEST;
 
         union format * ft = (union format *)body;
+        struct black_list * bl = (struct black_list *)body;
         switch (req->method) {
             case 0:
                 if (ft->clients > 1000)
@@ -180,11 +223,17 @@ int process_request(char * body, struct request_header * req) {
                 proxy_conf.maxClients = ft->clients;
                 break;
             case 1:
-            case 2:
                 proxy_conf.connectionTimeout = ft->time;
+                break;
+            case 2:
+                proxy_conf.statisticsFrequency = ft->time;
                 break;
             case 3:
                 proxy_conf.disectorsEnabled = ft->boolean;
+                break;
+            case 4:
+                proxy_conf.logLevel = ft->level;
+                break;
             default:
                 return REQ_BAD_REQUEST;
         }
@@ -233,94 +282,6 @@ void send_success(struct request_header * request_header) {
         log(ERROR, "Sending client response")
     }
 }
-
-void set_variable(char * command, char * response) {
-
-  char * variable = strtok(command, " ");
-  if (variable == NULL) {
-    sprintf(response, "ERROR: Missing variable name\n");
-    return;
-  }
-
-  char * value = strtok(NULL, " ");
-  if (value == NULL) {
-    sprintf(response, "ERROR: Missing variable value\n");
-    return;
-  }
-
-  if (strncmp(variable, "maxClients", 10) == 0) {
-
-    int num = atoi(value);
-    if (num > 0 && num <= 1000) {
-      PF.maxClients = num;
-      sprintf(response, "OK: Max clients set to %d\n", num);
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that 0 < n <= 1000\n");
-    }
-
-  } else if (strncmp(variable, "connectionTimeout", 17) == 0) {
-
-    int num = atoi(value);
-    if (num > 0 || num == -1) {
-      PF.connectionTimeout = num;
-      sprintf(response, "OK: Connection timeout set to %d\n", num);
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that 0 < n or n = -1\n");
-    }
-
-  } else if (strncmp(variable, "statisticsFrequency", 19) == 0) {
-
-    int num = atoi(value);
-    if (num == 0 || num == 1) {
-      PF.statisticsFrequency = num;
-      sprintf(response, "OK: Statistics %s\n", num ? "enabled" : "disabled");
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
-    }
-
-  } else if (strncmp(variable, "disectorsEnabled", 16) == 0) {
-
-    int num = atoi(value);
-    if (num == 0 || num == 1) {
-      PF.disectorsEnabled = num;
-      sprintf(response, "OK: Disectors %s\n", num ? "enabled" : "disabled");
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
-    }
-
-  } else if (strncmp(variable, "viaProxyName", 12) == 0) {
-
-    strncpy(PF.viaProxyName, value, VIA_PROXY_NAME_SIZE);
-
-    sprintf(response, "OK: Proxy name set to %s\n", PF.viaProxyName);
-
-  } else if (strncmp(variable, "clientBlacklist", 15) == 0) {
-
-    strncpy(PF.clientBlacklist, value, BLACKLIST_SIZE);
-
-    sprintf(response, "OK: Client black list set to %s\n", PF.clientBlacklist);
-
-  } else if (strncmp(variable, "targetBlacklist", 15) == 0) {
-
-    strncpy(PF.targetBlacklist, value, BLACKLIST_SIZE);
-
-    sprintf(response, "OK: Target black list set to %s\n", PF.targetBlacklist);
-
-  } else if (strncmp(variable, "logLevel", 8) == 0) {
-
-    int level = descriptionLevel(value);
-    if (level >= 0) {
-      PF.logLevel = (LOG_LEVEL) level;
-      sprintf(response, "OK: Log level set to %s\n", levelDescription(level));
-    } else {
-      sprintf(response, "ERROR: Value must be one of [DEBUG, INFO, ERROR, FATAL]\n");
-    }
-
-  }
-
-}
-
-
 
 
 

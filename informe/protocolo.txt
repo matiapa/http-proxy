@@ -64,7 +64,7 @@ LENGTH          número de 2 bytes utilizado para especificar el tamaño
                 se mandaron a través del proxy. Cuando TYPE es 1 el
                 método que se pide es cambiar la frequencia (en 
                 segundos) de las estadísticas. Para deshabilitarlo 
-                mandar un -1.
+                mandar un -1. Por defecto el valor es 3600 segundos.
 
 3               Cuando TYPE está en 0 el método que se pide es TOTAL
                 RECIEVED, el cual devuelve la cantidad total de de
@@ -76,11 +76,17 @@ LENGTH          número de 2 bytes utilizado para especificar el tamaño
 
 4               Cuando TYPE está en 0 el método que se pide es ALL, el
                 cual retorna todos los valores anteriores en el orden
-                anterior en formato de long.
+                anterior en formato de long. Cuando TYPE está en 1 el
+                método que se pide es cambiar el nivel de logging. Donde
+                DEBUG = 0, INFO = 1, ERROR = 2, FATAL = 3.
 
 5               Cuando TYPE está en 0 el método que se pide es obtener
-                la configuración actual del proxy en el orden de
-                anterior en formato de long.
+                la configuración actual del proxy en el orden
+                anterior en formato de long. Cuando TYPE esta en 1 el
+                metodo es CLIENT BLACKLIST el cual recive en el body un
+                valor númerico de 16 bits que especifica la cantidad de
+                ips que se estan enviando, seguido por las ips cuyo
+                separador es una coma.
             
 
 # Estructura del Response

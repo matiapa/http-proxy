@@ -30,4 +30,4 @@ client: $(CLIENT_OBJ)
 	$(CC) -pthread $(CFLAGS) $(CLIENT_OBJ) -o bin/client
 
 clean:
-	rm -rf $(PROXY_OBJ) bin/httpd bin/client
+	rm -rf $(PROXY_OBJ) $(CLIENT_OBJ) bin/httpd bin/client

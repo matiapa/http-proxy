@@ -7,6 +7,7 @@
 #include <strings.h>
 #include <arpa/inet.h>
 #include <logger.h>
+#include <stdio.h>
 
 struct request_header {
     unsigned char version;
@@ -40,22 +41,24 @@ struct method5 {
     unsigned char disectors_enabled;
 };
 
+union format {
+    unsigned short clients;
+    short time;
+    unsigned char boolean :1;
+    unsigned char level :2;
+};
+
 enum req_status {
     REQ_SUCCESS = 0,
     REQ_BAD_REQUEST = 1,
     REQ_UNAUTHORIZED = 2
 };
 
-union format {
-    unsigned short clients;
-    short time;
-    unsigned char boolean :1;
-};
-
 #define BUFFER_SIZE 1024*4
 #define MAX_RETRIEVE_METHODS 6
-#define MAX_SET_METHODS 4
-#define MAX_STRING 50
+#define MAX_SET_METHODS 7
+#define MAX_CLIENT_METHODS 2
+#define MAX_STRING 20
 #define RETRIEVE 0
 #define SET 1
 #define CURRENT_VERSION 1
@@ -64,12 +67,18 @@ char buffer[BUFFER_SIZE];
 char pass[32];
 
 char retrieve_methods[MAX_RETRIEVE_METHODS][MAX_STRING] = {"totalConnections", "currentConnections", "totalSend", "totalRecieved", "allStats", "getConfigurations"};
-char set_methods[MAX_SET_METHODS][MAX_STRING] = {"setMaxClients", "setClientTimeout", "setStatsFrequency", "setInspection"};
+char set_methods[MAX_SET_METHODS][MAX_STRING] = {"setMaxClients", "setClientTimeout", "setStatsFrequency", "setDisector", "setLoggingLevel", "clientBlacklist", "targetBlacklist"};
+char client_methods[MAX_CLIENT_METHODS][MAX_STRING] = {"help", "changePassword"};
 
 void process_response(struct response_header * res);
-void parse_command(char * command, char * response, struct request_header * res, char * buffer);
+int parse_command(char * command, struct request_header * res, char * buffer);
+void print_error(char * message);
+int is_number(const char * str);
+void print_help();
+void get_password();
 
 int main() {
+
     int sock;
     ssize_t n;
     struct sockaddr_in serverAddr;
@@ -95,22 +104,15 @@ int main() {
         return -1;
     }
 
-    // TODO: cambiar esto
-    memcpy(pass, "quic", 4);
-    pass[4] = 0;
+    get_password();
 
     char command[1024];
-    char c;
-    int i = 0;
     while(1) {
-        i = 0;
-        while ((c = getchar()) != '\n') {
-            command[i++] = c;
-        }
-        command[i] = '\0';
+
+        scanf("%s", command);
 
         struct request_header req;
-        parse_command(command, NULL, &req, buffer);
+        if (parse_command(command, &req, buffer) <= 0) continue; // envio mal el command o fue un cambio del cliente
 
         if (send(sock, buffer, sizeof(req) + req.length, 0) < 0) { // manda el paquete al servidor DOH
             return -1;
@@ -134,7 +136,6 @@ int main() {
         }
     }
 
-    return sock;
 }
 
 void process_response(struct response_header * res) {
@@ -144,125 +145,159 @@ void process_response(struct response_header * res) {
     } else if (res->status == REQ_UNAUTHORIZED) {
         printf("%s\n", buffer + sizeof(struct response_header));
     } else {
-        if (res->method == 4) {
-            struct method4 * results = (struct method4 *)(buffer + sizeof(struct response_header));
-            printf("Conecciones: %ld - Conecciones Actuales: %ld - Total Enviados: %ld - Total Recividos: %ld\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
-        } else if (res->method == 5) {
-            struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header));
-            printf("Clients: %d - Timeout: %d - Frequency: %d - Disector Enabled: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE");
+        if (res->type == 0){
+            if (res->method == 4) {
+                struct method4 * results = (struct method4 *)(buffer + sizeof(struct response_header));
+                printf("Conecciones: %ld - Conecciones Actuales: %ld - Total Enviados: %ld - Total Recividos: %ld\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
+            } else if (res->method == 5) {
+                struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header));
+                printf("Clients: %d - Timeout: %d - Frequency: %d - Disector Enabled: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE");
+            } else {
+                unsigned long value;
+                memcpy(&value, buffer + sizeof(struct response_header), sizeof(long));
+                printf("Respuesta: %ld\n", value);
+            }
         } else {
-            unsigned long value;
-            memcpy(&value, buffer + sizeof(struct response_header), sizeof(long));
-            printf("Respuesta: %ld\n", value);
+            if (res->status == REQ_SUCCESS)
+                printf("Valor Actualizado\n");
         }
     }
 }
 
-void parse_command(char * command, char * response, struct request_header * req, char * buff) {
+int parse_command(char * command, struct request_header * req, char * buff) {
 
-    for(int i=0; command[i] != 0; i++)
-        if(command[i] == '\n'){
-            command[i] = 0;
-            break;
+    for (int i = 0; i < MAX_CLIENT_METHODS; i++) {
+        if (strcmp(command, client_methods[i]) == 0) {
+            if (i == 0) {
+                print_help();
+            } else if (i == 1) {
+                get_password();
+            }
+            return 0;
         }
+    }
 
-    if (strncmp(command, "help", 4) == 0) {
+    for (int i = 0; i < MAX_RETRIEVE_METHODS; i++) {
+        if (strcmp(command, retrieve_methods[i]) == 0) {
+            req->version = CURRENT_VERSION;
+            req->id = 25; // TODO: cambiarlo por dinamico
+            strcpy((char *)req->pass, pass); // TODO: cambiarlo por algo dinámico
+            req->type = RETRIEVE;
+            req->method = i;
+            req->length = 0; // porque es un request del tipo retrieve
+            memcpy(buff, req, sizeof(struct request_header));
+            return 1;
+        }
+    }
 
-        sprintf(response,
-                "> Available commands:\n"
-                ">> SHOW CONFIG:                          Display current values of config variables\n"
-                ">> SHOW STATISTICS:                      Display current values of statistics\n"
-                ">> SET variable value:                   Set a config variable value\n"
-                ">> HELP:                                 Show this help screen\n\n"
-                ">> maxClients:                           Máxima cantidad de clientes posibles\n\n"
+    int value;
 
-                "> Available config variables:\n"
-                ">> maxClients:                           Max allowed clients (up to 1000). Default is 1000.\n"
-                ">> connectionTimeout:                    Max inactivity time before disconnection, or -1 to disable it. Default is -1.\n"
-                ">> statisticsFrequency:                  Frequency of statistics logging, or -1 to disable it.\n"
-                ">> disectorsEnabled:                     Whether to extract plain text credentials. Default is 1.\n"
-                ">> viaProxyName:                         Host name to use on RFC 7230 required 'Via' header, up to %d characters. Default is proxy hostname.\n"
-                ">> clientBlacklist:                      Comma separated list of client IPs to which service must be denied. Max size of list is %d.\n"
-                ">> targetBlacklist:                      Comma separated list of target IPs to which connection must be denied. Max size of list is %d.\n"
-                ">> logLevel:                             Minimum log level to display, possible values are [DEBUG, INFO, ERROR, FATAL]. Default is DEBUG.\n",
+    char * token = strtok(command, " ");
+    char * num = strtok(NULL, " ");
 
-                VIA_PROXY_NAME_SIZE, BLACKLIST_SIZE, BLACKLIST_SIZE
-        );
 
+    if (num != NULL && is_number(num)) {
+        sscanf(num, "%d", &value);
     } else {
-        for (int i = 0; i < MAX_RETRIEVE_METHODS; i++) {
-            if (strcmp(command, retrieve_methods[i]) == 0) {
-                req->version = CURRENT_VERSION;
-                req->id = 25; // TODO: cambiarlo por dinamico
-                strcpy((char *)req->pass, pass); // TODO: cambiarlo por algo dinámico
-                req->type = RETRIEVE;
-                req->method = i;
-                req->length = 0; // porque es un request del tipo retrieve
-                memcpy(buff, req, sizeof(struct request_header));
-                return;
-            }
-        }
-
-        long value;
-        char str[MAX_STRING];
-        if (sscanf(command, "%s %ld", str, &value) > 0) {
-            printf("%ld\n", value);
-        }
-
-        for (int i = 0; i < MAX_SET_METHODS; i++) {
-            if (strcmp(command, set_methods[i]) == 0) {
-                req->version = CURRENT_VERSION;
-                req->id = 25; // TODO: cambiarlo por dinamico
-                strcpy((char *)req->pass, pass); // TODO: cambiarlo por algo dinámico
-                req->type = SET;
-                req->method = i;
-                req->length = sizeof(long); // porque es un request del tipo retrieve
-                memcpy(buff, req, sizeof(struct request_header));
-                memcpy(buff + sizeof(struct request_header), &value, sizeof(long));
-                return;
-            }
-        }
-
+        printf("Comando invalido\n");
+        return -1;
     }
 
-//    else if (strncmp(command, "SHOW CONFIG", 11) == 0) {
-//
-//        char * format =
-//                "maxClients: %d\n"
-//                "connectionTimeout: %d\n"
-//                "statisticsFrequency: %d\n"
-//                "disectorsEnabled: %d\n"
-//                "viaProxyName: %s\n"
-//                "clientBlacklist: %s\n"
-//                "targetBlacklist: %s\n"
-//                "logLevel: %s\n";
-//
-//        //sprintf(response, format, PF.maxClients, PF.connectionTimeout, PF.statisticsFrequency, PF.disectorsEnabled, PF.viaProxyName, PF.clientBlacklist, PF.targetBlacklist, levelDescription(PF.logLevel));
-//
-//    } else if (strncmp(command, "SHOW STATISTICS", 15) == 0) {
-//
-//        char * format =
-//                "current connections: %d\n"
-//                "total connections since server restart: %d\n"
-//                "total bytes sent: %ld \n"
-//                "total bytes recieved: %ld\n";
-////        statistics * stats=get_statistics(malloc(sizeof(statistics)));
-////        sprintf(response, format,stats->current_connections,stats->total_connections,stats->total_sent,stats->total_recieved );
-////        free(stats);
-//
-//    } else if (strncmp(command, "SET", 3) == 0) {
-//
-//        set_variable(command + 4, response);
-//
-//    } else if (command[0] == 0) {
-//
-//        sprintf(response, "\n");
-//
-//    } else {
-//
-//        sprintf(response, "ERROR: Invalid command\n");
-//
-//    }
+    for (int i = 0; i < MAX_SET_METHODS; i++) {
+        if (strcmp(token, set_methods[i]) == 0) {
+
+            switch (i) {
+                case 0:
+                    if (value > 1000) {
+                        print_error("El valor no puede ser mayor a 1000");
+                        return -1;
+                    }
+                    memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
+                    break;
+                case 1:
+                case 2:
+                    memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
+                    break;
+                case 3:
+                    if (value > 1) {
+                        print_error("El valor no puede ser mayor a 1");
+                        return -1;
+                    }
+                    memcpy(buff + sizeof(struct request_header), &value, sizeof(char));
+                    break;
+                default:
+                    break;
+            }
+            req->version = CURRENT_VERSION;
+            req->id = 25; // TODO: cambiarlo por dinamico
+            strcpy((char *)req->pass, pass); // TODO: cambiarlo por algo dinámico
+            req->type = SET;
+            req->method = i;
+            req->length = sizeof(long); // porque es un request del tipo retrieve
+            memcpy(buff, req, sizeof(struct request_header));
+
+            return 1;
+        }
+    }
+
+    return -1;
 
 }
 
+void print_error(char * message) {
+    printf("Error: %s\n", message);
+}
+
+int is_number(const char * str) {
+    int i = 0;
+    while(*str != '\0') {
+        if (*str > '9' || *str < '0') return 0;
+        str++;
+        i++;
+    }
+    return i > 0 ? 1 : 0;
+}
+
+void print_help() {
+    printf("> Comandos Disponibles:\n"
+           ">> changePassword               permite cambiar la contraseña con la que se\n"
+           "                                accede al managment.\n\n"
+           ">> totalConnections             retorna la cantidad historica de clientes que\n"
+           "                                se conectaron al proxy.\n\n"
+           ">> currentConnections           retorna la cantidad actual de clientes que estan\n"
+           "                                conectados al proxy.\n\n"
+           ">> totalSend                    retorna la cantidad de bytes que han sido\n"
+           "                                enviados a traves dle proxy.\n\n"
+           ">> totalRecieved                retorna la cantidad de bytes que han sido\n"
+           "                                recividas por el proxy.\n\n"
+           ">> allStats                     retorna todos los valores estadísticos.\n\n"
+           ">> getConfigurations            retorna la configuración actual del proxy.\n\n"
+           ">> setMaxClients <valor>        recive un valor númerico menor a 1000 utilizado\n"
+           "                                para configurar la máxima cantidad de clientes\n"
+           "                                concurrentes que puede tener el proxy.\n\n"
+           ">> setClientTimeout <valor>     recive un valor númerico que representa tiempo\n"
+           "                                en segundos utilizado para configurar el tiempo\n"
+           "                                el cual un cliente puede estar inactivo.\n\n"
+           ">> setStatsFrequency <valor>    recive un valor númerico que representa tiempo\n"
+           "                                en segundos utilizado para configurar cada cuanto\n"
+           "                                se guardan los valores estadísticos del programa.\n\n"
+           ">> setDisector <valor>          recive un valor del conjunto {0, 1}, 1 siendo\n"
+           "                                activar y 0 desactivar, el cual se utiliza para\n"
+           "                                habilitar/deshabilitar la inspección de credenciales.\n\n"
+           ">> setLoggingLevel <valor>      recive un valor númerico cuyo valor puede ser [0, 1, 2, 3],\n"
+           "                                donde DEBUG = 0, INFO = 1, ERROR = 2, FATAL = 3\n\n"
+           "> Consultar el RFC del Protocolo para más información\n");
+}
+
+void get_password() {
+    char c;
+    memset(pass, 0, sizeof(pass));
+    int i = 0;
+    while (i == 0) {
+        printf("Ingresar Contraseña: ");
+        while ((c = getchar()) != EOF && c != '\n') {
+            pass[i++] = c;
+        }
+    }
+    pass[i] = '\0';
+}
