@@ -13,7 +13,7 @@ int responseFirstLine(char * string, struct response * response);
 
 int headersSection(char * string, char headers[MAX_HEADERS][2][HEADER_LENGTH], int header_count);
 
-char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT"};
+char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT","HEAD"};
 
 
 /*-----------------------------------------
@@ -30,7 +30,7 @@ char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT"};
      memset(string, 0, STRING_SIZE);
      int position = 0;
 
-    if (request->method == POST || request->method == GET || request->method == CONNECT || request->method == DELETE || request->method == PUT) {
+    if (request->method == POST || request->method == GET || request->method == CONNECT || request->method == DELETE || request->method == PUT || request->method == HEAD) {
         position = requestFirstLine(string, request);
         if (position < 0) return NULL;
     } else {
@@ -55,7 +55,7 @@ char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT"};
 int requestFirstLine(char * string, struct request * request) {
     int position = snprintf(string, STRING_SIZE, "%s ", methods_strings[request->method]);
 
-    if (request->method == CONNECT || request->method == GET || request->method == POST || request->method == DELETE || request->method == PUT) {
+    if (request->method == CONNECT || request->method == GET || request->method == POST || request->method == DELETE || request->method == PUT || request->method == HEAD) {
         position += copy(string + position, request->url);
     } else {
         return -1;

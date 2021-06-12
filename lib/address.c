@@ -227,7 +227,7 @@ int parse_url(char * text, struct url * url) {
     }
 
     token = NULL;
-    while (strchr(rest, '/') != NULL &&(token = strtok_r(rest, "/", &rest))) {
+    while (rest!=NULL && strchr(rest, '/') != NULL &&(token = strtok_r(rest, "/", &rest))) {
         num_flag = is_number(token);
         if (!num_flag) {
             if (!flag) {

@@ -195,6 +195,8 @@ void assign_method(http_request * httpRequest, http_request_parser * parser){
         httpRequest->method = DELETE;
     else if(strncmp(ptr, "PUT", size) == 0)
         httpRequest->method = PUT;
+    else if(strncmp(ptr, "HEAD", size) == 0)
+        httpRequest->method = HEAD;
     else
         httpRequest->method = OTHER;
 }

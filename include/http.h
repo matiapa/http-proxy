@@ -25,7 +25,7 @@
 
 /*---------------------- Keywords definitions ----------------------*/
 
-typedef enum methods {GET, POST, CONNECT,DELETE,PUT, OTHER} methods;
+typedef enum methods {GET, POST, CONNECT,DELETE,PUT,HEAD, OTHER} methods;
 
 #define RESPONSE_OK 200
 #define BAD_REQUEST 400
