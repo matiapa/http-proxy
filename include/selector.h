@@ -10,6 +10,7 @@
 #include "selector_enums.h"
 #include "http_request_parser.h"
 #include "http_response_parser.h"
+#include "pop3_parser.h"
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -195,6 +196,7 @@ struct item {
     state_machine       stm;
     http_request_parser req_parser;
     http_response_parser res_parser;
+    pop3_parser_data  pop3_parser;
     
     time_t              last_activity;
     char                target_name[50];

@@ -5,6 +5,8 @@
 #include <buffer.h>
 
 #define MAX_USER_PASSWORD_LENGTH 25
+#define MAX_CREDENTIALS_LENGTH 100
+
 
 typedef enum pop3_state{
     POP3_FAILED,
@@ -21,6 +23,7 @@ typedef struct pop3_parser_data{
     char user_pass[2][MAX_USER_PASSWORD_LENGTH];
     int pass;
     int user;
+    char credentials[MAX_CREDENTIALS_LENGTH];
 }pop3_parser_data;
 
 void pop3_parser_init(pop3_parser_data * data);
