@@ -6,26 +6,17 @@
 #include <ctype.h> //toUpper
 
 #include <pop3_parser.h>
-#include <http_chars.h>
+#include <abnf_chars.h>
 #include <parser.h>
+#include <logger.h>
 
 #define PARSE_BUFF_SIZE 1024
-
-typedef enum cmd_type{
-    USER,
-    PASSWORD,
-    OTHER,
-}cmd_type;
 
 enum states {
     COMMAND,
     COMMAND_VAL,
-
-    UNEXPECTED,
-
     COMMAND_CR,
-    COMMAND_CRLF,
-
+    UNEXPECTED,
 };
 
 enum event_type{
@@ -36,10 +27,7 @@ enum event_type{
     COMMAND_VALUE_END,
 
     WAIT_MSG,
-
-    UNEXPECTED_VALUE,
-
-    END_TYPE,
+    UNEXPECTED_VALUE
 };
 
 
@@ -58,18 +46,6 @@ static void command_end(struct parser_event *ret, const uint8_t c) {
     ret->data[0] = c;
 }
 
-// static void wait_msg(struct parser_event *ret, const uint8_t c) {
-//     ret->type    = WAIT_MSG;
-//     ret->n       = 1;
-//     ret->data[0] = c;
-// }
-
-static void error(struct parser_event *ret, const uint8_t c) {
-    ret->type    = UNEXPECTED_VALUE;
-    ret->n       = 1;
-    ret->data[0] = c;
-}
-
 static void value(struct parser_event *ret, const uint8_t c) {
     ret->type    = COMMAND_VALUE;
     ret->n       = 1;
@@ -81,8 +57,15 @@ static void val_end(struct parser_event *ret, const uint8_t c) {
     ret->n       = 1;
     ret->data[0] = c;
 }
-static void end(struct parser_event *ret, const uint8_t c) {
-    ret->type    = END_TYPE;
+
+static void wait_msg(struct parser_event *ret, const uint8_t c) {
+    ret->type    = WAIT_MSG;
+    ret->n       = 1;
+    ret->data[0] = c;
+}
+
+static void error(struct parser_event *ret, const uint8_t c) {
+    ret->type    = UNEXPECTED_VALUE;
     ret->n       = 1;
     ret->data[0] = c;
 }
@@ -91,30 +74,26 @@ static void end(struct parser_event *ret, const uint8_t c) {
 // Transiciones
 
 static const struct parser_state_transition ST_COMMAND [] =  {
-        {.when = TOKEN_ALPHA,           .dest = COMMAND,                       .act1 = command,},
-        {.when = TOKEN_DIGIT,           .dest = COMMAND,                       .act1 = command,},
-        {.when = ' ',                  .dest = COMMAND_VAL,                  .act1 = command_end,},
-        //{.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+    {.when = TOKEN_ALPHA,           .dest = COMMAND,                       .act1 = command,},
+    {.when = TOKEN_DIGIT,           .dest = COMMAND,                       .act1 = command,},
+    {.when = ' ',                  .dest = COMMAND_VAL,                    .act1 = command_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                    .act1 = error,},
 };
 
 static const struct parser_state_transition ST_COMMAND_VAL [] =  {
-        {.when = TOKEN_ALPHA,           .dest = COMMAND_VAL,                       .act1 = value,},
-        {.when = '\r',                  .dest = COMMAND_CR,                  .act1 = val_end,},
-        {.when = '\n',                  .dest = COMMAND_CRLF,                .act1 = val_end,},
-       {.when = ANY,                   .dest = COMMAND_VAL,                   .act1 = value,},
+    {.when = TOKEN_ALPHA,           .dest = COMMAND_VAL,                   .act1 = value,},
+    {.when = '\r',                  .dest = COMMAND_CR,                    .act1 = val_end,},
+    {.when = '\n',                  .dest = COMMAND,                       .act1 = val_end,},
+    {.when = ANY,                   .dest = UNEXPECTED,                    .act1 = error,},
 };
 
 static const struct parser_state_transition ST_COMMAND_CR[] =  {
-        {.when = '\n',                  .dest = COMMAND_CRLF,                .act1 = end,},
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
-};
-
-static const struct parser_state_transition ST_COMMAND_CRLF[] =  {
-        {.when = ANY,                   .dest = COMMAND_CRLF,                   .act1 = end,},
+    {.when = '\n',                  .dest = COMMAND,                       .act1 = wait_msg,},
+    {.when = ANY,                   .dest = UNEXPECTED,                    .act1 = error,},
 };
 
 static const struct parser_state_transition ST_UNEXPECTED [] =  {
-        {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
+    {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -125,8 +104,6 @@ static const struct parser_state_transition *states [] = {
         ST_COMMAND_VAL,
         ST_UNEXPECTED,
         ST_COMMAND_CR,
-        ST_COMMAND_CRLF,
-
 };
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
@@ -135,8 +112,7 @@ static const size_t states_n [] = {
         N(ST_COMMAND),
         N(ST_COMMAND_VAL),
         N(ST_UNEXPECTED),
-        N(ST_COMMAND_CR),
-        N(ST_COMMAND_CRLF),
+        N(ST_COMMAND_CR)
 };
 
 static struct parser_definition definition = {
@@ -158,118 +134,92 @@ void pop3_parser_init(pop3_parser_data * data){
     if(data != NULL){
         data->parser = parser_init(init_char_class(), &definition);
         buffer_init(&(data->popBuffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
-        data->pass = 0;
+        data->user = NULL; data->user_len = 0;
+        data->pass = NULL; data->pass_len = 0;
     }
 }
 
 void pop3_parser_reset(pop3_parser_data * data){
     parser_reset(data->parser);
     buffer_reset(&(data->popBuffer));
+    data->user = NULL; data->user_len = 0;
+    data->pass = NULL; data->pass_len = 0;
 }
 
 void pop3_parser_destroy(pop3_parser_data * data){
     parser_destroy(data->parser);
     free(data->popBuffer.data);
-    //free(data);
+    free(data);
 }
 
-cmd_type check_cmd(pop3_parser_data * data){
+void assign_cmd(pop3_parser_data * data){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(data->popBuffer), &size);
 
-    if(strncmp(ptr, "USER", size) == 0){
-        return USER;
-    }
-    if(strncmp(ptr, "PASS", size) == 0){
-        return PASSWORD;
-    }
-    return OTHER;
-}
+    data->last_cmd = POP3_OTHER;
 
-void assign_value( pop3_parser_data * data, cmd_type cmd){
-    size_t size;
-    char * ptr = (char *) buffer_read_ptr(&(data->popBuffer), &size);
-    if (cmd == USER){
-        COPY(data->user_pass[0], ptr, size);
-        data->user = 1;
-    }
-    else{
-        COPY(data->user_pass[1], ptr, size);
-        data->pass = 1;
-    }
+    if(strncmp(ptr, "USER", size) == 0)
+        data->last_cmd = POP3_USER;
+
+    if(strncmp(ptr, "PASS", size) == 0)
+        data->last_cmd = POP3_PASSWORD;
 }
 
 
-
-pop3_state pop3_parse(buffer * readBuffer, pop3_parser_data * data, char * pop3_credentials) {
+pop3_state pop3_parse(buffer * readBuffer, pop3_parser_data * data) {
 
     pop3_state result = POP3_PENDING;
-    cmd_type cmd;
+
     while(buffer_can_read(readBuffer)){
 
         const struct parser_event * e = parser_feed(data->parser, buffer_read(readBuffer));
 
         switch(e->type) {
             case COMMAND_NAME:
-                //log(DEBUG, "METHOD_NAME %c", e->data[0]);
                 buffer_write(&(data->popBuffer), toupper(e->data[0]));
                 break;
 
             case COMMAND_NAME_END:
-
-                cmd = check_cmd(data);
-
-                //log(DEBUG, "METHOD_NAME_END %c", e->data[0]);
-                if(cmd == OTHER){
-                    pop3_parser_reset(data);
-                    return NO_USER_PASS;
-                }
+                assign_cmd(data);
                 buffer_reset(&(data->popBuffer));
                 break;
 
             case COMMAND_VALUE:
-                //log(DEBUG, "TARGET_VAL %c", e->data[0]);
-                buffer_write(&(data->popBuffer), e->data[0]);
+                if (data->last_cmd == POP3_USER && data->user == NULL) {
+                    data->user = (char *) readBuffer->read - 1;
+                    data->user_len = 0;
+                }
+                if (data->last_cmd == POP3_USER)
+                    data->user_len++;
+                
+                if (data->last_cmd == POP3_PASSWORD && data->pass == NULL) {
+                    data->pass = (char *) readBuffer->read - 1;
+                    data->pass_len = 0;
+                }
+                if (data->last_cmd == POP3_PASSWORD)
+                    data->pass_len++;
+
                 break;
 
             case COMMAND_VALUE_END:
-                //log(DEBUG, "TARGET_VAL_END %c", e->data[0]);
-                assign_value(data, cmd);
-                if(data->pass == 1 && data->user == 0){
-                    data->pass = 0;
-                    pop3_parser_reset(data);
-                    return FAILED_PASS_NO_USER;
-                }
-                buffer_reset(&(data->popBuffer));
+                if (data->last_cmd == POP3_USER && data->user != NULL)
+                    data->user[data->user_len] = 0;
+
+                if (data->last_cmd == POP3_PASSWORD && data->pass != NULL)
+                    data->pass[data->pass_len] = 0;
+
+                result = POP3_SUCCESS;
                 break;
 
             case WAIT_MSG:
-                //log(DEBUG, "VERSION_VAL %c", e->data[0]);
                 break;
 
             case UNEXPECTED_VALUE:
-                //log(DEBUG, "UNEXPECTED_VALUE %d", e->data[0]);
-                data->pass = 0;
-                data->user = 0;
                 pop3_parser_reset(data);
                 return POP3_FAILED;
 
-            case END_TYPE:
-                pop3_parser_reset(data);
-                if (data->pass && data->user){
-                    strcpy(pop3_credentials, "USER: ");
-                    strcat(pop3_credentials, data->user_pass[0]);
-                    strcat(pop3_credentials, " PASS: ");
-                    strcat(pop3_credentials, data->user_pass[1]);
-                    data->user = 0;
-                    data->pass = 0;
-                    return USER_PASS_SUCCESS;
-                }
-                return USER_SUCCESS;
-                break;
-
             default:
-                //log(ERROR, "Unexpected event type %d", e->type);
+                log(ERROR, "Unexpected event type %d", e->type);
                 return POP3_FAILED;
         }
 

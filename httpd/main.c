@@ -121,6 +121,7 @@ void handle_creates(struct selector_key *key) {
 
     http_request_parser_init(&(key->item->req_parser));
     http_response_parser_init(&(key->item->res_parser));
+    pop3_parser_init(&(key->item->pop3_parser));
 
     // Set initial interests
 

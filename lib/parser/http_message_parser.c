@@ -3,7 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#include <http_chars.h>
+#include <abnf_chars.h>
 #include <parser.h>
 #include <logger.h>
 #include <http_message_parser.h>
@@ -115,44 +115,40 @@ static void error(struct parser_event *ret, const uint8_t c) {
 // TRANSITIONS
 
 static const struct parser_state_transition ST_HEADERS_BEGIN [] =  {
-    {.when = '\r',                  .dest = HEADERS_ENDLINE_CR,           .act1 = wait_msg,},
-    {.when = '\n',                  .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
+    {.when = TOKEN_CR,              .dest = HEADERS_ENDLINE_CR,           .act1 = wait_msg,},
+    {.when = TOKEN_LF,              .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
     {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_HEADER_NAME [] =  {
-    {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
-    {.when = '-',                   .dest = HEADER_NAME,                  .act1 = header_name,},
-    {.when = TOKEN_DIGIT,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ':',                   .dest = HEADER_VALUE,                 .act1 = header_name_end,},
+    {.when = TOKEN_SP,              .dest = HEADER_NAME,                  .act1 = wait_msg,},
+    {.when = TOKEN_VCHAR,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_HEADER_VALUE [] =  {
-    {.when = TOKEN_ALPHA,           .dest = HEADER_VALUE,                 .act1 = header_value,},
-    {.when = TOKEN_DIGIT,           .dest = HEADER_VALUE,                 .act1 = header_value,},
-    {.when = TOKEN_SPECIAL,         .dest = HEADER_VALUE,                 .act1 = header_value,},
-    {.when = TOKEN_LWSP,            .dest = HEADER_VALUE,                 .act1 = header_value,},
-    {.when = '=',                   .dest = HEADER_VALUE,                 .act1 = header_value,},
-    {.when = '\r',                  .dest = HEADER_LINE_CR,               .act1 = header_value_end,},
-    {.when = '\n',                  .dest = HEADER_LINE_CRLF,             .act1 = header_value_end,},
+    {.when = TOKEN_VCHAR,           .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = TOKEN_SP,              .dest = HEADER_VALUE,                 .act1 = header_value,},
+    {.when = TOKEN_CR,              .dest = HEADER_LINE_CR,               .act1 = header_value_end,},
+    {.when = TOKEN_LF,              .dest = HEADER_LINE_CRLF,             .act1 = header_value_end,},
 };
 
 static const struct parser_state_transition ST_HEADER_LINE_CR [] =  {
-    {.when = '\n',                  .dest = HEADER_LINE_CRLF,             .act1 = wait_msg,},
+    {.when = TOKEN_CR,              .dest = HEADER_LINE_CRLF,             .act1 = wait_msg,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_HEADER_LINE_CRLF [] =  {
-    {.when = '\r',                  .dest = HEADERS_ENDLINE_CR,           .act1 = wait_msg,},
-    {.when = '\n',                  .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
-    {.when = TOKEN_ALPHA,           .dest = HEADER_NAME,                  .act1 = header_name,},
+    {.when = TOKEN_CR,              .dest = HEADERS_ENDLINE_CR,           .act1 = wait_msg,},
+    {.when = TOKEN_LF,              .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
+    {.when = TOKEN_VCHAR,           .dest = HEADER_NAME,                  .act1 = header_name,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
 static const struct parser_state_transition ST_HEADERS_ENDLINE_CR [] =  {
-    {.when = '\n',                  .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
+    {.when = TOKEN_LF,              .dest = HEADERS_ENDLINE_CRLF,         .act1 = header_section_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
