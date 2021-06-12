@@ -8,78 +8,125 @@
 #include <address.h>
 #include <logger.h>
 #include <udp_utils.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #define ADDR_BUFF_SIZE 128
 
 
 int create_udp_server(const char *port) {
 
-	// Create address criteria
+    struct addrinfo addrCriteria;
+    memset(&addrCriteria, 0, sizeof(addrCriteria));
 
-	struct addrinfo addrCriteria;
-	memset(&addrCriteria, 0, sizeof(addrCriteria));
+    addrCriteria.ai_family = AF_INET;
+    addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
+    addrCriteria.ai_socktype = SOCK_DGRAM;
+    addrCriteria.ai_protocol = IPPROTO_UDP;
 
-	addrCriteria.ai_family = AF_INET;
-	addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
-	addrCriteria.ai_socktype = SOCK_DGRAM;
-	addrCriteria.ai_protocol = IPPROTO_UDP;
+    // Try to bind to an address and to start listening on it
 
-	// Resolve service string for posible addresses
-
-	struct addrinfo *servAddr;
-	int getaddr = getaddrinfo(NULL, port, &addrCriteria, &servAddr);
-	if (getaddr != 0) {
-		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr));
+    int servSock = -1;
+    struct sockaddr_in serveraddr;
+    servSock = socket(addrCriteria.ai_family, addrCriteria.ai_socktype, addrCriteria.ai_protocol);
+    if (servSock < 0) {
+        log(ERROR, "Creating passive socket");
         return -1;
-	}
+    }
+    log(DEBUG, "UDP socket %d created", servSock);
 
-	// Try to bind to an address and to start listening on it
+    setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
 
-	int servSock = -1;
-	for (struct addrinfo *addr = servAddr; addr != NULL && servSock == -1; addr = addr->ai_next) {
+    memset(&serveraddr, 0, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_port = htons(atoi(port));
 
-		// Create socket and make it reusable
+    inet_pton(serveraddr.sin_family, "127.0.0.1", &serveraddr.sin_addr.s_addr);
 
-		servSock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (servSock < 0){
-			log(ERROR, "Creating passive socket");
-			continue;
-		}
+    // Bind to address
 
-    	setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
+    if (bind(servSock, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0) {
+        log(ERROR, "bind for IPv4 failed");
+        close(servSock);
+        return -1;
+    }
 
-		// Bind to address
+    // Imprimir dirección
+    struct sockaddr_storage localAddr;
+    socklen_t addrSize = sizeof(localAddr);
 
-		int bindRes = bind(servSock, addr->ai_addr, addr->ai_addrlen);
-		if(bindRes < 0){
-			log(ERROR, "Binding to server socket");
-			close(servSock);
-			servSock = -1;
-            continue;
-		}
+    int getname = getsockname(servSock, (struct sockaddr *) &localAddr, &addrSize);
+    if (getname < 0) {
+        log(ERROR, "Getting master socket name");
+        return -1;
+    }
 
-		// Print local address
+    char addressBuffer[ADDR_BUFF_SIZE];
+    printSocketAddress((struct sockaddr *) &localAddr, addressBuffer);
 
-		struct sockaddr_storage localAddr;
-		socklen_t addrSize = sizeof(localAddr);
+    log(INFO, "Binding to %s", addressBuffer);
 
-		int getname = getsockname(servSock, (struct sockaddr *) &localAddr, &addrSize);
-		if (getname < 0) {
-            log(ERROR, "Getting master socket name");
-            continue;
-		}
-
-        char addressBuffer[ADDR_BUFF_SIZE];
-        printSocketAddress((struct sockaddr *) &localAddr, addressBuffer);
-
-        log(INFO, "Binding to %s", addressBuffer);
-	}
-
-	freeaddrinfo(servAddr);
-
-	return servSock;
+    return servSock;
 
 }
+
+int create_udp6_server(const char *port) {
+
+    // Create address criteria
+
+    struct addrinfo addrCriteria;
+    memset(&addrCriteria, 0, sizeof(addrCriteria));
+
+    addrCriteria.ai_family = AF_INET6;
+    addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
+    addrCriteria.ai_socktype = SOCK_DGRAM;
+    addrCriteria.ai_protocol = IPPROTO_UDP;
+
+    // Try to bind to an address and to start listening on it
+
+    int servSock = -1;
+    struct sockaddr_in6 server6addr;
+    servSock = socket(addrCriteria.ai_family, addrCriteria.ai_socktype, addrCriteria.ai_protocol);
+    if (servSock < 0) {
+        log(ERROR, "Creating passive socket");
+        return -1;
+    }
+    log(DEBUG, "UDP socket %d created", servSock);
+
+    setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
+    setsockopt(servSock, SOL_SOCKET, IPV6_V6ONLY, &(int){ 1 }, sizeof(int));
+
+    memset(&server6addr, 0, sizeof(server6addr));
+    server6addr.sin6_family = AF_INET6;
+    server6addr.sin6_port = htons(atoi(port));
+    server6addr.sin6_addr = in6addr_loopback;
+    // Bind to address
+
+    if (bind(servSock, (struct sockaddr *) &server6addr, sizeof(server6addr)) < 0) {
+        log(ERROR, "bind for IPv6 failed");
+        close(servSock);
+        return -1;
+    }
+
+
+    struct sockaddr_storage localAddr;
+    socklen_t addrSize = sizeof(localAddr);
+
+    int getname = getsockname(servSock, (struct sockaddr *) &localAddr, &addrSize);
+    if (getname < 0) {
+        log(ERROR, "Getting master socket name");
+        return -1;
+    }
+
+    char addressBuffer[ADDR_BUFF_SIZE];
+    printSocketAddress((struct sockaddr *) &localAddr, addressBuffer);
+
+    log(INFO, "Binding to %s", addressBuffer);
+
+    return servSock;
+
+}
+
 
 ssize_t uread(int fd, char * buffer, size_t buffSize, struct sockaddr * address, socklen_t * addressSize) {
 	char addrBuffer[ADDR_BUFF_SIZE] = {0};

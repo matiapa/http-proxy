@@ -56,6 +56,8 @@ int create_tcp_client(const char *host, const int port) {
 		}	
 	}
 
+	log(INFO, "Connected...")
+
 	// Release address resource and return socket number
     free(servAddr);
 	return sock;
@@ -176,7 +178,7 @@ int handle_connections( int serverSocket, void (*handle_creates) (struct selecto
 
     const struct fd_handler handlers = {
         .handle_create     = handle_creates,
-        .handle_close      = handle_close,  // TODO: Add a close handler
+        .handle_close      = handle_close,
         .handle_block      = NULL
     };
 
