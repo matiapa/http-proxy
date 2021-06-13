@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <args.h>
+#include <sys/time.h>
 
 void initialize_doh_client(struct doh * args);
 

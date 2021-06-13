@@ -54,7 +54,7 @@ enum req_status {
     REQ_UNAUTHORIZED = 2
 };
 
-#define BUFFER_SIZE 1024*4
+#define BUFFER_SIZE (1024*4)
 #define MAX_RETRIEVE_METHODS 6
 #define MAX_SET_METHODS 7
 #define MAX_CLIENT_METHODS 2
@@ -110,7 +110,7 @@ int main() {
     while(1) {
 
         //scanf("%s", command);
-        char c;
+        int c;
         int i = 0;
         while ((c = getchar()) != EOF && c != '\n') {
             command[i++] = c;
@@ -153,14 +153,14 @@ void process_response(struct response_header * res) {
         if (res->type == 0){
             if (res->method == 4) {
                 struct method4 * results = (struct method4 *)(buffer + sizeof(struct response_header));
-                printf("Conecciones: %ld - Conecciones Actuales: %ld - Total Enviados: %ld - Total Recividos: %ld\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
+                printf("Conecciones: %lu - Conecciones Actuales: %lu - Total Enviados: %lu - Total Recibidos: %lu\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
             } else if (res->method == 5) {
                 struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header));
-                printf("Clients: %d - Timeout: %d - Frequency: %d - Disector Enabled: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE");
+                printf("Clients: %u - Timeout: %u - Frequency: %u - Disector Enabled: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE");
             } else {
                 unsigned long value;
                 memcpy(&value, buffer + sizeof(struct response_header), sizeof(long));
-                printf("Respuesta: %ld\n", value);
+                printf("Respuesta: %lu\n", value);
             }
         } else {
             if (res->status == REQ_SUCCESS)
@@ -175,7 +175,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
         if (strcmp(command, client_methods[i]) == 0) {
             if (i == 0) {
                 print_help();
-            } else if (i == 1) {
+            } else {
                 get_password();
             }
             return 0;
@@ -228,7 +228,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
                         print_error("El valor no puede ser mayor a 1");
                         return -1;
                     }
-                    memcpy(buff + sizeof(struct request_header), &value, sizeof(char));
+                    memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
                     break;
                 default:
                     break;
@@ -295,7 +295,7 @@ void print_help() {
 }
 
 void get_password() {
-    char c;
+    int c;
     memset(pass, 0, sizeof(pass));
     int i = 0;
     while (i == 0) {

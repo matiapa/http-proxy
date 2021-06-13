@@ -237,6 +237,7 @@ void send_doh_request(const char * target, int s, int type) {
 
     char * write_buffer = malloc(1024); // TODO: Choose a number
     int written = create_post((int)nbyte, aux_buff, write_buffer, 1024); // crea el http request
+    if(write_buffer == NULL) return;
 
     if( send(s, write_buffer, written, 0) < 0) { // manda el paquete al servidor DOH
         log(ERROR, "Sending DOH request")

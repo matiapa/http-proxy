@@ -7,6 +7,8 @@ Testing/*
 logs/*
 debugging/*
 informe/*
+strace_out
+report.tasks
 
 # IDEs related
 .idea/*

@@ -1,0 +1,45 @@
+{
+    "version": 1,
+    "warnings": [
+        {
+            "CodeCurrent": 582270853,
+            "CodeNext": 47998705,
+            "CodePrev": 11845,
+            "ErrorCode": "V1032",
+            "FileName": "client.c",
+            "Message": "The pointer 'buffer' is cast to a more strictly aligned pointer type."
+        },
+        {
+            "CodeCurrent": 327363335,
+            "CodeNext": 1081528949,
+            "CodePrev": 23865901,
+            "ErrorCode": "V1032",
+            "FileName": "client.c",
+            "Message": "The pointer 'buffer' is cast to a more strictly aligned pointer type."
+        },
+        {
+            "CodeCurrent": 2901811261,
+            "CodeNext": 998348740,
+            "CodePrev": 1616105258,
+            "ErrorCode": "V1032",
+            "FileName": "monitor.c",
+            "Message": "The pointer 'req_buffer' is cast to a more strictly aligned pointer type."
+        },
+        {
+            "CodeCurrent": 726374233,
+            "CodeNext": 2300408294,
+            "CodePrev": 1868694858,
+            "ErrorCode": "V1032",
+            "FileName": "monitor.c",
+            "Message": "The pointer 'res_buffer' is cast to a more strictly aligned pointer type."
+        },
+        {
+            "CodeCurrent": 726374233,
+            "CodeNext": 2300408294,
+            "CodePrev": 1447242450,
+            "ErrorCode": "V1032",
+            "FileName": "monitor.c",
+            "Message": "The pointer 'res_buffer' is cast to a more strictly aligned pointer type."
+        }
+    ]
+}
