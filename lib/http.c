@@ -28,7 +28,7 @@ int write_request(http_request * request, char * buffer, int space) {
     print("%s %s %s\r\n", methods_strings[request->method - 1], request->url, HTTP_VERSION)
 
     for (size_t i = 0; i < request->message.header_count; i++) {
-        print("%s: %s\r\n", request->message.headers[i][0], request->message.headers[i][1])
+        print("%s:%s\r\n", request->message.headers[i][0], request->message.headers[i][1])
     }
     print("\r\n")
 
@@ -71,7 +71,7 @@ int write_response(http_response * response, char * buffer, int space) {
     print("%s %d %s\r\n", HTTP_VERSION, response->status, response->reason)
 
     for (size_t i = 0; i < response->message.header_count; i++) {
-        print("%s: %s\r\n", response->message.headers[i][0], response->message.headers[i][1])
+        print("%s:%s\r\n", response->message.headers[i][0], response->message.headers[i][1])
     }
     print("\r\n")
 
