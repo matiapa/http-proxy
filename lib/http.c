@@ -22,7 +22,7 @@ char * methods_strings[8] = {"GET", "POST", "PUT", "DELETE", "CONNECT", "HEAD", 
  *  BODY...
  */
 
-int write_request(http_request * request, char * buffer, int space) {
+int write_request(http_request * request, char * buffer, size_t space) {
     int position = 0;
     
     print("%s %s %s\r\n", methods_strings[request->method - 1], request->url, HTTP_VERSION)
@@ -50,7 +50,7 @@ int write_request(http_request * request, char * buffer, int space) {
  *  BODY...
  */
 
-int write_response(http_response * response, char * buffer, int space) {
+int write_response(http_response * response, char * buffer, size_t space) {
     int position = 0;
 
     char * default_reason = NULL;

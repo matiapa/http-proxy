@@ -409,8 +409,6 @@ static unsigned request_read_ready(struct selector_key *key) {
 
 
 static unsigned request_connect_block_ready(struct selector_key *key) {
-
-    log(DEBUG, "handle_block stm");
     
     #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
     int targetSocket = (int) key->item->data;
@@ -891,7 +889,7 @@ static unsigned process_request(struct selector_key * key) {
 
     if (parser_state == PENDING)
         return REQUEST_READ;
-
+        
     if (parser_state == FAILED) {
         reset_request();
         return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);

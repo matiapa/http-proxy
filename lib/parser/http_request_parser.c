@@ -304,8 +304,7 @@ parse_state http_request_parser_parse(http_request_parser * parser, buffer * rea
             if (result == FAILED)
                 parser->error_code = parser->message_parser.error_code;
 
-            if (result == SUCCESS || result == FAILED)
-                return result;
+            return result;
 
         }
      
