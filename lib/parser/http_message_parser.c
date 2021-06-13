@@ -231,7 +231,7 @@ static void assign_header_value(http_message * message, http_message_parser * pa
     if (parser->method != HEAD && strncmp(message->headers[message->header_count][0],
             "Content-Length", HEADER_LENGTH) == 0) {
         message->body_length = atoi(message->headers[message->header_count][1]);
-        log(DEBUG, "Expecting body length of %d", message->body_length);
+        log(DEBUG, "Expecting body length of %lu", message->body_length);
     }
 
     message->header_count += 1;
@@ -245,6 +245,7 @@ void http_message_parser_init(http_message_parser * parser){
     if(parser != NULL){
         parser->parser = parser_init(init_char_class(), &definition);
         buffer_init(&(parser->parse_buffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
+        parser->current_body_length = 0;
     }
 }
 
@@ -252,6 +253,7 @@ void http_message_parser_init(http_message_parser * parser){
 void http_message_parser_reset(http_message_parser * parser){
     parser_reset(parser->parser);
     buffer_reset(&(parser->parse_buffer));
+    parser->current_body_length = 0;
 }
 
 
@@ -267,10 +269,23 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
     while(buffer_can_read(read_buffer)){
         size_t nbytes;
         char * pointer = (char *)buffer_read_ptr(read_buffer, &nbytes);
+
+        // Don't read body because this will cause the buffer to mark it as used and will
+        // overwrite it, just check the amount of bytes to see if it matches content-length.
+
+        if (parser->parser->state == BODY) {
+            if (nbytes >= message->body_length) {
+                http_message_parser_reset(parser);
+                return SUCCESS;
+            } else {
+                return PENDING;
+            }
+        }
+
         const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
-        log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-        log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+        // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
+        // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
         switch(e->type) {
             case HEADER_NAME_VAL:
@@ -299,8 +314,11 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
                 break;
 
             case BODY_VAL:
+                // We want a pointer to the body on the read buffer, copying it to another
+                // buffer would be highly unefficient. This case will only be executed once.
                 message->body = pointer;
-                return SUCCESS;
+                read_buffer->read--;
+                break;
 
             case WAIT_MSG:
                 break;

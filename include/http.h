@@ -47,7 +47,7 @@ typedef struct http_message {
     size_t header_count;
 
     char * body;
-    int body_length;
+    size_t body_length;
 } http_message;
 
 
@@ -71,8 +71,8 @@ typedef struct http_response {
 
 /*---------------------- Methods definitions ----------------------*/
 
-int write_request(http_request * request, char * write_buffer, int space);
+int write_request(http_request * request, char * write_buffer, size_t space);
 
-int write_response(http_response * response, char * write_buffer, int space);
+int write_response(http_response * response, char * write_buffer, size_t space);
 
 #endif

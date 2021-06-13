@@ -10,6 +10,7 @@
 #include <http_message_parser.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #define A 1
 #define AAAA 28

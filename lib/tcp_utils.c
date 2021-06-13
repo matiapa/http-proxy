@@ -32,7 +32,7 @@ int create_tcp_client(const char *host, const int port) {
 
     int types[2] = {AF_INET, AF_INET6};
 
-    int sock;
+    int sock = -1;
     for (int i = 0; i < 2 && sock == -1; i++) {
 
         // Resolve host string for posible addresses
