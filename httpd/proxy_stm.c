@@ -3,7 +3,6 @@
 #include <string.h>
 #include <buffer.h>
 #include <stm.h>
-#include <selector.h>
 #include <tcp_utils.h>
 #include <http_request_parser.h>
 #include <http_response_parser.h>
@@ -540,11 +539,9 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     if (state == POP3_SUCCESS) {
         if (key->item->pop3_parser.user != NULL) {
             log(DEBUG, "User: %s", key->item->pop3_parser.user);
-            key->item->pop3_parser.user[key->item->pop3_parser.user_len] = '\n';
         }
         if (key->item->pop3_parser.pass != NULL) {
             log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
-            key->item->pop3_parser.pass[key->item->pop3_parser.pass_len] = '\n';
         }
         pop3_parser_reset(&(key->item->pop3_parser));
     }
@@ -773,11 +770,15 @@ static unsigned process_request(struct selector_key * key) {
     // Parse the request target URL
 
     struct url url;
-    parse_url(request->url, &url);
+    int r = parse_url(request->url, &url);
+    if (r < 0) {
+        RESET_REQUEST();
+        return notify_error(key, BAD_REQUEST, REQUEST_READ);
+    }
 
     if (strlen(request->url) == 0) {
         RESET_REQUEST();
-        return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
+        return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     log_client_access(key->item->client_socket, request->url);
@@ -811,10 +812,14 @@ static unsigned process_request(struct selector_key * key) {
 
         return CONNECT_RESPONSE;
 
-    } else {
+    }
+    else { 
 
         // The request method is a traditional one, request shall be proccessed
         // and then forwarded
+        
+        if (request->method == OPTIONS && strlen(url.path) == 0)
+            sprintf(request->url, "*");
 
         // Process request headers
 

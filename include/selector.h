@@ -196,7 +196,7 @@ struct item {
     state_machine       stm;
     http_request_parser req_parser;
     http_response_parser res_parser;
-    pop3_parser_data  pop3_parser;
+    pop3_parser_data    pop3_parser;
     
     time_t              last_activity;
     char                target_name[50];

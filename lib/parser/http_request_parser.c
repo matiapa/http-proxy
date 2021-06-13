@@ -181,20 +181,12 @@ void assign_method(http_request * httpRequest, http_request_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
-    if(strncmp(ptr, "GET", size) == 0)
-        httpRequest->method = GET;
-    else if(strncmp(ptr, "POST", size) == 0)
-        httpRequest->method = POST;
-    else if(strncmp(ptr, "CONNECT", size) == 0)
-        httpRequest->method = CONNECT;
-    else if(strncmp(ptr, "DELETE", size) == 0)
-        httpRequest->method = DELETE;
-    else if(strncmp(ptr, "PUT", size) == 0)
-        httpRequest->method = PUT;
-    else if(strncmp(ptr, "HEAD", size) == 0)
-        httpRequest->method = HEAD;
-    else
-        httpRequest->method = OTHER;
+    for (size_t i = 0; i < N(methods_strings); i++) {
+        if(strncmp(ptr, methods_strings[i], size) == 0) {
+            httpRequest->method = i + 1;
+            break;
+        }
+    }
 
     parser->message_parser.method = httpRequest->method;
 }

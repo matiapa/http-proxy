@@ -5,7 +5,7 @@
 
 #define HTTP_VERSION "HTTP/1.1"
 
-char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT","HEAD"};
+char * methods_strings[7] = {"GET", "POST", "PUT", "DELETE", "CONNECT", "HEAD", "OPTIONS"};
 
 #define print(...) \
 	position += snprintf(buffer + position, space, ##__VA_ARGS__); \
