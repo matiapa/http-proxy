@@ -136,7 +136,7 @@ static const struct parser_state_transition ST_HEADER_VALUE [] =  {
 };
 
 static const struct parser_state_transition ST_HEADER_LINE_CR [] =  {
-    {.when = TOKEN_CR,              .dest = HEADER_LINE_CRLF,             .act1 = wait_msg,},
+    {.when = TOKEN_LF,              .dest = HEADER_LINE_CRLF,             .act1 = wait_msg,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 
@@ -269,8 +269,8 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
         char * pointer = (char *)buffer_read_ptr(read_buffer, &nbytes);
         const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
-        // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-        //log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+        log(DEBUG, "STATE %s", state_names[parser->parser->state]);
+        log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
         switch(e->type) {
             case HEADER_NAME_VAL:

@@ -29,10 +29,23 @@ enum proxy_state {
      *
      * Transitions:
      *   - REQUEST_READ         While request message is not over
-     *   - REQUEST_FORWARD      When request message is over
+     *   - REQUEST_CONNECT      When request message is over
      *   - ERROR_STATE          Parsing/IO error
     */
     REQUEST_READ,
+
+    /*
+     * Waits for the connection to target on a separate thread to complete
+     *
+     * Interests:
+     *   - Client: OP_NOOP
+     *   - Target: OP_NOOP
+     *
+     * Transitions:
+     *   - REQUEST_FORWARD      When connection is completed
+     *   - ERROR_STATE          IO error
+    */
+    REQUEST_CONNECT,
 
     /*
      * Forwards client HTTP request to target
@@ -144,6 +157,11 @@ enum proxy_state {
 static unsigned request_read_ready(struct selector_key *key);
 
 /* ------------------------------------------------------------
+  Handles the completion of connection to target.
+------------------------------------------------------------ */
+static unsigned request_connect_block_ready(struct selector_key *key);
+
+/* ------------------------------------------------------------
   Forwards HTTP requests to target.
 ------------------------------------------------------------ */
 static unsigned request_forward_ready(struct selector_key *key);
@@ -212,8 +230,9 @@ static void process_request_headers(http_request * req, char * target_host, char
 
 /* ------------------------------------------------------------
   Initiates a connection to target and returns next state.
+  This function must be executed on a new thread.
 ------------------------------------------------------------ */
-static unsigned connect_target(struct selector_key * key, char * target, int port);
+static void * connect_target(void * arg);
 
 /* ------------------------------------------------------------
   Processes request headers and deposits user:password into raw authorization.
@@ -233,7 +252,6 @@ static void process_response_headers(http_response * res, char * proxy_host);
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
 
-
 static const struct state_definition state_defs[] = {
     {
         .state            = REQUEST_READ,
@@ -242,6 +260,13 @@ static const struct state_definition state_defs[] = {
         .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
         .description      = "REQUEST_READ",
         .on_read_ready    = request_read_ready,
+    },
+    {
+        .state            = REQUEST_CONNECT,
+        .client_interest  = OP_NOOP,
+        .target_interest  = OP_NOOP,
+        .description      = "REQUEST_CONNECT",
+        .on_block_ready   = request_connect_block_ready
     },
     {
         .state            = REQUEST_FORWARD,
@@ -317,13 +342,34 @@ state_machine proto_stm = {
     .max_state = ERROR_STATE
 };
 
+
+/* -------------------------------------- MACROS DEFINITIONS -------------------------------------- */
+
 #define log_error(_description) \
     log(ERROR, "At state %d: %s", key->item->stm.current->state, _description);
+
+#define reset_request() \
+    http_request_parser_reset(&(key->item->req_parser)); \
+    free(key->item->req_parser.request); \
+    key->item->req_parser.request = NULL;
+
+#define reset_response() \
+    http_response_parser_reset(&(key->item->res_parser)); \
+    free(key->item->res_parser.response); \
+    key->item->res_parser.response = NULL;
+
+#define remove_array_elem(array, pos, size) \
+    memcpy(array+pos, array+pos+1, size-pos-1)
+
+#define rtrim(s) \
+    char* back = s + strlen(s); \
+    while(isspace(*--back)); \
+    *(back+1) = 0;
+
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
 static unsigned request_read_ready(struct selector_key *key) {
-
 
     key->item->last_activity = time(NULL);
 
@@ -358,6 +404,100 @@ static unsigned request_read_ready(struct selector_key *key) {
     // Process the request
 
     return process_request(key);
+
+}
+
+
+static unsigned request_connect_block_ready(struct selector_key *key) {
+
+    log(DEBUG, "handle_block stm");
+    
+    #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
+    int targetSocket = (int) key->item->data;
+
+    // Check if connection was successfull
+
+    if (targetSocket < 0) {
+        log_error("Failed to connect to target");
+        reset_request();
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+
+    key->item->target_socket = targetSocket;
+
+    // Update last connection
+
+    http_request * request = key->item->req_parser.request;
+    struct url url; parse_url(request->url, &url);
+
+    strncpy(key->item->last_target_url.hostname, url.hostname, LINK_LENGTH);
+    strncpy(key->item->last_target_url.path, url.path, PATH_LENGTH);
+    strncpy(key->item->last_target_url.protocol, url.protocol, PROTOCOL_LENGTH);
+    key->item->last_target_url.port = url.port;
+
+    // Check for request method
+
+    if (request->method == CONNECT) {
+
+        // The request method is CONNECT, a response shall be sent
+        // and TCP tunnel be established
+        
+        // Write response bytes into write buffer
+
+        size_t space;
+        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+        http_response res = { .status = RESPONSE_OK };
+        int written = write_response(&res, ptr, space);
+
+        buffer_write_adv(&(key->item->write_buffer), written);
+
+        // Go to send response state
+
+        reset_request();
+
+        return CONNECT_RESPONSE;
+
+    } else { 
+
+        // The request method is a traditional one, request shall be proccessed
+        // and then forwarded
+        
+        if (request->method == OPTIONS && strlen(url.path) == 0)
+            sprintf(request->url, "*");
+
+        // Process request headers
+
+        char proxy_hostname[128];
+        if(strlen(proxy_conf.viaProxyName) > 0) {
+            strncpy(proxy_hostname, proxy_conf.viaProxyName, 128);
+        } else {
+            get_machine_fqdn(proxy_hostname);
+        }
+        
+        process_request_headers(request, url.hostname, proxy_hostname);
+
+        // Extract credentials if present
+
+        if (proxy_conf.disectorsEnabled)
+            extract_http_credentials(request);
+
+        // Write processed request bytes into write buffer
+
+        size_t space;
+        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+
+        int written = write_request(request, ptr, space);
+
+        buffer_write_adv(&(key->item->write_buffer), written);
+
+        // Go to forward request state
+
+        reset_request();
+
+        return REQUEST_FORWARD;
+
+    }
 
 }
 
@@ -545,7 +685,10 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
         }
         if (key->item->pop3_parser.user [0]!= 0 && key->item->pop3_parser.pass [0]!= 0) {
             log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
-            print_credentials(POP3,key->item->target_url.hostname,key->item->target_url.port,key->item->pop3_parser.user, key->item->pop3_parser.pass);
+            print_credentials(
+                POP3,key->item->last_target_url.hostname, key->item->last_target_url.port,
+                key->item->pop3_parser.user, key->item->pop3_parser.pass
+            );
             pop3_parser_reset(&(key->item->pop3_parser));
         }      
         
@@ -713,25 +856,6 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 
 /* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
 
-#define RESET_REQUEST() \
-    http_request_parser_reset(&(key->item->req_parser)); \
-    free(key->item->req_parser.request); \
-    key->item->req_parser.request = NULL;
-
-#define RESET_RESPONSE() \
-    http_response_parser_reset(&(key->item->res_parser)); \
-    free(key->item->res_parser.response); \
-    key->item->res_parser.response = NULL;
-
-#define remove_array_elem(array, pos, size) \
-    memcpy(array+pos, array+pos+1, size-pos-1)
-
-#define rtrim(s) \
-    char* back = s + strlen(s); \
-    while(isspace(*--back)); \
-    *(back+1) = 0;
-
-
 static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
 
     size_t space;
@@ -769,7 +893,7 @@ static unsigned process_request(struct selector_key * key) {
         return REQUEST_READ;
 
     if (parser_state == FAILED) {
-        RESET_REQUEST();
+        reset_request();
         return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
     }
 
@@ -778,97 +902,65 @@ static unsigned process_request(struct selector_key * key) {
     struct url url;
     int r = parse_url(request->url, &url);
     if (r < 0) {
-        RESET_REQUEST();
+        reset_request();
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     if (strlen(request->url) == 0) {
-        RESET_REQUEST();
+        reset_request();
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
-    log_client_access(key->item->client_socket, request->url);
-    
     if (request->method == TRACE) {
-        RESET_REQUEST();
+        reset_request();
         return notify_error(key, METHOD_NOT_ALLOWED, REQUEST_READ);
     }
 
-    // Establish connection to target
+    // Log the access of the client
 
-    unsigned ret = connect_target(key, url.hostname, url.port);
-    if (ret == ERROR_STATE) {
-        RESET_REQUEST();
-        return ret;
+    log_client_access(key->item->client_socket, request->url);
+
+    // If there is an established connection to another target close it
+    // If it is to same target proceed to forward request
+
+    if (key->item->target_socket > 0 && strcmp(key->item->last_target_url.hostname, request->url) == 0) {
+        if (strcmp(key->item->last_target_url.hostname, url.hostname) != 0)
+            close(key->item->target_socket);
+        else
+            return REQUEST_FORWARD;
     }
 
-    strncpy(url.hostname,key->item->target_url.hostname,LINK_LENGTH);
-    key->item->target_url.port=url.port;
-    strncpy(url.path,key->item->target_url.path,PATH_LENGTH);
-    strncpy(url.protocol,key->item->target_url.protocol,6);
+    // Prepare to connect to new target
 
-    if (request->method == CONNECT) {
+    log(DEBUG, "Connection requested to %s:%d", url.hostname, url.port);
 
-        // The request method is CONNECT, a response shall be sent
-        // and TCP tunnel be established
-        
-        // Write response bytes into write buffer
+    // Check that target is not blacklisted
 
-        size_t space;
-        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
-
-        http_response res = { .status = RESPONSE_OK };
-        int written = write_response(&res, ptr, space);
-
-        buffer_write_adv(&(key->item->write_buffer), written);
-
-        // Go to send response state
-
-        RESET_REQUEST();
-
-        return CONNECT_RESPONSE;
-
+    if (strstr(proxy_conf.targetBlacklist, url.hostname) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", url.hostname);
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
-    else { 
 
-        // The request method is a traditional one, request shall be proccessed
-        // and then forwarded
-        
-        if (request->method == OPTIONS && strlen(url.path) == 0)
-            sprintf(request->url, "*");
+    // Check that target is not the proxy itself
 
-        // Process request headers
-
-        char proxy_hostname[128];
-        if(strlen(proxy_conf.viaProxyName) > 0) {
-            strncpy(proxy_hostname, proxy_conf.viaProxyName, 128);
-        } else {
-            get_machine_fqdn(proxy_hostname);
-        }
-        
-        process_request_headers(request, url.hostname, proxy_hostname);
-
-        // Extract credentials if present
-
-        if (proxy_conf.disectorsEnabled)
-            extract_http_credentials(request);
-
-        // Write processed request bytes into write buffer
-
-        size_t space;
-        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
-
-        int written = write_request(request, ptr, space);
-
-        buffer_write_adv(&(key->item->write_buffer), written);
-
-        // Go to forward request state
-
-        RESET_REQUEST();
-
-        return REQUEST_FORWARD;
-
+    if (strcmp(url.hostname, "localhost") == 0 && url.port == proxy_conf.proxyArgs.proxy_port) {
+        log(INFO, "Rejected connection to proxy itself");
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
+
+    // Establish connection to target on a separate thread
+
+    struct selector_key * k = malloc(sizeof(*key));
+    memcpy(k, key, sizeof(*k));
+
+    pthread_t tid;
+    if (pthread_create(&tid, 0, connect_target, k) == -1) {
+        reset_request();
+        log(ERROR, "Failed to create thread for connecting to target");
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+
+    return REQUEST_CONNECT;
     
 }
 
@@ -1006,47 +1098,25 @@ static int extract_http_credentials(http_request * request) {
 }
 
 
-static unsigned connect_target(struct selector_key * key, char * target_host, int target_port) {
+static void * connect_target(void * arg) {
 
-    // If there is an established connection to same target, return
+    pthread_detach(pthread_self());
 
-    if (key->item->target_socket > 0 && strcmp(key->item->target_url.hostname, target_host) == 0)
-        return 0;
-
-    // If there is an established connection to another target, close it
-
-    if (key->item->target_socket > 0 && strcmp(key->item->target_url.hostname, target_host) != 0)
-        close(key->item->target_socket);
-
-    // Get hostname and port from target
-
-    log(DEBUG, "Connection requested to %s:%d", target_host, target_port);
-
-    // Check that target is not blacklisted
-
-    if (strstr(proxy_conf.targetBlacklist, target_host) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", target_host);
-        return notify_error(key, FORBIDDEN, REQUEST_READ);
-    }
-
-    // Check that target is not the proxy itself
-
-    if (strcmp(target_host, "localhost") == 0 && target_port == proxy_conf.proxyArgs.proxy_port) {
-        log(INFO, "Rejected connection to proxy itself");
-        return notify_error(key, FORBIDDEN, REQUEST_READ);
-    }
+    struct selector_key * key = (struct selector_key *) arg;
+    struct url url; parse_url(key->item->req_parser.request->url, &url);
 
     // Open connection with target
 
-    int targetSocket = create_tcp_client(target_host, target_port);
-    if (targetSocket < 0) {
-        log_error("Failed to connect to target");
-        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-    }
+    int targetSocket = create_tcp_client(url.hostname, url.port);
 
-    key->item->target_socket = targetSocket;
+    // Notify blocking job finished
 
-    return 0;
+    key->item->data = (void *) targetSocket;
+    selector_notify_block(key->s, key->item->client_socket);
+
+    free(key);
+
+    return NULL;
 
 }
 
@@ -1070,7 +1140,7 @@ static unsigned process_response(struct selector_key * key) {
         return RESPONSE_READ;
 
     if (parser_state == FAILED) {
-        RESET_RESPONSE();
+        reset_response();
         return notify_error(key, BAD_GATEWAY, REQUEST_READ);
     }
 
@@ -1096,7 +1166,7 @@ static unsigned process_response(struct selector_key * key) {
 
     // Go to forward response state
 
-    RESET_RESPONSE();
+    reset_response();
 
     return RESPONSE_FORWARD;
         

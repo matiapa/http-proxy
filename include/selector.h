@@ -200,7 +200,7 @@ struct item {
     pop3_parser_data    pop3_parser;
     
     time_t              last_activity;
-    struct url          target_url;
+    struct url          last_target_url;
 
     void *              data;
 };

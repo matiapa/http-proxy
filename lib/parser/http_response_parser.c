@@ -237,8 +237,8 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
         if (parser->parser->state != RES_LINE_CRLF) {
             const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
-            // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
-            // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
+            log(DEBUG, "STATE %s", state_names[parser->parser->state]);
+            log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
             switch(e->type) {
                 case VERSION_VAL:

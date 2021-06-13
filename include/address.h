@@ -10,12 +10,12 @@
 
 #define LINK_LENGTH 100
 #define PATH_LENGTH 100
-
+#define PROTOCOL_LENGTH 6
 struct url {
     char hostname[LINK_LENGTH];
     int port;
     char path[PATH_LENGTH];
-    char protocol[6];
+    char protocol[PROTOCOL_LENGTH];
 };
 
 int printSocketAddress(const struct sockaddr *address, char * addrBuffer);

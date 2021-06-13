@@ -573,9 +573,16 @@ static void handle_block_notifications(fd_selector s) {
     pthread_mutex_lock(&s->resolution_mutex);
     for(struct blocking_job *j = s->resolution_jobs; j != NULL ;) {
 
-        struct item *item = s->fds + j->fd;
+        struct item * item;
+        for (int i = 0; i <= s->max_fd; i++) {
+            item = s->fds + i;
+            if (item->client_socket == j->fd)
+                break;
+        }
+
         if(ITEM_USED(item)) {
-            s->handlers.handle_block(&key);
+            key.item = item;
+            stm_handler_block(&(item->stm), &key);
         }
         struct blocking_job * aux = j->next;
         free(j);
