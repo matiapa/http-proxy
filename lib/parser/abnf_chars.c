@@ -14,7 +14,7 @@ init_char_class(void) {
             class |= TOKEN_CHAR;
         }
 
-         if(i >= 0x20 && i <= 0x7E) {
+         if(i >= 0x21 && i <= 0x7E) {
             class |= TOKEN_VCHAR;
         }
 

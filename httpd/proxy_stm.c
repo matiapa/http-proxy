@@ -13,6 +13,7 @@
 #include <proxy_stm.h>
 #include <statistics.h>
 #include <base64.h>
+#include <dissector.h>
 
 // Many of the state transition handlers don't use the state param so we are ignoring this warning
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -935,12 +936,18 @@ static int extract_http_credentials(http_request * request) {
     for (size_t i = 0; i < request->message.header_count&&!found; i++){
         if (strcmp(request->message.headers[i][0],"Authorization")==0){
             strncpy(raw_authorization,request->message.headers[i][1],HEADER_LENGTH);
-            if(strncmp(raw_authorization," Basic ",7)==0){
+            int k=0;
+            while (isspace(raw_authorization[k]))
+            {
+                k++;
+            }
+            
+            if(strncmp(&raw_authorization[k],"Basic ",6)==0){
                 // strcpy(raw_authorization,&raw_authorization[7]);
-                //max header length minus the chars in " Basic "
-                for (int j = 0; j < (HEADER_LENGTH-7); j++)
+                //max header length minus the chars in "Basic "
+                for (int j = 0; j < (HEADER_LENGTH-6-k); j++)
                 {
-                    raw_authorization[j]=raw_authorization[j+7];
+                    raw_authorization[j]=raw_authorization[j+6+k];
                 }
                 found=1;
             }
@@ -948,13 +955,31 @@ static int extract_http_credentials(http_request * request) {
     }
     
     if (found) {
+        
+        char user[64];
+        char pass[64];
         log(DEBUG,"encoded authorization is %s",raw_authorization);
         int length=0;
         unsigned char * user_pass=unbase64( raw_authorization, strlen(raw_authorization), &length );
         log(DEBUG,"unencoded authorization is %s",user_pass);
-        strncpy((char *)user_pass,raw_authorization,length);
-        raw_authorization[length]=0;
+        user_pass[length]=0;
+        int j=0;
+        for (int i = 0; i < length; i++)
+        {
+            if (user_pass[i]==':'){
+                user[i]=0;
+                j=i+1;
+                break;
+            }else
+                user[i]=user_pass[i]; 
+        }
+        strcpy(pass,(char*)&user_pass[j]);
+        
+        struct url url;
+        parse_url(request->url, &url);
+        print_credentials(HTTP,url.hostname, url.port,user,pass);
     }
+    
 
     return found;
 }
