@@ -134,16 +134,12 @@ void pop3_parser_init(pop3_parser_data * data){
     if(data != NULL){
         data->parser = parser_init(init_char_class(), &definition);
         buffer_init(&(data->popBuffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
-        data->user = NULL; data->user_len = 0;
-        data->pass = NULL; data->pass_len = 0;
     }
 }
 
 void pop3_parser_reset(pop3_parser_data * data){
     parser_reset(data->parser);
     buffer_reset(&(data->popBuffer));
-    data->user = NULL; data->user_len = 0;
-    data->pass = NULL; data->pass_len = 0;
 }
 
 void pop3_parser_destroy(pop3_parser_data * data){
@@ -163,6 +159,17 @@ void assign_cmd(pop3_parser_data * data){
 
     if(strncmp(ptr, "PASS", size) == 0)
         data->last_cmd = POP3_PASSWORD;
+}
+
+void assign_value(pop3_parser_data * data){
+    size_t size;
+    char * ptr = (char *) buffer_read_ptr(&(data->popBuffer), &size);
+
+    if(data->last_cmd == POP3_USER)
+        COPY(data->user, ptr, size);
+
+    if(data->last_cmd == POP3_PASSWORD)
+        COPY(data->pass, ptr, size);
 }
 
 
@@ -185,29 +192,12 @@ pop3_state pop3_parse(buffer * readBuffer, pop3_parser_data * data) {
                 break;
 
             case COMMAND_VALUE:
-                if (data->last_cmd == POP3_USER && data->user == NULL) {
-                    data->user = (char *) readBuffer->read - 1;
-                    data->user_len = 0;
-                }
-                if (data->last_cmd == POP3_USER)
-                    data->user_len++;
-                
-                if (data->last_cmd == POP3_PASSWORD && data->pass == NULL) {
-                    data->pass = (char *) readBuffer->read - 1;
-                    data->pass_len = 0;
-                }
-                if (data->last_cmd == POP3_PASSWORD)
-                    data->pass_len++;
-
+                buffer_write(&(data->popBuffer), e->data[0]);
                 break;
 
             case COMMAND_VALUE_END:
-                if (data->last_cmd == POP3_USER && data->user != NULL)
-                    data->user[data->user_len] = 0;
-
-                if (data->last_cmd == POP3_PASSWORD && data->pass != NULL)
-                    data->pass[data->pass_len] = 0;
-
+                assign_value(data);
+                buffer_reset(&(data->popBuffer));
                 result = POP3_SUCCESS;
                 break;
 
