@@ -4,7 +4,8 @@
 #include <parser.h>
 #include <buffer.h>
 
-#define MAX_USER_PASSWORD_LENGTH 25
+#define MAX_USER_LENGTH 25
+#define MAX_PASS_LENGTH 25
 #define MAX_CREDENTIALS_LENGTH 100
 
 typedef enum cmd_type {
@@ -24,10 +25,8 @@ typedef struct pop3_parser_data {
     buffer  popBuffer;
     
     cmd_type last_cmd;
-    char * user;
-    char * pass;
-    int user_len;
-    int pass_len;
+    char user[MAX_USER_LENGTH];
+    char pass[MAX_PASS_LENGTH];
 } pop3_parser_data;
 
 void pop3_parser_init(pop3_parser_data * data);
