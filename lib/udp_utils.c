@@ -10,6 +10,7 @@
 #include <udp_utils.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 
 #define ADDR_BUFF_SIZE 128
 
