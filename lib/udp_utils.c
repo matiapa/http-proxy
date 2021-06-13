@@ -34,8 +34,13 @@ int create_udp_server(const char *port) {
         return -1;
     }
     log(DEBUG, "UDP socket %d created", servSock);
-
-    setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+    if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set IPv4 socket options SO_REUSEADDR failed %s ", strerror(errno));
+        return -1;
+    }
 
     memset(&serveraddr, 0, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
@@ -93,8 +98,16 @@ int create_udp6_server(const char *port) {
     }
     log(DEBUG, "UDP socket %d created", servSock);
 
-    setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
-    setsockopt(servSock, SOL_SOCKET, IPV6_V6ONLY, &(int){ 1 }, sizeof(int));
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+
+    if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set IPv6 socket options SO_REUSEADDR failed %s ", strerror(errno));
+    }
+    if (setsockopt(servSock, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set IPv6 socket options IPV6_V6ONLY failed %s ", strerror(errno));
+    }
 
     memset(&server6addr, 0, sizeof(server6addr));
     server6addr.sin6_family = AF_INET6;
@@ -148,7 +161,7 @@ ssize_t usend(int fd, char * buffer, size_t buffSize, struct sockaddr * address,
 
 	ssize_t sentBytes = sendto(fd, buffer, buffSize, 0, address, addressSize);
     if (sentBytes < 0){
-      log(ERROR, "Sending bytes: %s", strerror(errno))
+      log(ERROR, "Sending bytes: %s ", strerror(errno))
 	  return -1;
 	}
 

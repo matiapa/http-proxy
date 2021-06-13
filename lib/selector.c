@@ -1,7 +1,7 @@
 /*
  * selector.c - un muliplexor de entrada salida
  */
-#include <stdio.h>  // perror
+#include <stdio.h>
 #include <stdlib.h> // malloc
 #include <string.h> // memset
 #include <assert.h> // :)
@@ -169,18 +169,16 @@ static void items_init(fd_selector s, const size_t last) {
 void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
-    // log(INFO, "Closed connection - Client: %d - Target: %d\n", item->client_socket, item->target_socket);
-    if (item->client_socket==s->fds[0].client_socket){
+
+    if (item->client_socket ==  s->fds[0].client_socket){
         log(INFO, "Item kill Master socket\n");
-    }
-    else{
+    } else {
         getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
         log(INFO, "Closed connection - Client: %d - Target: %d - IP: %s - Port: %d\n", item->client_socket, item->target_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
     }
     
     // cuando no es el master socket
-    if (item->read_buffer.write!=NULL&&item->read_buffer.read!=NULL)
-    {
+    if (item->read_buffer.write != NULL && item->read_buffer.read != NULL) {
         buffer_reset(&(item->read_buffer));
         buffer_reset(&(item->write_buffer));
 
@@ -194,20 +192,18 @@ void item_kill(fd_selector s, struct item * item) {
         free_buffer(&item->req_parser.parse_buffer);
 
        
-       // Marks item as unused
+        // Marks item as unused
         FD_CLR(item->target_socket, &s->master_r);
         FD_CLR(item->target_socket, &s->master_w);
 
-
-
         
     }
+
     close(item->client_socket);
 
     // Marks item as unused
     FD_CLR(item->client_socket, &s->master_r);
     FD_CLR(item->client_socket, &s->master_w);
-   
 
     item->client_socket = FD_UNUSED;
     item->target_socket = FD_UNUSED;
@@ -368,50 +364,50 @@ void selector_update_fdset(fd_selector s, const struct item * item) {
 /***************************************************************
   Registers a new fd, in the proxy case, the passive socket
 ****************************************************************/
-selector_status selector_register(
-    fd_selector s, const int fd, const fd_handler  *handler,
-    const fd_interest interest, void *data
-) {
+selector_status selector_register(fd_selector s, const int sock_ipv4, const int sock_ipv6, const fd_handler  *handler, const fd_interest interest, void *data) {
                          
     selector_status ret = SELECTOR_SUCCESS;
 
-    if(s == NULL || INVALID_FD(fd) || handler == NULL) {
+    if (s == NULL || INVALID_FD(sock_ipv4) || INVALID_FD(sock_ipv6) || handler == NULL) {
         ret = SELECTOR_IARGS;
         goto finally;
     }
 
-    size_t ufd = (size_t)fd;
-    if(ufd > s->fd_size) {
-        ret = ensure_capacity(s, ufd);
-        if(SELECTOR_SUCCESS != ret) {
+    int ufd[2] = {sock_ipv4, sock_ipv6};
+    for (int i = 0; i < 2; i++) {
+        if((size_t)ufd[i] > s->fd_size) {
+            ret = ensure_capacity(s, ufd[i]);
+            if(SELECTOR_SUCCESS != ret) {
+                goto finally;
+            }
+        }
+
+        struct item * item = s->fds + i;
+        if(ITEM_USED(item)) {
+            ret = SELECTOR_FDINUSE;
             goto finally;
+        } else {
+            item->client_socket   = ufd[i];
+            item->client_interest = interest;
+            item->data   = data;
+
+            log(DEBUG, "Registered socket %d with interests %d", ufd[i], interest);
+
+            if(ufd[i] > s->max_fd) {
+                s->max_fd = ufd[i];
+            }
+
+            FD_CLR(item->client_socket, &(s->master_r));
+            FD_CLR(item->client_socket, &(s->master_w));
+
+            if(item->client_interest & OP_READ)
+                FD_SET(item->client_socket, &(s->master_r));
+
+            if(item->client_interest & OP_WRITE)
+                FD_SET(item->client_socket, &(s->master_w));
         }
     }
 
-    struct item * item = s->fds; // le saque el + ufd
-    if(ITEM_USED(item)) {
-        ret = SELECTOR_FDINUSE;
-        goto finally;
-    } else {
-        item->client_socket   = fd;
-        item->client_interest = interest;
-        item->data   = data;
-
-        log(DEBUG, "Registered socket %d with interests %d", fd, interest);
-
-        if(fd > s->max_fd) {
-            s->max_fd = fd;
-        }
-
-        FD_CLR(item->client_socket, &(s->master_r));
-        FD_CLR(item->client_socket, &(s->master_w));
-
-        if(item->client_interest & OP_READ)
-            FD_SET(item->client_socket, &(s->master_r));                 
-        
-        if(item->client_interest & OP_WRITE)
-            FD_SET(item->client_socket, &(s->master_w));  
-    }
     
     s->handlers = *handler;
 
@@ -481,12 +477,13 @@ static void handle_iteration(fd_selector s) {
         }
     }
 
-    int master_socket = s->fds[0].client_socket;
+    int master_socket_ipv4 = s->fds[0].client_socket;
+    int master_socket_ipv6 = s->fds[1].client_socket;
     int n = s->max_fd;
 
     struct selector_key key = { .s = s };
 
-    if (FD_ISSET(master_socket, &s->slave_r)) {
+    if (FD_ISSET(master_socket_ipv4, &s->slave_r) || FD_ISSET(master_socket_ipv6, &s->slave_r)) {
 
         // There is a new connection
 
@@ -497,6 +494,11 @@ static void handle_iteration(fd_selector s) {
                 continue;
 
             key.item = item;
+            if (FD_ISSET(master_socket_ipv4, &s->slave_r)) {
+                item->master_socket = master_socket_ipv4;
+            } else {
+                item->master_socket = master_socket_ipv6;
+            }
             s->handlers.handle_create(&key);
 
             s->max_fd = item->client_socket > item->target_socket
@@ -661,6 +663,7 @@ selector_status selector_select(fd_selector s) {
     // log(DEBUG, "Exited pselect() with %d", fds);
 
     if(-1 == fds) {
+        log(ERROR, "pselect %s", strerror(errno));
         perror("pselect");
         switch(errno) {
             case EAGAIN:

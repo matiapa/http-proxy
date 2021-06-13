@@ -30,40 +30,65 @@ int create_tcp_client(const char *host, const int port) {
 
     struct addrinfo * servAddr;
 
-	// Resolve host string for posible addresses
-	int getaddr = doh_client(host, port, &servAddr, AF_UNSPEC);
+    int types[2] = {AF_INET, AF_INET6};
 
-	if (getaddr != 0) {
-		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
-		return -1;
-	}
+    int sock;
+    for (int i = 0; i < 2 && sock == -1; i++) {
 
-	// Try to connect to an address
+        // Resolve host string for posible addresses
+        int getaddr = doh_client(host, port, &servAddr, types[i]);
 
-	int sock = -1;
-	for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
-		sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (sock < 0){
-			log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer))
-			continue;
-		}
+        if (getaddr != 0) {
+            log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
+            return -1;
+        }
 
-		int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
-		if (conn != 0) {
-			log(INFO, "can't connect to %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
-			close(sock); // Socket connection failed; try next address
-			sock = -1;
-		}	
-	}
+        // Try to connect to an address
 
-	log(INFO, "Connected...")
+        sock = -1;
+        for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+            sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+            if (sock < 0){
+                log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer))
+                continue;
+            }
 
-	// Release address resource and return socket number
-    free(servAddr);
+            int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
+            if (conn != 0) {
+                log(INFO, "can't connect to %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
+                close(sock); // Socket connection failed; try next address
+                sock = -1;
+            }
+        }
+
+        // Release address resource and return socket number
+        free(servAddr);
+    }
+
+    if (sock < 0) {
+        log(ERROR, "Connecting to target")
+    } else {
+        log(INFO, "Connected to target (DoH)")
+    }
+
 	return sock;
 
 }
 
+void print_address(int servSock) {
+    struct sockaddr_storage localAddr;
+    socklen_t addrSize = sizeof(localAddr);
+
+    int getname = getsockname(servSock, (struct sockaddr *) &localAddr, &addrSize);
+    if (getname < 0) {
+        log(ERROR, "Getting master socket name");
+    }
+
+    char addressBuffer[ADDR_BUFFER_SIZE];
+    printSocketAddress((struct sockaddr *) &localAddr, addressBuffer);
+
+    log(INFO, "Binding to %s", addressBuffer);
+}
 
 int create_tcp_server(const char *port) {
 
@@ -77,76 +102,112 @@ int create_tcp_server(const char *port) {
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
 
-	// Resolve service string for posible addresses
-
-	struct addrinfo *servAddr;
-	int getaddr = getaddrinfo(NULL, port, &addrCriteria, &servAddr);
-	if (getaddr != 0) {
-		log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr));
+	int servSock = socket(addrCriteria.ai_family, addrCriteria.ai_socktype, addrCriteria.ai_protocol);
+    if (servSock < 0){
+        log(ERROR, "Creating passive socket");
         return -1;
-	}
+    }
+    log(DEBUG, "IPv4 socket %d created", servSock);
 
-	// Try to bind to an address and to start listening on it
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
 
-	int servSock = -1;
-	for (struct addrinfo *addr = servAddr; addr != NULL && servSock == -1; addr = addr->ai_next) {
+    if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set IPv4 socket options SO_REUSEADDR failed %s ", strerror(errno));
+    }
 
-		// Create socket and make it reusable
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(atoi(port));
 
-		servSock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (servSock < 0){
-			log(ERROR, "Creating passive socket");
-			continue;
-		}
+    if (bind(servSock, (struct sockaddr *) &address, sizeof(address)) < 0) {
+        log(ERROR, "bind for IPv4 failed");
+        close(servSock);
+    } else {
+        if (listen(servSock, MAX_PENDING_CONN) < 0) {
+            log(ERROR, "listen on IPv4 socket failes");
+            close(servSock);
+        } else {
+            log(DEBUG, "Waiting for TCP IPv4 connections on socket %d\n", servSock);
+        }
+    }
 
-    	setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int));
-
-		// Bind and listen
-
-		int bindRes = bind(servSock, addr->ai_addr, addr->ai_addrlen);
-		if(bindRes < 0){
-			log(ERROR, "Binding to server socket");
-			close(servSock);
-			servSock = -1;
-            continue;
-		}
-
-		int listenRes = listen(servSock, MAX_PENDING_CONN);
-		if(listenRes < 0){
-			log(ERROR, "Listening to server socket");
-			close(servSock);
-			servSock = -1;
-            continue;
-		}
-
-		// Print local address
-
-		struct sockaddr_storage localAddr;
-		socklen_t addrSize = sizeof(localAddr);
-
-		int getname = getsockname(servSock, (struct sockaddr *) &localAddr, &addrSize);
-		if (getname < 0) {
-            log(ERROR, "Getting master socket name");
-            continue;
-		}
-
-        char addressBuffer[ADDR_BUFFER_SIZE];
-        printSocketAddress((struct sockaddr *) &localAddr, addressBuffer);
-
-        log(INFO, "Binding to %s", addressBuffer);
-	}
-
-	freeaddrinfo(servAddr);
+    // Print local address
+    print_address(servSock);
 
 	return servSock;
 
 }
 
+int create_tcp6_server(const char *port) {
 
-int handle_connections( int serverSocket, void (*handle_creates) (struct selector_key *key)) {
+    // Create address criteria
 
-    if(selector_fd_set_nio(serverSocket) == -1) {
-        log(ERROR, "Setting master socket flags");
+    struct addrinfo addrCriteria;
+    memset(&addrCriteria, 0, sizeof(addrCriteria));
+
+    addrCriteria.ai_family = AF_INET6;
+    addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
+    addrCriteria.ai_socktype = SOCK_STREAM;
+    addrCriteria.ai_protocol = IPPROTO_TCP;
+
+    int servSock = socket(addrCriteria.ai_family, addrCriteria.ai_socktype, addrCriteria.ai_protocol);
+    if (servSock < 0){
+        log(ERROR, "Creating passive socket for ipv6");
+        return -1;
+    }
+    log(DEBUG, "IPv6 socket %d created", servSock);
+
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+
+    if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set IPv6 socket options SO_REUSEADDR failed for %s ", strerror(errno));
+    }
+    if (setsockopt(servSock, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set IPv6 socket options IPV6_V6ONLY failed %s ", strerror(errno));
+    }
+
+    struct sockaddr_in6 address;
+
+    memset(&address, 0, sizeof(address));
+    address.sin6_family = AF_INET6;
+    address.sin6_port = htons(atoi(port));
+    address.sin6_addr = in6addr_any;
+
+    if (bind(servSock, (struct sockaddr *) &address, sizeof(address)) < 0) {
+        log(ERROR, "bind for IPv6 failed");
+        close(servSock);
+    } else {
+        if (listen(servSock, MAX_PENDING_CONN) < 0) {
+            log(ERROR, "listen on IPv6 socket failes");
+            close(servSock);
+        } else {
+            log(DEBUG, "Waiting for TCP IPv6 connections on socket %d\n", servSock);
+        }
+    }
+
+    // Print local address
+    print_address(servSock);
+
+    return servSock;
+
+}
+
+
+int handle_connections( int sock_ipv4, int sock_ipv6, void (*handle_creates) (struct selector_key *key)) {
+
+    if (selector_fd_set_nio(sock_ipv4) == -1) {
+        log(ERROR, "Setting ipv4 master socket flags");
+        return -1;
+    }
+
+    if (selector_fd_set_nio(sock_ipv6) == -1) {
+        log(ERROR, "Setting ipv6 master socket flags");
         return -1;
     }
 
@@ -186,7 +247,7 @@ int handle_connections( int serverSocket, void (*handle_creates) (struct selecto
 
     selector_status ss = SELECTOR_SUCCESS;
 
-    ss = selector_register(selector_fd, serverSocket, &handlers, OP_READ + OP_WRITE, NULL);
+    ss = selector_register(selector_fd, sock_ipv4, sock_ipv6, &handlers, OP_READ + OP_WRITE, NULL);
 
     if(ss != SELECTOR_SUCCESS) {
         log(ERROR, "Registering master socket on selector");

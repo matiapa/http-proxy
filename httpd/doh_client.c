@@ -8,12 +8,12 @@
 #include <buffer.h>
 #include <http_response_parser.h>
 #include <http_message_parser.h>
+#include <string.h>
+#include <errno.h>
 
 #define A 1
 #define AAAA 28
-#define ANY 255
 #define BUFF_SIZE 6000
-#define BIG_NUM 30
 
 //DNS header structure
 struct DNS_HEADER {
@@ -92,17 +92,28 @@ void change_configuration(struct doh * args) {
 
 // https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
 int doh_client(const char * target, const int sin_port, struct addrinfo ** restrict addrinfo, int family) {
+
+    if (family != AF_INET && family != AF_INET6) // pedido invalido
+        return -1;
+
     struct sockaddr_in dest;
     buffer_init(&buff, BUFF_SIZE, calloc(1, BUFF_SIZE));
 
     /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
-    if (!strcmp(target, "localhost")) return resolve_string(addrinfo, "127.0.0.1", sin_port);
     if (resolve_string(addrinfo, target, sin_port) >= 0) return 0; // El target esta en formato IP
 
     int s = socket(AF_INET , SOCK_STREAM , IPPROTO_TCP); // Socket para conectarse al DOH Server
     if (s < 0) {
         log(ERROR, "Socket failed to create")
         return -1;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+
+    if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0) {
+        log(ERROR, "set DoH socket options SO_REUSEADDR failed %s ", strerror(errno));
     }
 
     /*--------- Establece la conexón con el servidor ---------*/
@@ -117,55 +128,52 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
 
     struct aibuf * out = NULL;
     int cant = 0;
-    int types[2] = {A, AAAA};
+    int type = family == AF_INET ? A : AAAA;
 
-    for (int k = 0; k < 2; k++) {
-        buffer_reset(&buff);
-        memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
+    buffer_reset(&buff);
+    memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
 
-        if (family != AF_UNSPEC && family != types[k])
-            continue;
+    /*----------- Mando el request DOH para IPv4 -----------*/
+    send_doh_request(target, s, type);
+    buffer_reset(&buff);
+    memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
 
-        /*----------- Mando el request DOH para IPv4 -----------*/
-        send_doh_request(target, s, types[k]);
-        buffer_reset(&buff);
-        memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
+    /*----------- Recivo el response DOH -----------*/
+    int dim = sizeof(struct sockaddr_in);
+    size_t nbyte;
+    char * aux_buff = (char *)buffer_write_ptr(&buff, &nbyte);
 
-        /*----------- Recivo el response DOH -----------*/
-        int dim = sizeof(struct sockaddr_in);
-        size_t nbyte;
-        char * aux_buff = (char *)buffer_write_ptr(&buff, &nbyte);
-        ssize_t read_bytes;
-        if ((read_bytes = recvfrom (s, aux_buff, nbyte , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim )) < 0) {
-            log(ERROR, "Getting response from DOH server")
-            if (k > 0) free(out);
-            return -1;
-        }
-        buffer_write_adv(&buff, read_bytes);
-
-        http_response_parser parser = {0};
-        http_response response = {0};
-        http_response_parser_init(&parser);
-        parser.response = &response;
-        http_response_parser_parse(&parser, &buff, &response);
-        buff.read = (unsigned char *)response.message.body;
-
-        struct DNS_HEADER * dns = (struct DNS_HEADER *)buffer_read_ptr(&buff, &nbyte); // Obtengo el DNS_HEADER
-        buffer_read_adv(&buff, sizeof(struct DNS_HEADER));
-        int ans_count = ntohs(dns->ans_count); // Cantidad de respuestas
-        if (out == NULL)  // TODO: cambiar secuencia de pedido
-            out = calloc(1, BIG_NUM * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
-
-        int n = get_name(buffer_read_ptr(&buff, &nbyte)) + sizeof(struct QUESTION);
-        buffer_read_adv(&buff, n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
-
-        /*----------- Lectura del response DOH -----------*/
-        cant = read_response(out, sin_port, family, ans_count, cant);
+    ssize_t read_bytes;
+    if ((read_bytes = recvfrom (s, aux_buff, nbyte , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim )) < 0) {
+        log(ERROR, "Getting response from DOH server")
+        close(s);
+        return -1;
     }
 
-    // out = realloc(out, cant * sizeof(*out) + 1); // Reacomodo la memoria
-    *addrinfo = &out->ai;
+    buffer_write_adv(&buff, read_bytes);
 
+    http_response_parser parser = {0};
+    http_response response = {0};
+    http_response_parser_init(&parser);
+    parser.response = &response;
+    http_response_parser_parse(&parser, &buff, &response);
+    buff.read = (unsigned char *)response.message.body;
+
+    struct DNS_HEADER * dns = (struct DNS_HEADER *)buffer_read_ptr(&buff, &nbyte); // Obtengo el DNS_HEADER
+    buffer_read_adv(&buff, sizeof(struct DNS_HEADER));
+
+    int ans_count = ntohs(dns->ans_count); // Cantidad de respuestas
+    out = calloc(1, ans_count * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
+
+    int n = get_name(buffer_read_ptr(&buff, &nbyte)) + sizeof(struct QUESTION);
+    buffer_read_adv(&buff, n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
+
+    /*----------- Lectura del response DOH -----------*/
+    read_response(out, sin_port, family, ans_count, cant);
+
+    // Termine
+    *addrinfo = &out->ai;
+    close(s);
     return 0;
 }
 
@@ -250,7 +258,7 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, i
         else if (ntohs(data->type) == AAAA) sin_family = AF_INET6;
         else sin_family = -1;
 
-        if ((family == AF_UNSPEC && (sin_family == AF_INET || sin_family == AF_INET6)) || family == sin_family) {
+        if (family == sin_family) {
             out[cant].ai = (struct addrinfo) {
                     .ai_family = sin_family,
                     .ai_socktype = SOCK_STREAM,

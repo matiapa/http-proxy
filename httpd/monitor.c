@@ -215,7 +215,6 @@ int process_request(char * body, struct request_header * req) {
             return REQ_BAD_REQUEST;
 
         union format * ft = (union format *)body;
-        struct black_list * bl = (struct black_list *)body;
         switch (req->method) {
             case 0:
                 if (ft->clients > 1000)

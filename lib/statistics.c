@@ -129,8 +129,7 @@ void log_client_access(int client_socket, char * url) {
 
     int fd = open("./logs/access.txt", O_RDWR | O_CREAT | O_APPEND, S_IRWXU | S_IRWXG | S_IRWXO);
     if (fd < 0) {
-        log(ERROR, "Failed to open access.txt file with ERRNO %d", errno);
-        perror("Opening access.txt file");
+        log(ERROR, "Failed to open access.txt file with ERRNO %s", strerror(errno));
     }
 
     char buffer[1024];

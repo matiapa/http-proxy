@@ -109,7 +109,12 @@ int main() {
     char command[1024];
     while(1) {
 
-        scanf("%s", command);
+        //scanf("%s", command);
+        char c;
+        int i = 0;
+        while ((c = getchar()) != EOF && c != '\n') {
+            command[i++] = c;
+        }
 
         struct request_header req;
         if (parse_command(command, &req, buffer) <= 0) continue; // envio mal el command o fue un cambio del cliente
