@@ -6,6 +6,7 @@ bin/*
 Testing/*
 logs/*
 debugging/*
+informe/*
 
 # IDEs related
 .idea/*

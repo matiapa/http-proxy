@@ -140,6 +140,9 @@ void pop3_parser_init(pop3_parser_data * data){
 void pop3_parser_reset(pop3_parser_data * data){
     parser_reset(data->parser);
     buffer_reset(&(data->popBuffer));
+    memset(data->user,0,sizeof((*data).user));
+    memset(data->pass,0,sizeof((*data).pass));
+    
 }
 
 void pop3_parser_destroy(pop3_parser_data * data){

@@ -10,12 +10,56 @@
 #include <config.h>
 #include <monitor.h>
 #include <statistics.h>
+#include <arpa/inet.h>
+#include <sys/select.h>
 
-#define REQ_BUFF_SIZE 1024
-#define RES_BUFF_SIZE 1024
+#define BUFFER_SIZE 1024
 #define PF proxy_conf
 
-void parse_request(char * command, char * response);
+#define PASSWORD "quic"
+#define CURRENT_VERSION 1
+#define MASTER_SOCKET_SIZE 2
+
+enum req_status {
+    REQ_SUCCESS = 0,
+    REQ_BAD_REQUEST = 1,
+    REQ_UNAUTHORIZED = 2
+};
+
+struct request_header {
+    unsigned char version;
+    unsigned char pass[32];
+    unsigned short id;
+    unsigned char type :1;
+    unsigned char method :4;
+    unsigned short length;
+};
+
+struct response_header {
+    unsigned char version;
+    unsigned short id;
+    unsigned char status :2;
+    unsigned char type :1;
+    unsigned char method :4;
+    unsigned short length;
+};
+
+union format {
+    unsigned short clients;
+    short time;
+    unsigned char boolean :1;
+    unsigned char level :2;
+};
+
+int process_request(char * body, struct request_header * request_header);
+
+void send_retrieve_response(struct request_header * request_header, int body_length);
+
+void send_success(struct request_header * request_header);
+
+void send_no_authorization_message(struct request_header * req);
+
+void send_error(int status);
 
 void set_variable(char * command, char * response);
 
@@ -24,7 +68,7 @@ Config proxy_conf = {
     .connectionTimeout = -1,
     .statisticsFrequency = 3600,
 
-    .disectorsEnabled = true,
+    .disectorsEnabled = false,
 
     .viaProxyName = "",
     .clientBlacklist = "",
@@ -32,192 +76,222 @@ Config proxy_conf = {
     .logLevel = DEBUG
 };
 
+int validate_client(char * pass) {
+    return strcmp(pass, PASSWORD) == 0;
+}
+
+char req_buffer[BUFFER_SIZE];
+char res_buffer[BUFFER_SIZE];
+
+struct sockaddr_storage clientAddress;
+socklen_t clientAddressSize = sizeof(clientAddress);
+int udp_socket;
+int udp6_socket;
+int sockets[MASTER_SOCKET_SIZE];
+
 
 void * start_monitor(void * port) {
 
-  int serverSocket = create_udp_server(port);
-  if (serverSocket < 0)
-    log(FATAL, "Creating server socket: %s ", strerror(errno))
 
-  char req[REQ_BUFF_SIZE];
-  char res[RES_BUFF_SIZE];
+    // Creo el socket para ipv4
+    sockets[0] = create_udp_server(port);
+    if (sockets[0] == -1) {
+        log(FATAL, "Creating server socket for ipv4: %s ", strerror(errno))
+    }
+    log(INFO, "Server socket for ipv4 created: %d ", sockets[0])
 
-  while (1) {
+    // Creo el socket para ipv6
+    sockets[1] = create_udp6_server(port);
+    if (sockets[1] == -1) {
+        log(FATAL, "Creating server socket for ipv6: %s ", strerror(errno))
+    }
+    log(INFO, "Server socket for ipv6 created: %d ", sockets[1])
 
-    memset(req, 0, REQ_BUFF_SIZE);
-    memset(req, 0, RES_BUFF_SIZE);
 
-    struct sockaddr_storage clientAddress;
-    socklen_t clientAddressSize = sizeof(clientAddress);;
- 
-    ssize_t recvBytes = uread(serverSocket, req, REQ_BUFF_SIZE, (struct sockaddr *) &clientAddress, &clientAddressSize);
-    if (recvBytes < 0) continue;
+    fd_set readfds;
+    ssize_t n;
+    int max_fd;
+    while(1) {
+        FD_ZERO(&readfds);
+        memset(req_buffer, 0, BUFFER_SIZE);
+        memset(res_buffer, 0, BUFFER_SIZE);
 
-    parse_request(req, res);
+        max_fd = 0;
+        for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
+            FD_SET(sockets[i], &readfds);
+            max_fd = max_fd > sockets[i] ? max_fd : sockets[i];
+        }
 
-    usend(serverSocket, res, strlen(res), (struct sockaddr *) &clientAddress, clientAddressSize);
+        int fds = pselect(max_fd + 1, &readfds, NULL, 0, NULL, NULL);
+        if (fds == -1) {
+            log(ERROR, "Exiting pselect")
+            continue;
+        }
 
-  }
+        for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
 
+            if (!FD_ISSET(sockets[i], &readfds)) {
+                continue;
+            }
+
+            n = recvfrom(udp_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &clientAddressSize);
+            if (n < 0) { // si hubo un error
+                log(ERROR, "Receiving request from client")
+            }
+
+            if (n > 0) { // puede que no haya leido nada y no sea un error
+                struct request_header *request_header = (struct request_header *) req_buffer;
+                if (!validate_client((char *)request_header->pass)) {
+                    send_no_authorization_message(request_header);
+                } else {
+                    int status = process_request(req_buffer + sizeof(struct request_header), request_header);
+                    if (status != REQ_SUCCESS)
+                        send_error(status);
+                }
+            }
+        }
+    }
+}
+
+void send_no_authorization_message(struct request_header * req) {
+    char message[61] = "Acceso denegado\n¿Que protocolo de UDP salió recientemente?";
+
+    struct response_header res_header = {
+            .version = CURRENT_VERSION,
+            .status = REQ_UNAUTHORIZED,
+            .length = strlen(message) + 1,
+            .id = req->id,
+            .method = req->method,
+            .type = req->type,
+    };
+    memcpy(res_buffer, &res_header, sizeof(res_header));
+    strcpy(res_buffer + sizeof(res_header), message);
+
+    if (sendto(udp_socket, res_buffer, sizeof(res_header) + strlen(message) + 1, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
+        log(ERROR, "Sending client response")
+    }
+}
+
+int process_request(char * body, struct request_header * req) {
+    memset(res_buffer, 0, BUFFER_SIZE);
+    if (req->version > CURRENT_VERSION) return REQ_BAD_REQUEST;
+    if (req->type == 0) {
+        struct statistics stats;
+        get_statistics(&stats);
+        int length = sizeof(long);
+        switch (req->method) {
+            case 0:
+                memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
+                break;
+            case 1:
+                memcpy(res_buffer + sizeof(struct response_header), &stats.current_connections, sizeof(long));
+                break;
+            case 2:
+                memcpy(res_buffer + sizeof(struct response_header), &stats.total_sent, sizeof(long));
+                break;
+            case 3:
+                memcpy(res_buffer + sizeof(struct response_header), &stats.total_recieved, sizeof(long));
+                break;
+            case 4:
+                memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long), &stats.current_connections, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long)*2, &stats.total_sent, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long)*3, &stats.total_recieved, sizeof(long));
+                length *= 4;
+                break;
+            case 5:
+                memcpy(res_buffer + sizeof(struct response_header), &proxy_conf.maxClients, sizeof(int));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int), &proxy_conf.connectionTimeout, sizeof(int));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int)*2, &proxy_conf.statisticsFrequency, sizeof(int));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int)*3, &proxy_conf.disectorsEnabled, sizeof(char));
+                length = sizeof(int) * 3 + sizeof(char);
+                break;
+            default:
+                return REQ_BAD_REQUEST;
+        }
+        send_retrieve_response(req, length);
+    } else {
+        if (req->length <= 0)
+            return REQ_BAD_REQUEST;
+
+        union format * ft = (union format *)body;
+        struct black_list * bl = (struct black_list *)body;
+        switch (req->method) {
+            case 0:
+                if (ft->clients > 1000)
+                    return REQ_BAD_REQUEST;
+                proxy_conf.maxClients = ft->clients;
+                break;
+            case 1:
+                proxy_conf.connectionTimeout = ft->time;
+                break;
+            case 2:
+                proxy_conf.statisticsFrequency = ft->time;
+                break;
+            case 3:
+                proxy_conf.disectorsEnabled = ft->boolean;
+                break;
+            case 4:
+                proxy_conf.logLevel = ft->level;
+                break;
+            default:
+                return REQ_BAD_REQUEST;
+        }
+        send_success(req);
+    }
+    return REQ_SUCCESS;
+}
+
+void send_error(int status) {
+    if (status == REQ_BAD_REQUEST) {
+        struct response_header res_header = {
+                .version = CURRENT_VERSION,
+                .status = REQ_BAD_REQUEST,
+                .length = 0
+        };
+        if (sendto(udp_socket, &res_header, sizeof(res_header), 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
+            log(ERROR, "Sending client response")
+        }
+    }
+}
+
+void send_retrieve_response(struct request_header * request_header, int body_length) {
+    struct response_header * res = (struct response_header *)res_buffer;
+    res->version = CURRENT_VERSION;
+    res->status = SUCCESS;
+    res->id = request_header->id;
+    res->type = request_header->type;
+    res->method = request_header->method;
+    res->length = body_length;
+
+    if (sendto(udp_socket, res_buffer, sizeof(res) + body_length, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
+        log(ERROR, "Sending client response")
+    }
+}
+
+void send_success(struct request_header * request_header) {
+    memset(res_buffer, 0, BUFFER_SIZE);
+    struct response_header * res = (struct response_header *)res_buffer;
+    res->version = CURRENT_VERSION;
+    res->status = SUCCESS;
+    res->id = request_header->id;
+    res->type = request_header->type;
+    res->method = request_header->method;
+    res->length = 0;
+    if (sendto(udp_socket, res_buffer, sizeof(res), 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
+        log(ERROR, "Sending client response")
+    }
 }
 
 
 
-void parse_request(char * command, char * response) {
-
-    for(int i=0; command[i] != 0; i++)
-      if(command[i] == '\n'){
-        command[i] = 0;
-        break;
-      }
-
-    if (strncmp(command, "HELP", 4) == 0) {
-
-      sprintf(response,
-        "> Available commands:\n"
-        ">> SHOW CONFIG:                          Display current values of config variables\n"
-        ">> SHOW STATISTICS:                      Display current values of statistics\n"
-        ">> SET variable value:                   Set a config variable value\n"
-        ">> HELP:                                 Show this help screen\n\n"
-
-        "> Available config variables:\n"
-        ">> maxClients:                           Max allowed clients (up to 1000). Default is 1000.\n"
-        ">> connectionTimeout:                    Max inactivity time before disconnection, or -1 to disable it. Default is -1.\n"
-        ">> statisticsFrequency:                  Frequency of statistics logging, or -1 to disable it.\n"
-        ">> disectorsEnabled:                     Whether to extract plain text credentials. Default is 1.\n"
-        ">> viaProxyName:                         Host name to use on RFC 7230 required 'Via' header, up to %d characters. Default is proxy hostname.\n"
-        ">> clientBlacklist:                      Comma separated list of client IPs to which service must be denied. Max size of list is %d.\n"
-        ">> targetBlacklist:                      Comma separated list of target IPs to which connection must be denied. Max size of list is %d.\n"
-        ">> logLevel:                             Minimum log level to display, possible values are [DEBUG, INFO, ERROR, FATAL]. Default is DEBUG.\n",
-        
-        VIA_PROXY_NAME_SIZE, BLACKLIST_SIZE, BLACKLIST_SIZE
-      );
-
-    } else if (strncmp(command, "SHOW CONFIG", 11) == 0) {
-
-      char * format =
-        "maxClients: %d\n"
-        "connectionTimeout: %d\n"
-        "statisticsFrequency: %d\n"
-        "disectorsEnabled: %d\n"
-        "viaProxyName: %s\n"
-        "clientBlacklist: %s\n"
-        "targetBlacklist: %s\n"
-        "logLevel: %s\n";
-
-      sprintf(response, format, PF.maxClients, PF.connectionTimeout, PF.statisticsFrequency, PF.disectorsEnabled,
-        PF.viaProxyName, PF.clientBlacklist, PF.targetBlacklist, levelDescription(PF.logLevel));
-
-    } else if (strncmp(command, "SHOW STATISTICS", 15) == 0) {
-
-      char * format =
-        "current connections: %d\n"
-        "total connections since server restart: %d\n"
-        "total bytes sent: %ld \n" 
-        "total bytes recieved: %ld\n";
-      statistics * stats=get_statistics(malloc(sizeof(statistics)));
-      sprintf(response, format,stats->current_connections,stats->total_connections,stats->total_sent,stats->total_recieved );
-      free(stats);
-
-    } else if (strncmp(command, "SET", 3) == 0) {
-  
-      set_variable(command + 4, response);
-
-    } else if (command[0] == 0) {
-      
-      sprintf(response, "\n");
-
-    } else {
-
-      sprintf(response, "ERROR: Invalid command\n");
-        
-    }
-
-}
 
 
-void set_variable(char * command, char * response) {
 
-  char * variable = strtok(command, " ");
-  if (variable == NULL) {
-    sprintf(response, "ERROR: Missing variable name\n");
-    return;
-  }
 
-  char * value = strtok(NULL, " ");
-  if (value == NULL) {
-    sprintf(response, "ERROR: Missing variable value\n");
-    return;
-  }
 
-  if (strncmp(variable, "maxClients", 10) == 0) {
 
-    int num = atoi(value);
-    if (num > 0 && num <= 1000) {
-      PF.maxClients = num;
-      sprintf(response, "OK: Max clients set to %d\n", num);
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that 0 < n <= 1000\n");
-    }
 
-  } else if (strncmp(variable, "connectionTimeout", 17) == 0) {
 
-    int num = atoi(value);
-    if (num > 0 || num == -1) {
-      PF.connectionTimeout = num;
-      sprintf(response, "OK: Connection timeout set to %d\n", num);
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that 0 < n or n = -1\n");
-    }
 
-  } else if (strncmp(variable, "statisticsFrequency", 19) == 0) {
 
-    int num = atoi(value);
-    if (num == 0 || num == 1) {
-      PF.statisticsFrequency = num;
-      sprintf(response, "OK: Statistics %s\n", num ? "enabled" : "disabled");
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
-    }
-
-  } else if (strncmp(variable, "disectorsEnabled", 16) == 0) {
-
-    int num = atoi(value);
-    if (num == 0 || num == 1) {
-      PF.disectorsEnabled = num;
-      sprintf(response, "OK: Disectors %s\n", num ? "enabled" : "disabled");
-    } else {
-      sprintf(response, "ERROR: Value must be a natural n such that n = 0 or n = 1\n");
-    }
-
-  } else if (strncmp(variable, "viaProxyName", 12) == 0) {
-
-    strncpy(PF.viaProxyName, value, VIA_PROXY_NAME_SIZE);
-
-    sprintf(response, "OK: Proxy name set to %s\n", PF.viaProxyName);
-
-  } else if (strncmp(variable, "clientBlacklist", 15) == 0) {
-
-    strncpy(PF.clientBlacklist, value, BLACKLIST_SIZE);
-
-    sprintf(response, "OK: Client black list set to %s\n", PF.clientBlacklist);
-
-  } else if (strncmp(variable, "targetBlacklist", 15) == 0) {
-
-    strncpy(PF.targetBlacklist, value, BLACKLIST_SIZE);
-
-    sprintf(response, "OK: Target black list set to %s\n", PF.targetBlacklist);
-
-  } else if (strncmp(variable, "logLevel", 8) == 0) {
-
-    int level = descriptionLevel(value);
-    if (level >= 0) {
-      PF.logLevel = (LOG_LEVEL) level;
-      sprintf(response, "OK: Log level set to %s\n", levelDescription(level));
-    } else {
-      sprintf(response, "ERROR: Value must be one of [DEBUG, INFO, ERROR, FATAL]\n");
-    }
-
-  }
-
-}
