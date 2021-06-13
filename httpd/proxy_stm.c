@@ -3,7 +3,6 @@
 #include <string.h>
 #include <buffer.h>
 #include <stm.h>
-#include <selector.h>
 #include <tcp_utils.h>
 #include <http_request_parser.h>
 #include <http_response_parser.h>
@@ -537,17 +536,21 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     pop3_state state = pop3_parse(&aux_buffer, &(key->item->pop3_parser));
 
-//    if (state == POP3_SUCCESS) {
-//        if (key->item->pop3_parser.user != NULL) {
-//            log(DEBUG, "User: %s", key->item->pop3_parser.user);
-//            key->item->pop3_parser.user[key->item->pop3_parser.user_len] = '\n';
-//        }
-//        if (key->item->pop3_parser.pass != NULL) {
-//            log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
-//            key->item->pop3_parser.pass[key->item->pop3_parser.pass_len] = '\n';
-//        }
-//        pop3_parser_reset(&(key->item->pop3_parser));
-//    }
+    if (state == POP3_SUCCESS) {
+        if (key->item->pop3_parser.user[0]!= 0) {
+            log(DEBUG, "User: %s", key->item->pop3_parser.user);
+        }
+        else{
+            pop3_parser_reset(&(key->item->pop3_parser));
+        }
+        if (key->item->pop3_parser.user [0]!= 0 && key->item->pop3_parser.pass [0]!= 0) {
+            log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
+            print_credentials(POP3,key->item->target_url.hostname,key->item->target_url.port,key->item->pop3_parser.user, key->item->pop3_parser.pass);
+            pop3_parser_reset(&(key->item->pop3_parser));
+        }      
+        
+        
+    }
 
     // Calculate statistics
 
@@ -773,14 +776,23 @@ static unsigned process_request(struct selector_key * key) {
     // Parse the request target URL
 
     struct url url;
-    parse_url(request->url, &url);
+    int r = parse_url(request->url, &url);
+    if (r < 0) {
+        RESET_REQUEST();
+        return notify_error(key, BAD_REQUEST, REQUEST_READ);
+    }
 
     if (strlen(request->url) == 0) {
         RESET_REQUEST();
-        return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
+        return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     log_client_access(key->item->client_socket, request->url);
+    
+    if (request->method == TRACE) {
+        RESET_REQUEST();
+        return notify_error(key, METHOD_NOT_ALLOWED, REQUEST_READ);
+    }
 
     // Establish connection to target
 
@@ -789,7 +801,12 @@ static unsigned process_request(struct selector_key * key) {
         RESET_REQUEST();
         return ret;
     }
-        
+
+    strncpy(url.hostname,key->item->target_url.hostname,LINK_LENGTH);
+    key->item->target_url.port=url.port;
+    strncpy(url.path,key->item->target_url.path,PATH_LENGTH);
+    strncpy(url.protocol,key->item->target_url.protocol,6);
+
     if (request->method == CONNECT) {
 
         // The request method is CONNECT, a response shall be sent
@@ -811,10 +828,14 @@ static unsigned process_request(struct selector_key * key) {
 
         return CONNECT_RESPONSE;
 
-    } else {
+    }
+    else { 
 
         // The request method is a traditional one, request shall be proccessed
         // and then forwarded
+        
+        if (request->method == OPTIONS && strlen(url.path) == 0)
+            sprintf(request->url, "*");
 
         // Process request headers
 
@@ -989,12 +1010,12 @@ static unsigned connect_target(struct selector_key * key, char * target_host, in
 
     // If there is an established connection to same target, return
 
-    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) == 0)
+    if (key->item->target_socket > 0 && strcmp(key->item->target_url.hostname, target_host) == 0)
         return 0;
 
     // If there is an established connection to another target, close it
 
-    if (key->item->target_socket > 0 && strcmp(key->item->target_name, target_host) != 0)
+    if (key->item->target_socket > 0 && strcmp(key->item->target_url.hostname, target_host) != 0)
         close(key->item->target_socket);
 
     // Get hostname and port from target

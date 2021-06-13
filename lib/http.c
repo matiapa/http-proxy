@@ -5,7 +5,7 @@
 
 #define HTTP_VERSION "HTTP/1.1"
 
-char * methods_strings[6] = {"GET", "POST", "CONNECT","DELETE","PUT","HEAD"};
+char * methods_strings[8] = {"GET", "POST", "PUT", "DELETE", "CONNECT", "HEAD", "OPTIONS", "TRACE"};
 
 #define print(...) \
 	position += snprintf(buffer + position, space, ##__VA_ARGS__); \
@@ -58,6 +58,7 @@ int write_response(http_response * response, char * buffer, int space) {
         case RESPONSE_OK: default_reason = "OK"; break;
         case BAD_REQUEST: default_reason = "Bad Request"; break;
         case FORBIDDEN: default_reason = "Forbidden"; break;
+        case METHOD_NOT_ALLOWED: default_reason = "Method Not Allowed"; break;
         case CONFLICT: default_reason = "Conflict"; break;
         case PAYLOAD_TOO_LARGE: default_reason = "Payload Too Large"; break;
         case INTERNAL_SERVER_ERROR: default_reason = "Internal Server Error"; break;

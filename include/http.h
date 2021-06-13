@@ -25,11 +25,14 @@
 
 /*---------------------- Keywords definitions ----------------------*/
 
-typedef enum methods {GET=1, POST, CONNECT,DELETE,PUT,HEAD, OTHER} methods;
+typedef enum methods {GET=1, POST, PUT, DELETE, CONNECT, HEAD, OPTIONS, TRACE} methods;
+
+extern char * methods_strings[8];
 
 #define RESPONSE_OK 200
 #define BAD_REQUEST 400
 #define FORBIDDEN 403
+#define METHOD_NOT_ALLOWED 405
 #define CONFLICT 409
 #define PAYLOAD_TOO_LARGE 413
 #define URI_TOO_LONG 414
