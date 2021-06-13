@@ -141,11 +141,7 @@ selector_update_fdset(fd_selector s, const struct item * item);
  * @return 0 si fue exitoso el registro.
  */
 selector_status
-selector_register(fd_selector        s,
-                  const int          fd,
-                  const fd_handler  *handler,
-                  const fd_interest  interest,
-                  void *data);
+selector_register(fd_selector s, const int sock_ipv4, const int sock_ipv6, const fd_handler *handler, const fd_interest interest, void *data);
 
 /**
  * desregistra un file descriptor del selector
@@ -200,6 +196,8 @@ struct item {
     
     time_t              last_activity;
     char                target_name[50];
+
+    int                 master_socket;
 
     void *              data;
 };

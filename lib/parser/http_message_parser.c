@@ -136,7 +136,7 @@ static const struct parser_state_transition ST_HEADER_VALUE [] =  {
 };
 
 static const struct parser_state_transition ST_HEADER_LINE_CR [] =  {
-    {.when = TOKEN_CR,              .dest = HEADER_LINE_CRLF,             .act1 = wait_msg,},
+    {.when = TOKEN_LF,              .dest = HEADER_LINE_CRLF,             .act1 = wait_msg,},
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
 

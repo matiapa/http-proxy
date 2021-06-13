@@ -537,17 +537,17 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     pop3_state state = pop3_parse(&aux_buffer, &(key->item->pop3_parser));
 
-    if (state == POP3_SUCCESS) {
-        if (key->item->pop3_parser.user != NULL) {
-            log(DEBUG, "User: %s", key->item->pop3_parser.user);
-            key->item->pop3_parser.user[key->item->pop3_parser.user_len] = '\n';
-        }
-        if (key->item->pop3_parser.pass != NULL) {
-            log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
-            key->item->pop3_parser.pass[key->item->pop3_parser.pass_len] = '\n';
-        }
-        pop3_parser_reset(&(key->item->pop3_parser));
-    }
+//    if (state == POP3_SUCCESS) {
+//        if (key->item->pop3_parser.user != NULL) {
+//            log(DEBUG, "User: %s", key->item->pop3_parser.user);
+//            key->item->pop3_parser.user[key->item->pop3_parser.user_len] = '\n';
+//        }
+//        if (key->item->pop3_parser.pass != NULL) {
+//            log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
+//            key->item->pop3_parser.pass[key->item->pop3_parser.pass_len] = '\n';
+//        }
+//        pop3_parser_reset(&(key->item->pop3_parser));
+//    }
 
     // Calculate statistics
 

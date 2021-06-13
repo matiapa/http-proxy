@@ -63,22 +63,30 @@ int main(int argc, char **argv) {
     char proxy_port[6] = {0};
     snprintf(proxy_port, 6, "%d", args.proxy_port);
       
-    int serverSocket = create_tcp_server(proxy_port);
-    if(serverSocket < 0) {
-        log(ERROR, "Creating passive socket");
+    int sock_ipv4 = create_tcp_server(proxy_port);
+    if(sock_ipv4 < 0) {
+        log(ERROR, "Creating passive socket ipv4");
+        exit(EXIT_FAILURE);
+    }
+
+    int sock_ipv6 = create_tcp6_server(proxy_port);
+    if(sock_ipv6 < 0) {
+        log(ERROR, "Creating passive socket ipv6");
         exit(EXIT_FAILURE);
     }
 
     // Start handling connections
 
-    int res = handle_connections(serverSocket, handle_creates);
+    int res = handle_connections(sock_ipv4, sock_ipv6, handle_creates);
     if(res < 0) {
         log(ERROR, "Handling connections");
-        close(serverSocket);
+        close(sock_ipv4);
+        close(sock_ipv6);
         exit(EXIT_FAILURE);
     }
 
-    close(serverSocket);
+    close(sock_ipv4);
+    close(sock_ipv6);
 
     return EXIT_SUCCESS;
     
@@ -90,7 +98,7 @@ void handle_creates(struct selector_key *key) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
 
-    int masterSocket = key->s->fds[0].client_socket;
+    int masterSocket = key->item->master_socket;
 
     // Accept the client connection
 
