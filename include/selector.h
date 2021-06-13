@@ -1,6 +1,7 @@
 #ifndef SELECTOR_H
 #define SELECTOR_H
 
+#include <address.h>
 #include <sys/time.h>
 #include <stdbool.h>
 #include <pthread.h>
@@ -199,7 +200,7 @@ struct item {
     pop3_parser_data  pop3_parser;
     
     time_t              last_activity;
-    char                target_name[50];
+    struct url          target_url;
 
     void *              data;
 };
