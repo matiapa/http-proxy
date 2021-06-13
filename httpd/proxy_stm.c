@@ -788,6 +788,11 @@ static unsigned process_request(struct selector_key * key) {
     }
 
     log_client_access(key->item->client_socket, request->url);
+    
+    if (request->method == TRACE) {
+        RESET_REQUEST();
+        return notify_error(key, METHOD_NOT_ALLOWED, REQUEST_READ);
+    }
 
     // Establish connection to target
 
@@ -801,9 +806,7 @@ static unsigned process_request(struct selector_key * key) {
     key->item->target_url.port=url.port;
     strncpy(url.path,key->item->target_url.path,PATH_LENGTH);
     strncpy(url.protocol,key->item->target_url.protocol,6);
-    
-    
-        
+
     if (request->method == CONNECT) {
 
         // The request method is CONNECT, a response shall be sent
