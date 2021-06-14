@@ -22,7 +22,7 @@ PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/http.o lib/logger.o lib/se
  lib/parser/http_message_parser.o lib/parser/http_request_parser.o lib/parser/http_response_parser.o\
  httpd/main.o httpd/monitor.o httpd/proxy_stm.o httpd/doh_client.o
 
-CLIENT_OBJ = httpd/client.o
+CLIENT_OBJ = lib/client_argc.o httpd/client.o
 
 httpd: $(PROXY_OBJ)
 	$(CC) -pthread $(CFLAGS) $(PROXY_OBJ) -o bin/httpd

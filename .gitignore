@@ -9,6 +9,10 @@ debugging/*
 informe/*
 strace_out
 report.tasks
+pvs.sh
+PVS-Studio.log
+.config
+.PVS-Studio
 
 # IDEs related
 .idea/*
@@ -18,6 +22,7 @@ cmake_install.cmake
 CMakeFiles/*
 CMakeCache.txt
 CMakeLists.txt
+.bash_history
 
 # OS related
 .DS_Store

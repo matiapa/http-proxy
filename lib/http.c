@@ -76,8 +76,9 @@ int write_response(http_response * response, char * buffer, size_t space) {
     }
     print("\r\n")
 
-    if (response->message.body != NULL)
+    if (response->message.body != NULL){
         memcpy(buffer + position, response->message.body, min(response->message.body_length, space));
-    
+        position += min(response->message.body_length, space);
+    }
     return position;
 }

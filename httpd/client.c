@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <logger.h>
 #include <stdio.h>
+#include <client_argc.h>
 
 struct request_header {
     unsigned char version;
@@ -15,6 +16,7 @@ struct request_header {
     unsigned short id;
     unsigned char type :1;
     unsigned char method :4;
+    unsigned char z :3;
     unsigned short length;
 };
 
@@ -24,6 +26,7 @@ struct response_header {
     unsigned char status :2;
     unsigned char type :1;
     unsigned char method :4;
+    unsigned char z :1;
     unsigned short length;
 };
 
@@ -38,12 +41,12 @@ struct method5 {
     unsigned int max_clients;
     unsigned int timeout;
     unsigned int frequency;
-    unsigned char disectors_enabled;
+    unsigned char disectors_enabled :1;
 };
 
 union format {
     unsigned short clients;
-    short time;
+    int time;
     unsigned char boolean :1;
     unsigned char level :2;
 };
@@ -67,7 +70,7 @@ char buffer[BUFFER_SIZE];
 char pass[32];
 
 char retrieve_methods[MAX_RETRIEVE_METHODS][MAX_STRING] = {"totalConnections", "currentConnections", "totalSend", "totalRecieved", "allStats", "getConfigurations"};
-char set_methods[MAX_SET_METHODS][MAX_STRING] = {"setMaxClients", "setClientTimeout", "setStatsFrequency", "setDisector", "setLoggingLevel", "clientBlacklist", "targetBlacklist"};
+char set_methods[MAX_SET_METHODS][MAX_STRING] = {"setMaxClients", "setClientTimeout", "setStatsFrequency", "setDisector", "setLoggingLevel"};
 char client_methods[MAX_CLIENT_METHODS][MAX_STRING] = {"help", "changePassword"};
 
 void process_response(struct response_header * res);
@@ -77,7 +80,10 @@ int is_number(const char * str);
 void print_help();
 void get_password();
 
-int main() {
+int main(int argc, char **argv) {
+
+    struct client_args args;
+    client_parse_args(argc, argv, &args);
 
     int sock;
     ssize_t n;
@@ -88,7 +94,7 @@ int main() {
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET; // IPv4cle
     serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(9091);
+    serverAddr.sin_port = htons(args.client_port);
 
     if (bind(sock, (const struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
         close(sock);
@@ -97,8 +103,8 @@ int main() {
 
     struct sockaddr_in dest;
     dest.sin_family = AF_INET;
-    dest.sin_port = htons(9090);
-    dest.sin_addr.s_addr = inet_addr("127.0.0.1");
+    dest.sin_port = htons(args.monitor_port);
+    dest.sin_addr.s_addr = inet_addr(args.monitor_addr);
 
     if (connect(sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) { // Establece la conexión con el servidor DOH
         return -1;
@@ -113,9 +119,10 @@ int main() {
         int c;
         int i = 0;
         while ((c = getchar()) != EOF && c != '\n') {
-            command[i++] = c;
+            command[i++] = (char)c;
         }
 
+        memset(buffer, 0, BUFFER_SIZE);
         struct request_header req;
         if (parse_command(command, &req, buffer) <= 0) continue; // envio mal el command o fue un cambio del cliente
 
@@ -301,8 +308,10 @@ void get_password() {
     while (i == 0) {
         printf("Ingresar Contraseña: ");
         while ((c = getchar()) != EOF && c != '\n') {
-            pass[i++] = c;
+            pass[i++] = (char)c;
         }
     }
     pass[i] = '\0';
 }
+
+
