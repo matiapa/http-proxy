@@ -346,7 +346,7 @@ state_machine proto_stm = {
 /* -------------------------------------- MACROS DEFINITIONS -------------------------------------- */
 
 #define log_error(_description) \
-    log(ERROR, "At state %d: %s", key->item->stm.current->state, _description);
+    log(ERROR, "At state %u: %s", key->item->stm.current->state, _description);
 
 #define remove_array_elem(array, pos, size) \
     memcpy(array+pos, array+pos+1, size-pos-1)
@@ -385,7 +385,7 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
-    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->client_socket);
+    log(DEBUG, "Received %lu bytes from socket %d", readBytes, key->item->client_socket);
 
     // Calculate statistics
 
@@ -504,7 +504,7 @@ static unsigned request_forward_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->target_socket);
 
     if ((size_t) sentBytes < size)
         return REQUEST_FORWARD;
@@ -541,7 +541,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
-    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->item->target_socket);
+    log(DEBUG, "Received %lu bytes from socket %d", readBytes, key->item->target_socket);
 
     // Calculate statistics
 
@@ -573,7 +573,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->client_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -608,7 +608,7 @@ static unsigned connect_response_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->client_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -655,7 +655,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     buffer_write_adv(buffer, readBytes);
 
-    log(DEBUG, "Received %ld bytes from socket %d", readBytes, key->active_fd);
+    log(DEBUG, "Received %lu bytes from socket %d", readBytes, key->active_fd);
 
     struct buffer aux_buffer;
     memcpy(&aux_buffer, buffer, sizeof(struct buffer));
@@ -726,7 +726,7 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 
     buffer_read_adv(buffer, sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->active_fd);
+    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->active_fd);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -753,7 +753,7 @@ static unsigned error_write_ready(struct selector_key *key) {
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
-    log(ERROR, "Read %ld bytes from write buffer", sentBytes);
+    log(ERROR, "Read %lu bytes from write buffer", sentBytes);
 
     if (sentBytes < 0) {
         log(ERROR, "Failed to notify error to client");
@@ -789,7 +789,7 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->target_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -817,7 +817,7 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %ld bytes to socket %d", sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->client_socket);
     
     //statistics
     add_sent_bytes(sentBytes);
@@ -931,10 +931,15 @@ static unsigned process_request(struct selector_key * key) {
     // Establish connection to target on a separate thread
 
     struct selector_key * k = malloc(sizeof(*key));
+    if (k == NULL) {
+        log(ERROR, "Failed to allocate memory");
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+
     memcpy(k, key, sizeof(*k));
 
     pthread_t tid;
-    if (pthread_create(&tid, 0, connect_target, k) == -1) {
+    if (pthread_create(&tid, 0, connect_target, k) != 0) {
         log(ERROR, "Failed to create thread for connecting to target");
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
     }

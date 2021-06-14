@@ -144,7 +144,7 @@ void * start_monitor(void * port) {
                 struct request_header * request_header = calloc(1, sizeof(struct request_header));
                 if (request_header == NULL) {
                     log(ERROR, "Doing calloc of request_header")
-                    return -1;
+                    break;
                 }
 
                 memcpy(request_header, req_buffer, sizeof(struct request_header)); //-V512
@@ -173,7 +173,7 @@ void send_no_authorization_message(struct request_header * req) {
             .method = req->method,
             .type = req->type,
     };
-    memcpy(res_buffer, &res_header, sizeof(struct response_header));
+    memcpy(res_buffer, &res_header, sizeof(struct response_header)); //-V512
     strcpy(res_buffer + sizeof(struct response_header), message);
 
     if (sendto(udp_socket, res_buffer, sizeof(res_header) + strlen(message) + 1, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
@@ -188,12 +188,13 @@ int process_request(char * body, struct request_header * req) {
         struct statistics stats;
         get_statistics(&stats);
         int length = sizeof(long);
+        
         switch (req->method) {
             case 0:
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
                 break;
             case 1:
-                memcpy(res_buffer + sizeof(struct response_header), &stats.current_connections, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header), &stats.current_connections, sizeof(int));
                 break;
             case 2:
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_sent, sizeof(long));
@@ -203,7 +204,7 @@ int process_request(char * body, struct request_header * req) {
                 break;
             case 4:
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long), &stats.current_connections, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long), &stats.current_connections, sizeof(int));
                 memcpy(res_buffer + sizeof(struct response_header) + sizeof(long)*2, &stats.total_sent, sizeof(long));
                 memcpy(res_buffer + sizeof(struct response_header) + sizeof(long)*3, &stats.total_recieved, sizeof(long));
                 length *= 4;
@@ -224,11 +225,15 @@ int process_request(char * body, struct request_header * req) {
             return REQ_BAD_REQUEST;
 
         union format * ft = calloc(1, sizeof(union format));
+        if (ft == NULL) return -1;
+        
         memcpy(ft, body, sizeof(union format));
         switch (req->method) {
             case 0:
-                if (ft->clients > 1000)
+                if (ft->clients > 1000) {
+                    free(ft);
                     return REQ_BAD_REQUEST;
+                }
                 proxy_conf.maxClients = ft->clients;
                 break;
             case 1:
@@ -244,6 +249,7 @@ int process_request(char * body, struct request_header * req) {
                 proxy_conf.logLevel = ft->level;
                 break;
             default:
+                free(ft);
                 return REQ_BAD_REQUEST;
         }
         free(ft);
@@ -268,7 +274,7 @@ void send_error(int status) {
 void send_retrieve_response(struct request_header * request_header, int body_length) {
     struct response_header * res = (struct response_header *)res_buffer;
     res->version = CURRENT_VERSION;
-    res->status = SUCCESS;
+    res->status = REQ_SUCCESS;
     res->id = request_header->id;
     res->type = request_header->type;
     res->method = request_header->method;
@@ -283,7 +289,7 @@ void send_success(struct request_header * request_header) {
     memset(res_buffer, 0, BUFFER_SIZE);
     struct response_header * res = (struct response_header *)res_buffer;
     res->version = CURRENT_VERSION;
-    res->status = SUCCESS;
+    res->status = REQ_SUCCESS;
     res->id = request_header->id;
     res->type = request_header->type;
     res->method = request_header->method;

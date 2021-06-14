@@ -7,12 +7,15 @@ Testing/*
 logs/*
 debugging/*
 informe/*
+.config
+
+# PVS related
 strace_out
 report.tasks
-pvs.sh
 PVS-Studio.log
-.config
 .PVS-Studio
+suppress_base.json
+pvs.sh
 
 # IDEs related
 .idea/*

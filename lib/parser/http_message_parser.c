@@ -205,7 +205,7 @@ static struct parser_definition definition = {
 //////////////////////////////////////////////////////////////////////////////
 // AUXILIAR FUNCTIONS
 
-#define MIN(x,y) (x < y ? x : y)
+#define MIN(x,y) ((x) < (y) ? (x) : (y))
 
 #define COPY(dst, src, srcBytes) memcpy(dst, src, MIN(srcBytes, N(dst)));
 

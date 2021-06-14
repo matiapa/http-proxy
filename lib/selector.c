@@ -258,7 +258,7 @@ static selector_status ensure_capacity(fd_selector s, const size_t n) {
     } else {
         // hay que agrandar...
         const size_t new_size = next_capacity(n);
-        if (new_size > SIZE_MAX/element_size) { // ver MEM07-C
+        if (new_size > SIZE_MAX/element_size) { //-V547
             ret = SELECTOR_ENOMEM;
         } else {
             struct item *tmp = realloc(s->fds, new_size * element_size);
@@ -470,12 +470,12 @@ static void handle_iteration(fd_selector s) {
 
     // Check for item timeouts
 
-    for (int i = 1; i < proxy_conf.maxClients; i++) {
+    for (size_t i = 1; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))
             continue;
-        // log(INFO, "%d last activity: %ld", item->client_socket, item->last_activity);
+        // log(INFO, "%d last activity: %lu", item->client_socket, item->last_activity);
 
         int delta = time(NULL) - item->last_activity;
         if(proxy_conf.connectionTimeout > 0 && proxy_conf.connectionTimeout < delta){
@@ -494,7 +494,7 @@ static void handle_iteration(fd_selector s) {
 
         // There is a new connection
 
-        for (int i = 0; i < proxy_conf.maxClients; i++) {
+        for (size_t i = 0; i < proxy_conf.maxClients; i++) {
             struct item *item = s->fds + i;
 
             if (ITEM_USED(item))
@@ -643,7 +643,7 @@ selector_status selector_select(fd_selector s) {
     // Calculate max socket
 
     int maxSocket = 0;
-    for (int i = 0; i < proxy_conf.maxClients; i++) {
+    for (size_t i = 0; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))
@@ -686,9 +686,9 @@ selector_status selector_select(fd_selector s) {
         log(DEBUG, "Handling iteration")
         handle_iteration(s);
     }
-    if(ret == SELECTOR_SUCCESS) {
-        handle_block_notifications(s);
-    }
+    
+    handle_block_notifications(s);
+
 finally:
     return ret;
 }

@@ -205,6 +205,9 @@ int parse_command(char * command, struct request_header * req, char * buff) {
     int value;
 
     char * token = strtok(command, " ");
+    if (token == NULL)
+        return -1;
+        
     char * num = strtok(NULL, " ");
 
 
