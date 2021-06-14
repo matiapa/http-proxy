@@ -17,7 +17,7 @@ int descriptionLevel(char * description);
 		fprintf(stderr, ##__VA_ARGS__); \
 		fprintf(stderr, "\n"); \
 	} \
-	if (level==FATAL) exit(1); \
+	if (level==FATAL) exit(1); \ //-V501
 }
 
 #endif

@@ -179,10 +179,12 @@ int create_tcp6_server(const char *port) {
     address.sin6_port = htons(atoi(port));
     address.sin6_addr = in6addr_any;
 
-    if (bind(servSock, (struct sockaddr *) &address, sizeof(address)) < 0) {
+    if (bind(servSock, (struct sockaddr *) &address, sizeof(address)) < 0) { //-V641
         log(ERROR, "bind for IPv6 failed");
         close(servSock);
-    } else {
+    }
+    else
+    {
         if (listen(servSock, MAX_PENDING_CONN) < 0) {
             log(ERROR, "listen on IPv6 socket failes");
             close(servSock);

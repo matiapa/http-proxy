@@ -173,8 +173,15 @@ void item_kill(fd_selector s, struct item * item) {
     if (item->client_socket ==  s->fds[0].client_socket){
         log(INFO, "Item kill Master socket\n");
     } else {
-        getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen);
-        log(INFO, "Closed connection - Client: %d - Target: %d - IP: %s - Port: %d\n", item->client_socket, item->target_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+        if (getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen) != 0){
+            log(ERROR, "Doing getpeername %s", strerror(errno));
+        } else {
+            char * ip_str = inet_ntoa(address.sin_addr);
+            if (ip_str == NULL) {
+                return;
+            }
+            log(INFO, "Closed connection - Client: %d - Target: %d - IP: %s - Port: %d\n", item->client_socket, item->target_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+        }
     }
     
     // cuando no es el master socket

@@ -87,10 +87,6 @@ void initialize_doh_client(struct doh * args) {
     memcpy(&configurations, args, sizeof(struct doh));
 }
 
-void change_configuration(struct doh * args) {
-    memcpy(&configurations, args, sizeof(struct doh));
-}
-
 // https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
 int doh_client(const char * target, const int sin_port, struct addrinfo ** restrict addrinfo, int family) {
 
@@ -275,7 +271,6 @@ int send_doh_request(const char * target, int s, int type) {
     }
 
     int written = create_post((int)nbyte, aux_buff, write_buffer, 1024); // crea el http request
-    if(write_buffer == NULL) return;
 
     if( send(s, write_buffer, written, 0) < 0) { // manda el paquete al servidor DOH
         log(ERROR, "Sending DOH request")
@@ -292,7 +287,13 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, i
     size_t nbytes;
     for (int i = 0 + initial_size; i < ans_count + initial_size; i++) {
         buffer_read_adv(&buff, get_name(buffer_read_ptr(&buff, &nbytes)) + 1);
-        struct R_DATA * data = (struct R_DATA *)buffer_read_ptr(&buff, &nbytes);
+
+        struct R_DATA * data = calloc(1, sizeof(struct R_DATA));
+        if (data == NULL) {
+            log(ERROR, "Creating data calloc")
+            return -1;
+        }
+        memcpy(data, buffer_read_ptr(&buff, &nbytes), sizeof(struct R_DATA));
         buffer_read_adv(&buff, sizeof(struct R_DATA));
 
         if (ntohs(data->type) == A) sin_family = AF_INET;
@@ -314,21 +315,21 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, i
                 case AF_INET:
                     out[cant].sa.sin.sin_family = AF_INET;
                     out[cant].sa.sin.sin_port = htons(sin_port);
-                    memcpy(&out[cant].sa.sin.sin_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 4);
+                    memcpy(&out[cant].sa.sin.sin_addr, buffer_read_ptr(&buff, &nbytes), 4);
                     break;
                 case AF_INET6:
                     out[cant].sa.sin6.sin6_family = AF_INET6;
                     out[cant].sa.sin6.sin6_port = htons(sin_port);
                     out[cant].sa.sin6.sin6_scope_id = 0;
-                    memcpy(&out[cant].sa.sin6.sin6_addr, ((long *) ((unsigned char *) data + sizeof(struct R_DATA))), 16);
+                    memcpy(&out[cant].sa.sin6.sin6_addr, buffer_read_ptr(&buff, &nbytes), 16);
                     break;
                 default:
                     break;
             }
             cant++;
         }
-
         buffer_read_adv(&buff, ntohs(data->data_len));
+        free(data);
     }
 
     return cant;

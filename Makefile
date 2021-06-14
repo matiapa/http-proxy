@@ -16,10 +16,8 @@ endif
 
 all: httpd client
 
-PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/http.o lib/logger.o lib/selector.o lib/pop3_parser.o\
- lib/parser/abnf_chars.o\
- lib/parser.o lib/tcp_utils.o lib/udp_utils.o lib/statistics.o lib/stm.o lib/dissector.o\
- lib/parser/http_message_parser.o lib/parser/http_request_parser.o lib/parser/http_response_parser.o\
+PROXY_OBJ = lib/address.o lib/args.o lib/buffer.o lib/http.o lib/logger.o lib/selector.o\
+ lib/tcp_utils.o lib/udp_utils.o lib/statistics.o lib/stm.o lib/dissector.o\
  httpd/main.o httpd/monitor.o httpd/proxy_stm.o httpd/doh_client.o
 
 CLIENT_OBJ = lib/client_argc.o httpd/client.o

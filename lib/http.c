@@ -11,7 +11,7 @@ char * methods_strings[8] = {"GET", "POST", "PUT", "DELETE", "CONNECT", "HEAD", 
 	position += snprintf(buffer + position, space, ##__VA_ARGS__); \
     if ((space -= position) <= 0) return space;
 
-#define min(x,y) x < y ? x : y
+#define min(x,y) (x) < (y) ? (x) : (y)
 
 /*-----------------------------------------
  *          REQUEST SYNTAX

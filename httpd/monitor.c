@@ -142,7 +142,13 @@ void * start_monitor(void * port) {
 
             if (n > 0) { // puede que no haya leido nada y no sea un error
                 struct request_header * request_header = calloc(1, sizeof(struct request_header));
-                memcpy(request_header, req_buffer, sizeof(struct request_header));
+                if (request_header == NULL) {
+                    log(ERROR, "Doing calloc of request_header")
+                    return -1;
+                }
+
+                memcpy(request_header, req_buffer, sizeof(struct request_header)); //-V512
+
                 if (!validate_client((char *)request_header->pass)) {
                     send_no_authorization_message(request_header);
                 } else {
@@ -167,8 +173,8 @@ void send_no_authorization_message(struct request_header * req) {
             .method = req->method,
             .type = req->type,
     };
-    memcpy(res_buffer, &res_header, sizeof(struct request_header));
-    strcpy(res_buffer + sizeof(res_header), message);
+    memcpy(res_buffer, &res_header, sizeof(struct response_header));
+    strcpy(res_buffer + sizeof(struct response_header), message);
 
     if (sendto(udp_socket, res_buffer, sizeof(res_header) + strlen(message) + 1, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
         log(ERROR, "Sending client response")

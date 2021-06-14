@@ -21,7 +21,7 @@
 #define HEADER_LENGTH 512
 
 // Chosen arbitrarily, larger bodies return 413 - Payload Too Large
-#define BODY_LENGTH 1024*1024
+#define BODY_LENGTH (1024*1024)
 
 /*---------------------- Keywords definitions ----------------------*/
 

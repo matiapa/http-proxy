@@ -4,8 +4,6 @@
 static char * descriptions[] = {"DEBUG", "INFO", "ERROR", "FATAL"};
 
 char * levelDescription(LOG_LEVEL level) {
-    if (level < DEBUG || level > FATAL)
-        return "";
     return descriptions[level];
 }
 
