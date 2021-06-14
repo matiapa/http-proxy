@@ -14,7 +14,6 @@
 #include <sys/select.h>
 
 #define BUFFER_SIZE 1024
-#define PF proxy_conf
 
 #define PASSWORD "quic"
 #define CURRENT_VERSION 1
@@ -47,21 +46,29 @@ struct response_header {
 };
 
 union format {
-    unsigned int clients;
+    unsigned short clients;
     short time;
     unsigned char boolean :1;
     unsigned char level :2;
 };
 
-int process_request(char * body, struct request_header * request_header);
+struct method5 {
+    int timeout;
+    int frequency;
+    unsigned short max_clients :10;
+    unsigned char disectors_enabled :1;
+    unsigned char logLevel :2;
+};
 
-void send_retrieve_response(struct request_header * request_header, int body_length);
+int process_request(char * body, struct request_header * request_header, int udp_socket);
 
-void send_success(struct request_header * request_header);
+void send_retrieve_response(struct request_header * request_header, int body_length, int udp_socket);
 
-void send_no_authorization_message(struct request_header * req);
+void send_success(struct request_header * request_header, int udp_socket);
 
-void send_error(int status);
+void send_no_authorization_message(struct request_header * req, int udp_socket);
+
+void send_error(int status, int udp_socket);
 
 void set_variable(char * command, char * response);
 
@@ -87,8 +94,6 @@ char res_buffer[BUFFER_SIZE];
 
 struct sockaddr_storage clientAddress;
 socklen_t clientAddressSize = sizeof(clientAddress);
-int udp_socket;
-int udp6_socket;
 int sockets[MASTER_SOCKET_SIZE];
 int master_sockets_size = 0;
 
@@ -152,7 +157,7 @@ void * start_monitor(void * port) {
                 continue;
             }
 
-            n = recvfrom(udp_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &clientAddressSize);
+            n = recvfrom(sockets[i], req_buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &clientAddressSize);
             if (n < 0) { // si hubo un error
                 log(ERROR, "Receiving request from client")
             }
@@ -167,11 +172,11 @@ void * start_monitor(void * port) {
                 memcpy(request_header, req_buffer, sizeof(struct request_header)); //-V512
 
                 if (!validate_client((char *)request_header->pass)) {
-                    send_no_authorization_message(request_header);
+                    send_no_authorization_message(request_header, sockets[i]);
                 } else {
-                    int status = process_request(req_buffer + sizeof(struct request_header), request_header);
+                    int status = process_request(req_buffer + sizeof(struct request_header), request_header, sockets[i]);
                     if (status != REQ_SUCCESS)
-                        send_error(status);
+                        send_error(status, sockets[i]);
                 }
                 free(request_header);
             }
@@ -179,7 +184,7 @@ void * start_monitor(void * port) {
     }
 }
 
-void send_no_authorization_message(struct request_header * req) {
+void send_no_authorization_message(struct request_header * req, int udp_socket) {
     char message[61] = "Acceso denegado\n¿Que protocolo de UDP salió recientemente?";
 
     struct response_header res_header = {
@@ -198,14 +203,15 @@ void send_no_authorization_message(struct request_header * req) {
     }
 }
 
-int process_request(char * body, struct request_header * req) {
+int process_request(char * body, struct request_header * req, int udp_socket) {
     memset(res_buffer, 0, BUFFER_SIZE);
     if (req->version > CURRENT_VERSION) return REQ_BAD_REQUEST;
     if (req->type == 0) {
         struct statistics stats;
         get_statistics(&stats);
         int length = sizeof(long);
-        
+
+        struct method5 method;
         switch (req->method) {
             case 0:
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
@@ -222,21 +228,23 @@ int process_request(char * body, struct request_header * req) {
             case 4:
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
                 memcpy(res_buffer + sizeof(struct response_header) + sizeof(long), &stats.current_connections, sizeof(int));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long)*2, &stats.total_sent, sizeof(long));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long)*3, &stats.total_recieved, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int) + sizeof(long), &stats.total_sent, sizeof(long));
+                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int) + sizeof(long)*2, &stats.total_recieved, sizeof(long));
                 length *= 4;
                 break;
             case 5:
-                memcpy(res_buffer + sizeof(struct response_header), &proxy_conf.maxClients, sizeof(int));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int), &proxy_conf.connectionTimeout, sizeof(int));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int)*2, &proxy_conf.statisticsFrequency, sizeof(int));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int)*3, &proxy_conf.disectorsEnabled, sizeof(char));
-                length = sizeof(int) * 3 + sizeof(char);
+                method.max_clients = proxy_conf.maxClients & 0x3FF;
+                method.timeout = proxy_conf.connectionTimeout;
+                method.frequency = proxy_conf.statisticsFrequency;
+                method.disectors_enabled = proxy_conf.disectorsEnabled & 0x1;
+                method.logLevel = proxy_conf.logLevel & 0x3;
+                length = sizeof(struct method5);
+                memcpy(res_buffer + sizeof(struct response_header), &method, length);
                 break;
             default:
                 return REQ_BAD_REQUEST;
         }
-        send_retrieve_response(req, length);
+        send_retrieve_response(req, length, udp_socket);
     } else {
         if (req->length <= 0)
             return REQ_BAD_REQUEST;
@@ -270,12 +278,12 @@ int process_request(char * body, struct request_header * req) {
                 return REQ_BAD_REQUEST;
         }
         free(ft);
-        send_success(req);
+        send_success(req, udp_socket);
     }
     return REQ_SUCCESS;
 }
 
-void send_error(int status) {
+void send_error(int status, int udp_socket) {
     if (status == REQ_BAD_REQUEST) {
         struct response_header res_header = {
                 .version = CURRENT_VERSION,
@@ -288,7 +296,7 @@ void send_error(int status) {
     }
 }
 
-void send_retrieve_response(struct request_header * request_header, int body_length) {
+void send_retrieve_response(struct request_header * request_header, int body_length, int udp_socket) {
     struct response_header * res = (struct response_header *)res_buffer;
     res->version = CURRENT_VERSION;
     res->status = REQ_SUCCESS;
@@ -302,7 +310,7 @@ void send_retrieve_response(struct request_header * request_header, int body_len
     }
 }
 
-void send_success(struct request_header * request_header) {
+void send_success(struct request_header * request_header, int udp_socket) {
     memset(res_buffer, 0, BUFFER_SIZE);
     struct response_header * res = (struct response_header *)res_buffer;
     res->version = CURRENT_VERSION;
