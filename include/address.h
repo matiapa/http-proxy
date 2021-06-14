@@ -27,6 +27,6 @@ int get_machine_fqdn(char * fqdn);
 
 int parse_url(char * text, struct url * url);
 /* returns 1 if it shares the ip with some interface of the proxy if not return 0*/
-int isProxy(const struct sockaddr * input);
+int is_proxy_host(const struct sockaddr * input);
 
 #endif 

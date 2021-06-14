@@ -91,7 +91,7 @@ parse_args(const int argc, char **argv, struct proxy_args *args) {
             { 0,           0,                 0, 0 }
         };
 
-        c = getopt_long(argc, argv, "hl:L:Np:P:u:v", long_options, &option_index);
+        c = getopt_long(argc, argv, "hl:L:Np:o:u:v", long_options, &option_index);
         if (c == -1)
             break;
 

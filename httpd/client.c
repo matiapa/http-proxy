@@ -94,12 +94,6 @@ int main(int argc, char **argv) {
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET; // IPv4cle
     serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(args.client_port);
-
-    if (bind(sock, (const struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
-        close(sock);
-        return -1;
-    }
 
     struct sockaddr_in dest;
     dest.sin_family = AF_INET;

@@ -446,9 +446,21 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
 
     // Check if connection was successfull
 
-    if (targetSocket < 0) {
-        log_error("Failed to connect to target");
+    if (targetSocket == -1) {
+
+        log_error("Failed to connect to target. Internal error");
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+
+    } else if (targetSocket == -2) {
+
+        log_error("Failed to connect to target. Target disconnected");
+        return notify_error(key, GATEWAY_TIMEOUT, REQUEST_READ);
+
+    } else if (targetSocket == -3) {
+
+        log(INFO, "Rejected connection to proxy itself");
+        return notify_error(key, FORBIDDEN, REQUEST_READ);
+
     }
 
     key->item->target_socket = targetSocket;
@@ -1087,9 +1099,8 @@ static unsigned process_request(struct selector_key * key) {
     if (parser_state == PENDING)
         return REQUEST_READ;
         
-    if (parser_state == FAILED) {
+    if (parser_state == FAILED)
         return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
-    }
 
     http_request * request = &(key->item->req_parser.request);
 
@@ -1097,17 +1108,14 @@ static unsigned process_request(struct selector_key * key) {
 
     struct url url;
     int r = parse_url(request->url, &url);
-    if (r < 0) {
+    if (r < 0)
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
-    }
 
-    if (strlen(request->url) == 0) {
+    if (strlen(request->url) == 0)
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
-    }
 
-    if (request->method == TRACE) {
+    if (request->method == TRACE)
         return notify_error(key, METHOD_NOT_ALLOWED, REQUEST_READ);
-    }
 
     // Log the access of the client
 
@@ -1131,13 +1139,6 @@ static unsigned process_request(struct selector_key * key) {
 
     if (strstr(proxy_conf.targetBlacklist, url.hostname) != NULL) {
         log(INFO, "Rejected connection to %s due to target blacklist", url.hostname);
-        return notify_error(key, FORBIDDEN, REQUEST_READ);
-    }
-
-    // Check that target is not the proxy itself
-
-    if (strcmp(url.hostname, "localhost") == 0 && url.port == proxy_conf.proxyArgs.proxy_port) {
-        log(INFO, "Rejected connection to proxy itself");
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 

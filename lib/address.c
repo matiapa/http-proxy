@@ -49,14 +49,14 @@ int sockaddr_equal(const struct sockaddr * addr1, const struct sockaddr * addr2)
 	else if (addr1->sa_family == AF_INET) {
 		struct sockaddr_in *ipv4Addr1 = (struct sockaddr_in *) addr1;
 		struct sockaddr_in *ipv4Addr2 = (struct sockaddr_in *) addr2;
-		return ipv4Addr1->sin_addr.s_addr == ipv4Addr2->sin_addr.s_addr
-			&& ipv4Addr1->sin_port == ipv4Addr2->sin_port;
+		return ipv4Addr1->sin_addr.s_addr == ipv4Addr2->sin_addr.s_addr;
+			// && ipv4Addr1->sin_port == ipv4Addr2->sin_port;
 	
 	} else if (addr1->sa_family == AF_INET6) {
 		struct sockaddr_in6 *ipv6Addr1 = (struct sockaddr_in6 *) addr1;
 		struct sockaddr_in6 *ipv6Addr2 = (struct sockaddr_in6 *) addr2;
-		return memcmp(&ipv6Addr1->sin6_addr, &ipv6Addr2->sin6_addr, sizeof(struct in6_addr)) == 0 
-			&& ipv6Addr1->sin6_port == ipv6Addr2->sin6_port;
+		return memcmp(&ipv6Addr1->sin6_addr, &ipv6Addr2->sin6_addr, sizeof(struct in6_addr)) == 0; 
+			// && ipv6Addr1->sin6_port == ipv6Addr2->sin6_port;
 	
 	} else
 		return 0;
@@ -175,16 +175,13 @@ int parse_url(char * text, struct url * url) {
 }
 
 /* returns 1 if it shares the ip with some interface of the proxy if not return 0*/
-int isProxy(const struct sockaddr * input){
+int is_proxy_host(const struct sockaddr * input){
     
     int isOwn=0;
     struct ifaddrs *ifaddr;
     int family;
 
-    if (getifaddrs(&ifaddr) == -1) {
-        // perror("getifaddrs");
-        // exit(EXIT_FAILURE);
-    }
+    getifaddrs(&ifaddr);
 
     /* Walk through linked list, maintaining head pointer so we
         can free list later. */

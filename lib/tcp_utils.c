@@ -45,6 +45,10 @@ int create_tcp_client(const char *host, const int port) {
             return -1;
         }
 
+        if (is_proxy_host(servAddr->ai_addr) && port == proxy_conf.proxyArgs.proxy_port) {
+            return -3;
+        }
+
         // Try to connect to an address
 
         sock = -1;
@@ -61,7 +65,7 @@ int create_tcp_client(const char *host, const int port) {
                 sockaddr_print(addr->ai_addr, addrBuffer);
                 log(INFO, "can't connect to %s: %s", addrBuffer, strerror(errno))
                 close(sock); // Socket connection failed; try next address
-                sock = -1;
+                sock = -2;
             }
         }
 
