@@ -178,27 +178,27 @@ static struct parser_definition definition = {
 #define COPY(dst, src, srcBytes) memcpy(dst, src, MIN(srcBytes, N(dst)));
 
 
-static void assign_version(http_response * res, http_response_parser * parser){
+static void assign_version(http_response_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
-    COPY(res->version, ptr, size);
+    COPY(parser->response.version, ptr, size);
 }
 
 
-static void assign_status(http_response * res, http_response_parser * parser){
+static void assign_status( http_response_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
-    res->status = atoi(ptr);
+    parser->response.status = atoi(ptr);
 }
 
 
-static void assign_reason(http_response * res, http_response_parser * parser){
+static void assign_reason(http_response_parser * parser){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
-    COPY(res->reason, ptr, size);
+    COPY(parser->response.reason, ptr, size);
 }
 
 
@@ -207,30 +207,38 @@ static void assign_reason(http_response * res, http_response_parser * parser){
 
 void http_response_parser_init(http_response_parser * parser) {
     if(parser != NULL){
-        parser->parser = parser_init(init_char_class(), &definition);
-        buffer_init(&(parser->parse_buffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
+        memset(&(parser->response), 0, sizeof(http_response));
+        parser->error_code = -1;
 
+        parser->parser = parser_init(init_char_class(), &definition);
         http_message_parser_init(&(parser->message_parser));
+        buffer_init(&(parser->parse_buffer), PARSE_BUFF_SIZE, malloc(PARSE_BUFF_SIZE));
     }
 }
 
 
 void http_response_parser_reset(http_response_parser * parser){
+    memset(&(parser->response), 0, sizeof(http_response));
+    parser->error_code = -1;
+
     parser_reset(parser->parser);
-    buffer_reset(&(parser->parse_buffer));
     http_message_parser_reset(&(parser->message_parser));
+    buffer_reset(&(parser->parse_buffer));
 }
 
 
 void http_response_parser_destroy(http_response_parser * parser){
     parser_destroy(parser->parser);
     http_message_parser_destroy(&(parser->message_parser));
+
     free(parser->parse_buffer.data);
     free(parser);
 }
 
 
-parse_state http_response_parser_parse(http_response_parser * parser, buffer * read_buffer, http_response * response) {
+parse_state http_response_parser_parse(
+    http_response_parser * parser, buffer * read_buffer, bool ignore_length
+) {
 
     while(buffer_can_read(read_buffer)){
 
@@ -246,7 +254,7 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
                     break;
 
                 case VERSION_VAL_END:
-                    assign_version(parser->response, parser);
+                    assign_version(parser);
                     buffer_reset(&(parser->parse_buffer));
                     break;
 
@@ -255,7 +263,7 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
                     break;
 
                 case STATUS_VAL_END:
-                    assign_status(parser->response, parser);
+                    assign_status(parser);
                     buffer_reset(&(parser->parse_buffer));
                     break;
 
@@ -264,7 +272,7 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
                     break;
 
                 case REASON_VAL_END:
-                    assign_reason(parser->response, parser);
+                    assign_reason(parser);
                     buffer_reset(&(parser->parse_buffer));
                     break;
 
@@ -283,7 +291,9 @@ parse_state http_response_parser_parse(http_response_parser * parser, buffer * r
 
         } else {
 
-            parse_state result = http_message_parser_parse(&(parser->message_parser), read_buffer, &(response->message));
+            parse_state result = http_message_parser_parse(
+                &(parser->message_parser), read_buffer, &(parser->response.message), ignore_length
+            );
 
             if (result == FAILED)
                 parser->error_code = parser->message_parser.error_code;

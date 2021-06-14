@@ -348,16 +348,6 @@ state_machine proto_stm = {
 #define log_error(_description) \
     log(ERROR, "At state %d: %s", key->item->stm.current->state, _description);
 
-#define reset_request() \
-    http_request_parser_reset(&(key->item->req_parser)); \
-    free(key->item->req_parser.request); \
-    key->item->req_parser.request = NULL;
-
-#define reset_response() \
-    http_response_parser_reset(&(key->item->res_parser)); \
-    free(key->item->res_parser.response); \
-    key->item->res_parser.response = NULL;
-
 #define remove_array_elem(array, pos, size) \
     memcpy(array+pos, array+pos+1, size-pos-1)
 
@@ -417,7 +407,6 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
 
     if (targetSocket < 0) {
         log_error("Failed to connect to target");
-        reset_request();
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
     }
 
@@ -425,7 +414,7 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
 
     // Update last connection
 
-    http_request * request = key->item->req_parser.request;
+    http_request * request = &(key->item->req_parser.request);
     struct url url; parse_url(request->url, &url);
 
     strncpy(key->item->last_target_url.hostname, url.hostname, LINK_LENGTH);
@@ -451,8 +440,6 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
         buffer_write_adv(&(key->item->write_buffer), written);
 
         // Go to send response state
-
-        reset_request();
 
         return CONNECT_RESPONSE;
 
@@ -490,8 +477,6 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
         buffer_write_adv(&(key->item->write_buffer), written);
 
         // Go to forward request state
-
-        reset_request();
 
         return REQUEST_FORWARD;
 
@@ -595,6 +580,9 @@ static unsigned response_forward_ready(struct selector_key *key) {
 
     if ((size_t) sentBytes < size)
         return RESPONSE_FORWARD;
+
+    http_request_parser_reset(&(key->item->req_parser));
+    http_response_parser_reset(&(key->item->res_parser));
 
     return REQUEST_READ;
 
@@ -856,6 +844,9 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 
 static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
 
+    http_request_parser_reset(&(key->item->req_parser));
+    http_response_parser_reset(&(key->item->res_parser));
+
     size_t space;
     char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
@@ -874,43 +865,34 @@ static unsigned notify_error(struct selector_key *key, int status_code, unsigned
 
 static unsigned process_request(struct selector_key * key) {
 
-    // Instantiate a request struct or use previous one if it exists
-
-    if(key->item->req_parser.request == NULL)
-        key->item->req_parser.request = calloc(1, sizeof(http_request));
-    
-    http_request * request = key->item->req_parser.request;
-
     // Parse the request and check for pending and failure cases
 
     parse_state parser_state = http_request_parser_parse(
-        &(key->item->req_parser), &(key->item->read_buffer), request
+        &(key->item->req_parser), &(key->item->read_buffer)
     );
 
     if (parser_state == PENDING)
         return REQUEST_READ;
         
     if (parser_state == FAILED) {
-        reset_request();
         return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
     }
+
+    http_request * request = &(key->item->req_parser.request);
 
     // Parse the request target URL
 
     struct url url;
     int r = parse_url(request->url, &url);
     if (r < 0) {
-        reset_request();
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     if (strlen(request->url) == 0) {
-        reset_request();
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
     }
 
     if (request->method == TRACE) {
-        reset_request();
         return notify_error(key, METHOD_NOT_ALLOWED, REQUEST_READ);
     }
 
@@ -953,7 +935,6 @@ static unsigned process_request(struct selector_key * key) {
 
     pthread_t tid;
     if (pthread_create(&tid, 0, connect_target, k) == -1) {
-        reset_request();
         log(ERROR, "Failed to create thread for connecting to target");
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
     }
@@ -1101,7 +1082,7 @@ static void * connect_target(void * arg) {
     pthread_detach(pthread_self());
 
     struct selector_key * key = (struct selector_key *) arg;
-    struct url url; parse_url(key->item->req_parser.request->url, &url);
+    struct url url; parse_url(key->item->req_parser.request.url, &url);
 
     // Open connection with target
 
@@ -1121,26 +1102,22 @@ static void * connect_target(void * arg) {
 
 static unsigned process_response(struct selector_key * key) {
 
-    // Instantiate a response struct or use previous one if it exists
-
-    if(key->item->res_parser.response == NULL)
-        key->item->res_parser.response = calloc(1, sizeof(http_response));
-
-    http_response * response = key->item->res_parser.response;
-
     // Parse the response and check for pending and failure cases
 
+    bool ignore_length = key->item->req_parser.request.method == HEAD ? true : false;
+
     parse_state parser_state = http_response_parser_parse(
-        &(key->item->res_parser), &(key->item->read_buffer), response
+        &(key->item->res_parser), &(key->item->read_buffer), ignore_length
     );
 
     if (parser_state == PENDING)
         return RESPONSE_READ;
 
     if (parser_state == FAILED) {
-        reset_response();
         return notify_error(key, BAD_GATEWAY, REQUEST_READ);
     }
+
+    http_response * response = &(key->item->res_parser.response);
 
     // Process response headers
 
@@ -1163,8 +1140,6 @@ static unsigned process_response(struct selector_key * key) {
     buffer_write_adv(&(key->item->write_buffer), written);
 
     // Go to forward response state
-
-    reset_response();
 
     return RESPONSE_FORWARD;
         
