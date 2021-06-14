@@ -28,7 +28,7 @@ int create_tcp_client(const char *host, const int port) {
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
 
-    struct addrinfo * servAddr;
+    struct addrinfo * servAddr=NULL;
 
     int types[2] = {AF_INET, AF_INET6};
 
@@ -62,7 +62,10 @@ int create_tcp_client(const char *host, const int port) {
         }
 
         // Release address resource and return socket number
-        free(servAddr);
+        if(servAddr != NULL){
+            free(servAddr);
+        }
+        
     }
 
     if (sock < 0) {
