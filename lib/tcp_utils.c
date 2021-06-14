@@ -41,7 +41,7 @@ int create_tcp_client(const char *host, const int port) {
         int getaddr = doh_client(host, port, &servAddr, types[i]);
 
         if (getaddr != 0) {
-            log(ERROR, "getaddrinfo() failed %s", gai_strerror(getaddr))
+            log(ERROR, "doh_client() failed %s", gai_strerror(getaddr))
             return -1;
         }
 

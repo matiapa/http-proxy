@@ -61,6 +61,10 @@ enum proxy_state {
     */
     REQUEST_FORWARD,
 
+    REQ_BODY_READ,
+
+    REQ_BODY_FORWARD,
+
     /*
      * Recieves an HTTP request from target
      *
@@ -88,6 +92,10 @@ enum proxy_state {
      *   - ERROR_STATE          IO error
     */
     RESPONSE_FORWARD,
+
+    RES_BODY_READ,
+
+    RES_BODY_FORWARD,
 
     /*
      * Sends CONNECT response message to client
@@ -166,6 +174,10 @@ static unsigned request_connect_block_ready(struct selector_key *key);
 ------------------------------------------------------------ */
 static unsigned request_forward_ready(struct selector_key *key);
 
+static unsigned req_body_read_ready(struct selector_key *key);
+
+static unsigned req_body_forward_ready(struct selector_key *key);
+
 /* ------------------------------------------------------------
   Reads HTTP responses from target.
 ------------------------------------------------------------ */
@@ -175,6 +187,10 @@ static unsigned response_read_ready(struct selector_key *key);
   Forwards HTTP responses to client.
 ------------------------------------------------------------ */
 static unsigned response_forward_ready(struct selector_key *key);
+
+static unsigned res_body_read_ready(struct selector_key *key);
+
+static unsigned res_body_forward_ready(struct selector_key *key);
 
 /* ------------------------------------------------------------
   Sends connection response to client.
@@ -276,6 +292,20 @@ static const struct state_definition state_defs[] = {
         .on_write_ready   = request_forward_ready,
     },
     {
+        .state            = REQ_BODY_READ,
+        .client_interest  = OP_READ,
+        .target_interest  = OP_NOOP,
+        .description      = "REQ_BODY_READ",
+        .on_read_ready    = req_body_read_ready,
+    },
+    {
+        .state            = REQ_BODY_FORWARD,
+        .client_interest  = OP_NOOP,
+        .target_interest  = OP_WRITE,
+        .description      = "REQ_BODY_FORWARD",
+        .on_write_ready   = req_body_forward_ready,
+    },
+    {
         .state            = RESPONSE_READ,
         .client_interest  = OP_NOOP,
         .target_interest  = OP_READ,
@@ -289,6 +319,20 @@ static const struct state_definition state_defs[] = {
         .target_interest  = OP_NOOP,
         .description      = "RESPONSE_FORWARD",
         .on_write_ready   = response_forward_ready,
+    },
+    {
+        .state            = RES_BODY_READ,
+        .client_interest  = OP_NOOP,
+        .target_interest  = OP_READ,
+        .description      = "RES_BODY_READ",
+        .on_read_ready    = res_body_read_ready,
+    },
+    {
+        .state            = RES_BODY_FORWARD,
+        .client_interest  = OP_WRITE,
+        .target_interest  = OP_NOOP,
+        .description      = "RES_BODY_FORWARD",
+        .on_write_ready   = res_body_forward_ready,
     },
     {
         .state            = CONNECT_RESPONSE,
@@ -374,14 +418,11 @@ static unsigned request_read_ready(struct selector_key *key) {
     uint8_t * raw_req = buffer_write_ptr(&(key->item->read_buffer), &space);
     ssize_t readBytes = read(key->item->client_socket, raw_req, space);
 
-    if(readBytes < 0) {
-        if(errno != EBADF && errno != EPIPE)
+    if(readBytes <= 0) {
+        if(readBytes < 0 && errno != EBADF && errno != EPIPE)
             log_error("Failed to read from client");
         return CLIENT_CLOSE_CONNECTION;
     }
-
-    if (readBytes <= 0)
-        return CLIENT_CLOSE_CONNECTION;
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
@@ -435,7 +476,7 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
         char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
         http_response res = { .status = RESPONSE_OK };
-        int written = write_response(&res, ptr, space);
+        int written = write_response(&res, ptr, space, false);
 
         buffer_write_adv(&(key->item->write_buffer), written);
 
@@ -472,7 +513,7 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
         size_t space;
         char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
-        int written = write_request(request, ptr, space);
+        int written = write_request(request, ptr, space, false);
 
         buffer_write_adv(&(key->item->write_buffer), written);
 
@@ -506,13 +547,98 @@ static unsigned request_forward_ready(struct selector_key *key) {
 
     log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
 
+    // Calculate statistics
+
+    add_sent_bytes(sentBytes);
+
     if ((size_t) sentBytes < size)
         return REQUEST_FORWARD;
-
-    //statistics
-    add_sent_bytes(sentBytes);
  
-    return RESPONSE_READ;
+    if (key->item->req_parser.request.message.body_length == 0) {
+        return RESPONSE_READ;
+    } else if (buffer_can_read(&(key->item->read_buffer))) {
+        // Body present, read some bytes
+        size_t remaining;
+        buffer_read_ptr(&(key->item->read_buffer), &remaining);
+        key->item->req_parser.message_parser.current_body_length += remaining;
+        return REQ_BODY_FORWARD;
+    } else {
+        // Body present, didn't read bytes
+        return REQ_BODY_READ;
+    }
+
+}
+
+
+static unsigned req_body_read_ready(struct selector_key *key) {
+
+    key->item->last_activity = time(NULL);
+
+    if (! buffer_can_write(&(key->item->read_buffer)))
+        return REQ_BODY_FORWARD;
+
+    // Read body bytes into read buffer
+
+    size_t space;
+    uint8_t * body = buffer_write_ptr(&(key->item->read_buffer), &space);
+    ssize_t readBytes = read(key->item->client_socket, body, space);
+
+    if(readBytes <= 0) {
+        if(readBytes < 0 && errno != EBADF && errno != EPIPE)
+            log_error("Failed to read from client");
+        return CLIENT_CLOSE_CONNECTION;
+    }
+
+    buffer_write_adv(&(key->item->read_buffer), readBytes);
+
+    log(DEBUG, "Received %lu body bytes from socket %d", (size_t) readBytes, key->item->client_socket);
+
+    // Calculate statistics
+
+    add_bytes_recieved(readBytes);
+
+    http_request_parser * rp = &(key->item->req_parser);
+
+    if ((rp->message_parser.current_body_length += readBytes) < rp->request.message.body_length)
+        return REQ_BODY_READ;
+    else
+        return REQ_BODY_FORWARD;
+
+}
+
+
+static unsigned req_body_forward_ready(struct selector_key *key) {
+
+    // Will read the content directly from read buffer
+
+    // Read body bytes from read buffer
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(key->item->read_buffer), &size);
+    ssize_t sentBytes = write(key->item->target_socket, ptr, size);
+
+    if (sentBytes < 0) {
+        if(errno != EBADF && errno != EPIPE)
+            log_error("Failed to write body to target");
+        return TARGET_CLOSE_CONNECTION;
+    }
+
+    buffer_read_adv(&(key->item->read_buffer), sentBytes);
+
+    log(DEBUG, "Sent %lu body bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
+
+    // Calculate statistics
+
+    add_sent_bytes(sentBytes);
+
+    http_request_parser * rp = &(key->item->req_parser);
+
+    if ((size_t) sentBytes < size)
+        return REQ_BODY_FORWARD;
+    else if ((rp->message_parser.current_body_length) < rp->request.message.body_length)
+        return REQ_BODY_READ;
+    else
+        return RESPONSE_READ;
 
 }
 
@@ -556,9 +682,6 @@ static unsigned response_read_ready(struct selector_key *key) {
 
 static unsigned response_forward_ready(struct selector_key *key) {
 
-    if (! buffer_can_read(&(key->item->write_buffer)))
-        return RESPONSE_FORWARD;
-
     // Read response bytes from write buffer
 
     size_t size;
@@ -575,16 +698,106 @@ static unsigned response_forward_ready(struct selector_key *key) {
 
     log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
 
-    //statistics
+    // Calculate statistics
+
     add_sent_bytes(sentBytes);
 
     if ((size_t) sentBytes < size)
         return RESPONSE_FORWARD;
 
-    http_request_parser_reset(&(key->item->req_parser));
-    http_response_parser_reset(&(key->item->res_parser));
+    if (key->item->res_parser.response.message.body_length == 0) {
+        // No body
+        http_request_parser_reset(&(key->item->req_parser));
+        http_response_parser_reset(&(key->item->res_parser));
+        return REQUEST_READ;
+    } else if (buffer_can_read(&(key->item->read_buffer))) {
+        // Body present, read some bytes
+        size_t remaining;
+        buffer_read_ptr(&(key->item->read_buffer), &remaining);
+        key->item->res_parser.message_parser.current_body_length += remaining;
+        return RES_BODY_FORWARD;
+    } else {
+        // Body present, didn't read bytes
+        return RES_BODY_READ;
+    }
 
-    return REQUEST_READ;
+}
+
+
+static unsigned res_body_read_ready(struct selector_key *key) {
+
+    key->item->last_activity = time(NULL);
+
+    if (! buffer_can_write(&(key->item->read_buffer)))
+        return RES_BODY_FORWARD;
+
+    // Read body bytes into read buffer
+
+    size_t space;
+    uint8_t * body = buffer_write_ptr(&(key->item->read_buffer), &space);
+    ssize_t readBytes = read(key->item->target_socket, body, space);
+
+    if(readBytes <= 0) {
+        if(readBytes < 0 && errno != EBADF && errno != EPIPE)
+            log_error("Failed to read from target");
+        return TARGET_CLOSE_CONNECTION;
+    }
+
+    buffer_write_adv(&(key->item->read_buffer), readBytes);
+
+    log(DEBUG, "Received %lu body bytes from socket %d", (size_t) readBytes, key->item->target_socket);
+
+    // Calculate statistics
+
+    add_bytes_recieved(readBytes);
+
+    http_response_parser * rp = &(key->item->res_parser);
+
+    rp->message_parser.current_body_length += readBytes;
+
+    if ((rp->message_parser.current_body_length) < rp->response.message.body_length)
+        return RES_BODY_READ;
+    else
+        return RES_BODY_FORWARD;
+
+}
+
+
+static unsigned res_body_forward_ready(struct selector_key *key) {
+
+    // Will read the content directly from read buffer
+
+    // Read body bytes from read buffer
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(key->item->read_buffer), &size);
+    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
+
+    if (sentBytes < 0) {
+        if(errno != EBADF && errno != EPIPE)
+            log_error("Failed to write body to client");
+        return CLIENT_CLOSE_CONNECTION;
+    }
+
+    buffer_read_adv(&(key->item->read_buffer), sentBytes);
+
+    log(DEBUG, "Sent %lu body bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
+
+    // Calculate statistics
+
+    add_sent_bytes(sentBytes);
+
+    http_response_parser * rp = &(key->item->res_parser);
+
+    if ((size_t) sentBytes < size) {
+        return RES_BODY_FORWARD;
+    } else if ((rp->message_parser.current_body_length) < rp->response.message.body_length) {
+        return RES_BODY_READ;
+    } else {
+        http_request_parser_reset(&(key->item->req_parser));
+        http_response_parser_reset(&(key->item->res_parser));
+        return REQUEST_READ;
+    }
 
 }
 
@@ -851,7 +1064,7 @@ static unsigned notify_error(struct selector_key *key, int status_code, unsigned
     char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
     http_response res = { .status = status_code };
-    int written = write_response(&res, ptr, space);
+    int written = write_response(&res, ptr, space, false);
 
     buffer_write_adv(&(key->item->write_buffer), written);
 
@@ -1140,7 +1353,7 @@ static unsigned process_response(struct selector_key * key) {
     size_t space;
     char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
 
-    int written = write_response(response, ptr, space);
+    int written = write_response(response, ptr, space, false);
 
     buffer_write_adv(&(key->item->write_buffer), written);
 

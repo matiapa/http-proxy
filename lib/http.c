@@ -22,7 +22,7 @@ char * methods_strings[8] = {"GET", "POST", "PUT", "DELETE", "CONNECT", "HEAD", 
  *  BODY...
  */
 
-int write_request(http_request * request, char * buffer, size_t space) {
+int write_request(http_request * request, char * buffer, size_t space, bool write_body) {
     int position = 0;
     
     print("%s %s %s\r\n", methods_strings[request->method - 1], request->url, HTTP_VERSION)
@@ -32,7 +32,7 @@ int write_request(http_request * request, char * buffer, size_t space) {
     }
     print("\r\n")
 
-    if (request->message.body != NULL) {
+    if (write_body && request->message.body != NULL) {
         memcpy(buffer + position, request->message.body, min(request->message.body_length, space));
         position += min(request->message.body_length, space);
     }
@@ -50,7 +50,7 @@ int write_request(http_request * request, char * buffer, size_t space) {
  *  BODY...
  */
 
-int write_response(http_response * response, char * buffer, size_t space) {
+int write_response(http_response * response, char * buffer, size_t space, bool write_body) {
     int position = 0;
 
     char * default_reason = NULL;
@@ -76,7 +76,7 @@ int write_response(http_response * response, char * buffer, size_t space) {
     }
     print("\r\n")
 
-    if (response->message.body != NULL){
+    if (write_body && response->message.body != NULL){
         memcpy(buffer + position, response->message.body, min(response->message.body_length, space));
         position += min(response->message.body_length, space);
     }

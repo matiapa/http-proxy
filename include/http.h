@@ -71,8 +71,8 @@ typedef struct http_response {
 
 /*---------------------- Methods definitions ----------------------*/
 
-int write_request(http_request * request, char * write_buffer, size_t space);
+int write_request(http_request * request, char * write_buffer, size_t space, bool write_body);
 
-int write_response(http_response * response, char * write_buffer, size_t space);
+int write_response(http_response * response, char * write_buffer, size_t space, bool write_body);
 
 #endif

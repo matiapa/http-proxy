@@ -226,7 +226,7 @@ int create_post(int length, char * body, char * write_buffer, int space) {
     snprintf(request.message.headers[3][1], 4, "%d", length);
     strcpy(request.url, configurations.path);
 
-    return write_request(&request, write_buffer, space);
+    return write_request(&request, write_buffer, space, true);
 }
 
 int send_doh_request(const char * target, int s, int type) {

@@ -9,7 +9,7 @@ typedef struct http_message_parser {
     buffer parse_buffer;
     
     int error_code;
-    int current_body_length;
+    size_t current_body_length;
 } http_message_parser;
 
 void http_message_parser_init(http_message_parser * parser);

@@ -232,7 +232,7 @@ static void assign_header_value(http_message * message, http_message_parser * pa
         && strncmp(message->headers[message->header_count][0], "Content-Length", HEADER_LENGTH) == 0
     ) {
         message->body_length = atoi(message->headers[message->header_count][1]);
-        log(DEBUG, "Expecting body length of %lu", message->body_length);
+        log(DEBUG, "Found Content-Length: %lu", message->body_length);
     }
 
     message->header_count += 1;
@@ -273,18 +273,6 @@ parse_state http_message_parser_parse(
         size_t nbytes;
         char * pointer = (char *)buffer_read_ptr(read_buffer, &nbytes);
 
-        // Don't read body because this will cause the buffer to mark it as used and will
-        // overwrite it, just check the amount of bytes to see if it matches content-length.
-
-        if (parser->parser->state == BODY) {
-            if (nbytes >= message->body_length) {
-                http_message_parser_reset(parser);
-                return SUCCESS;
-            } else {
-                return PENDING;
-            }
-        }
-
         const struct parser_event * e = parser_feed(parser->parser, buffer_read(read_buffer));
 
         // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
@@ -310,17 +298,12 @@ parse_state http_message_parser_parse(
                 break;
 
             case HEADER_SECTION_END:
-                if (message->body_length == 0) {
-                    http_message_parser_reset(parser);
-                    return SUCCESS;
-                }
+                message->body = pointer + 1;
+                http_message_parser_reset(parser);
+                return SUCCESS;
                 break;
 
             case BODY_VAL:
-                // We want a pointer to the body on the read buffer, copying it to another
-                // buffer would be highly unefficient. This case will only be executed once.
-                message->body = pointer;
-                read_buffer->read--;
                 break;
 
             case WAIT_MSG:
