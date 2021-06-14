@@ -47,7 +47,7 @@ usage(const char *progname) {
         "   -l <proxy addr>  Dirección donde servirá el proxy.\n"
         "   -L <conf  addr>  Dirección donde servirá el servicio de management.\n"
         "   -p <proxy port>  Puerto entrante del proxy.\n"
-        "   -P <conf port>   Puerto entrante sel servicio de management.\n"
+        "   -o <conf port>   Puerto entrante sel servicio de management.\n"
         "   -N               Deshabilita los passwords disectors y termina.\n"
         "   -v               Imprime información sobre la versión versión y termina.\n"
         "\n"
@@ -66,10 +66,10 @@ void
 parse_args(const int argc, char **argv, struct proxy_args *args) {
     memset(args, 0, sizeof(*args));
 
-    args->proxy_addr = "0.0.0.0";
+    args->proxy_addr = NULL;
     args->proxy_port = 8080;
 
-    args->mng_addr   = "127.0.0.1";
+    args->mng_addr   = NULL;
     args->mng_port   = 9090;
 
     args->disectors_enabled = true;
@@ -111,7 +111,7 @@ parse_args(const int argc, char **argv, struct proxy_args *args) {
             case 'p':
                 args->proxy_port = port(optarg);
                 break;
-            case 'P':
+            case 'o':
                 args->mng_port   = port(optarg);
                 break;
             case 'v':

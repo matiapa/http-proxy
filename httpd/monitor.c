@@ -90,25 +90,42 @@ socklen_t clientAddressSize = sizeof(clientAddress);
 int udp_socket;
 int udp6_socket;
 int sockets[MASTER_SOCKET_SIZE];
+int master_sockets_size = 0;
 
 
 void * start_monitor(void * port) {
 
-    // Creo el socket para ipv4
-    sockets[0] = create_udp_server(port);
-    if (sockets[0] == -1) {
-        log(FATAL, "Creating server socket for ipv4: %s ", strerror(errno))
+    bool listen_ipv_both = false;
+    if (proxy_conf.proxyArgs.mng_addr == NULL) {
+        proxy_conf.proxyArgs.mng_addr = "127.0.0.1";
+        listen_ipv_both = true;
     }
-    log(INFO, "Server socket for ipv4 created: %d ", sockets[0])
 
-    // Creo el socket para ipv6
-    sockets[1] = create_udp6_server(port);
-    if (sockets[1] == -1) {
-        log(FATAL, "Creating server socket for ipv6: %s ", strerror(errno))
+    struct addrinfo hint = { .ai_family = PF_UNSPEC, .ai_flags = AI_NUMERICHOST};
+    struct addrinfo * listen_addr;
+    if (getaddrinfo(proxy_conf.proxyArgs.mng_addr, NULL, &hint, &listen_addr)) {
+        log(ERROR, "Invalid manager address");
+        exit(EXIT_FAILURE);
     }
-    log(INFO, "Server socket for ipv6 created: %d ", sockets[1])
 
+    if (listen_addr->ai_family == AF_INET || listen_ipv_both) {
+        // Creo el socket para ipv4
+        sockets[master_sockets_size++] = create_udp_server(proxy_conf.proxyArgs.mng_addr, port);
+        if (sockets[0] == -1) {
+            log(FATAL, "Creating server socket for ipv4: %s ", strerror(errno))
+        }
+        log(INFO, "Server socket for ipv4 created: %d ", sockets[0])
+    }
 
+    if (listen_addr->ai_family == AF_INET6 || listen_ipv_both) {
+        // Creo el socket para ipv6
+        sockets[master_sockets_size++] = create_udp6_server(proxy_conf.proxyArgs.mng_addr, port);
+        if (sockets[1] == -1) {
+            log(FATAL, "Creating server socket for ipv6: %s ", strerror(errno))
+        }
+        log(INFO, "Server socket for ipv6 created: %d ", sockets[1])
+    }
+    
     fd_set readfds;
     ssize_t n;
     int max_fd;
@@ -118,7 +135,7 @@ void * start_monitor(void * port) {
         memset(res_buffer, 0, BUFFER_SIZE);
 
         max_fd = 0;
-        for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
+        for (int i = 0; i < master_sockets_size; i++) {
             FD_SET(sockets[i], &readfds);
             max_fd = max_fd > sockets[i] ? max_fd : sockets[i];
         }
@@ -129,7 +146,7 @@ void * start_monitor(void * port) {
             continue;
         }
 
-        for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
+        for (int i = 0; i < master_sockets_size; i++) {
 
             if (!FD_ISSET(sockets[i], &readfds)) {
                 continue;

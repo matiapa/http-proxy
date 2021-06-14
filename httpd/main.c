@@ -60,19 +60,38 @@ int main(int argc, char **argv) {
 
     // Start accepting connections
 
-    char proxy_port[6] = {0};
-    snprintf(proxy_port, 6, "%d", args.proxy_port);
-      
-    int sock_ipv4 = create_tcp_server(proxy_port);
-    if(sock_ipv4 < 0) {
-        log(ERROR, "Creating passive socket ipv4");
+    bool listen_ipv_both = false;
+    if (args.proxy_addr == NULL) {
+        args.proxy_addr = "0.0.0.0";
+        listen_ipv_both = true;
+    }
+
+    struct addrinfo hint = { .ai_family = PF_UNSPEC, .ai_flags = AI_NUMERICHOST};
+    struct addrinfo * listen_addr;
+    if (getaddrinfo(args.proxy_addr, NULL, &hint, &listen_addr)) {
+        log(ERROR, "Invalid proxy address");
         exit(EXIT_FAILURE);
     }
 
-    int sock_ipv6 = create_tcp6_server(proxy_port);
-    if(sock_ipv6 < 0) {
-        log(ERROR, "Creating passive socket ipv6");
-        exit(EXIT_FAILURE);
+    char proxy_port[6] = {0};
+    snprintf(proxy_port, 6, "%d", args.proxy_port);
+      
+    int sock_ipv4 = 0, sock_ipv6 = 0;
+
+    if (listen_addr->ai_family == AF_INET || listen_ipv_both) {
+        sock_ipv4 = create_tcp_server(args.proxy_addr, proxy_port);
+        if(sock_ipv4 < 0) {
+            log(ERROR, "Creating passive socket ipv4");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (listen_addr->ai_family == AF_INET6 || listen_ipv_both) {
+        sock_ipv6 = create_tcp6_server(args.proxy_addr, proxy_port);
+        if(sock_ipv6 < 0) {
+            log(ERROR, "Creating passive socket ipv6");
+            exit(EXIT_FAILURE);
+        }
     }
 
     // Start handling connections

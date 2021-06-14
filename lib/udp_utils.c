@@ -17,7 +17,7 @@
 
 #define ADDR_BUFF_SIZE 128
 
-int create_udp_server(const char *port)
+int create_udp_server(const char *ip, const char *port)
 {
 
     struct addrinfo addrCriteria;
@@ -52,7 +52,7 @@ int create_udp_server(const char *port)
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_port = htons(atoi(port));
 
-    inet_pton(serveraddr.sin_family, "127.0.0.1", &serveraddr.sin_addr.s_addr);
+    inet_pton(serveraddr.sin_family, ip, &serveraddr.sin_addr.s_addr);
 
     // Bind to address
 
@@ -75,14 +75,14 @@ int create_udp_server(const char *port)
     }
 
     char addressBuffer[ADDR_BUFF_SIZE];
-    printSocketAddress((struct sockaddr *)&localAddr, addressBuffer);
+    sockaddr_print((struct sockaddr *)&localAddr, addressBuffer);
 
     log(INFO, "Binding to %s", addressBuffer);
 
     return servSock;
 }
 
-int create_udp6_server(const char *port)
+int create_udp6_server(const char *ip, const char *port)
 {
 
     // Create address criteria
@@ -123,7 +123,9 @@ int create_udp6_server(const char *port)
     memset(&server6addr, 0, sizeof(server6addr));
     server6addr.sin6_family = AF_INET6;
     server6addr.sin6_port = htons(atoi(port));
-    server6addr.sin6_addr = in6addr_loopback;
+
+    inet_pton(server6addr.sin6_family, ip, &server6addr.sin6_addr);
+
     // Bind to address
 
     if (bind(servSock, (struct sockaddr *)&server6addr, sizeof(server6addr)) < 0) { //-V641
@@ -143,7 +145,7 @@ int create_udp6_server(const char *port)
     }
 
     char addressBuffer[ADDR_BUFF_SIZE];
-    printSocketAddress((struct sockaddr *)&localAddr, addressBuffer);
+    sockaddr_print((struct sockaddr *)&localAddr, addressBuffer);
 
     log(INFO, "Binding to %s", addressBuffer);
 
@@ -160,7 +162,7 @@ ssize_t uread(int fd, char *buffer, size_t buffSize, struct sockaddr *address, s
         log(ERROR, "Recieving bytes: %s ", strerror(errno)) return -1;
     }
 
-    printSocketAddress((struct sockaddr *)address, addrBuffer);
+    sockaddr_print((struct sockaddr *)address, addrBuffer);
     log(INFO, "Handling client %s - Received %ld bytes", addrBuffer, recvBytes);
 
     return recvBytes;
@@ -176,7 +178,7 @@ ssize_t usend(int fd, char *buffer, size_t buffSize, struct sockaddr *address, s
         log(ERROR, "Sending bytes: %s ", strerror(errno)) return -1;
     }
 
-    printSocketAddress((struct sockaddr *)address, addrBuffer);
+    sockaddr_print((struct sockaddr *)address, addrBuffer);
     log(DEBUG, "Handling client %s - Sent %ld bytes", addrBuffer, sentBytes);
 
     return sentBytes;

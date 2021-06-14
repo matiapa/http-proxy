@@ -7,6 +7,7 @@
 #include <logger.h>
 #include <selector.h>
 #include <doh_client.h>
+#include <arpa/inet.h>
 #include <tcp_utils.h>
 
 #define MAX_PENDING_CONN 5
@@ -15,6 +16,7 @@
 void handle_close(struct selector_key * key);
 
 fd_selector selector_fd;
+
 
 int create_tcp_client(const char *host, const int port) {
 
@@ -49,13 +51,15 @@ int create_tcp_client(const char *host, const int port) {
         for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
             sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
             if (sock < 0){
-                log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer))
+                sockaddr_print(addr->ai_addr, addrBuffer);
+                log(DEBUG, "Can't create client socket on %s", addrBuffer)
                 continue;
             }
 
             int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
             if (conn != 0) {
-                log(INFO, "can't connect to %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
+                sockaddr_print(addr->ai_addr, addrBuffer);
+                log(INFO, "can't connect to %s: %s", addrBuffer, strerror(errno))
                 close(sock); // Socket connection failed; try next address
                 sock = -1;
             }
@@ -75,6 +79,7 @@ int create_tcp_client(const char *host, const int port) {
 
 }
 
+
 void print_address(int servSock) {
     struct sockaddr_storage localAddr;
     socklen_t addrSize = sizeof(localAddr);
@@ -85,17 +90,18 @@ void print_address(int servSock) {
     }
 
     char addressBuffer[ADDR_BUFFER_SIZE];
-    printSocketAddress((struct sockaddr *) &localAddr, addressBuffer);
+    sockaddr_print((struct sockaddr *) &localAddr, addressBuffer);
 
     log(INFO, "Binding to %s", addressBuffer);
 }
 
-int create_tcp_server(const char *port) {
 
-	// Create address criteria
+int create_tcp_server(const char *ip, const char *port) {
 
-	struct addrinfo addrCriteria;
-	memset(&addrCriteria, 0, sizeof(addrCriteria));
+    struct addrinfo addrCriteria;
+    memset(&addrCriteria, 0, sizeof(addrCriteria));
+
+	// Set address criteria
 
 	addrCriteria.ai_family = AF_INET;
 	addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
@@ -120,8 +126,9 @@ int create_tcp_server(const char *port) {
     struct sockaddr_in address;
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(atoi(port));
+
+    inet_pton(address.sin_family, ip, &address.sin_addr.s_addr);
 
     if (bind(servSock, (struct sockaddr *) &address, sizeof(address)) < 0) {
         log(ERROR, "bind for IPv4 failed");
@@ -142,12 +149,12 @@ int create_tcp_server(const char *port) {
 
 }
 
-int create_tcp6_server(const char *port) {
-
-    // Create address criteria
+int create_tcp6_server(const char *ip, const char *port) {
 
     struct addrinfo addrCriteria;
     memset(&addrCriteria, 0, sizeof(addrCriteria));
+
+    // Set address criteria
 
     addrCriteria.ai_family = AF_INET6;
     addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
@@ -177,7 +184,8 @@ int create_tcp6_server(const char *port) {
     memset(&address, 0, sizeof(address));
     address.sin6_family = AF_INET6;
     address.sin6_port = htons(atoi(port));
-    address.sin6_addr = in6addr_any;
+
+    inet_pton(address.sin6_family, ip, &address.sin6_addr);
 
     if (bind(servSock, (struct sockaddr *) &address, sizeof(address)) < 0) { //-V641
         log(ERROR, "bind for IPv6 failed");
@@ -200,14 +208,14 @@ int create_tcp6_server(const char *port) {
 
 }
 
-int handle_connections( int sock_ipv4, int sock_ipv6, void (*handle_creates) (struct selector_key *key)) {
+int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (struct selector_key *key)) {
 
-    if (selector_fd_set_nio(sock_ipv4) == -1) {
+    if (sock_ipv4 != -1 && selector_fd_set_nio(sock_ipv4) == -1) {
         log(ERROR, "Setting ipv4 master socket flags");
         return -1;
     }
 
-    if (selector_fd_set_nio(sock_ipv6) == -1) {
+    if (sock_ipv6 != -1 && selector_fd_set_nio(sock_ipv6) == -1) {
         log(ERROR, "Setting ipv6 master socket flags");
         return -1;
     }
