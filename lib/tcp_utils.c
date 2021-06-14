@@ -213,16 +213,6 @@ int create_tcp6_server(const char *ip, const char *port) {
 
 int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (struct selector_key *key)) {
 
-    if (sock_ipv4 != -1 && selector_fd_set_nio(sock_ipv4) == -1) {
-        log(ERROR, "Setting ipv4 master socket flags");
-        return -1;
-    }
-
-    if (sock_ipv6 != -1 && selector_fd_set_nio(sock_ipv6) == -1) {
-        log(ERROR, "Setting ipv6 master socket flags");
-        return -1;
-    }
-
     // Initialize selector library
 
     const struct selector_init conf = {
@@ -238,34 +228,44 @@ int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (str
         return -1;
     }
 
+    // Fill in handlers
+
+    const struct fd_handler handlers = {
+        .handle_create = handle_creates,
+        .handle_close = handle_close,
+        .handle_block = NULL};
+
     // Create new selector
 
-    selector_fd = selector_new(1024);
+    selector_fd = selector_new(proxy_conf.maxClients, &handlers);
     if(selector_fd == NULL) {
         log(ERROR, "Creating new selector");
         selector_close();
         return -1;
     }
 
-    // Fill in handlers
-
-    const struct fd_handler handlers = {
-        .handle_create     = handle_creates,
-        .handle_close      = handle_close,
-        .handle_block      = NULL
-    };
 
     // Register master socket
 
     selector_status ss = SELECTOR_SUCCESS;
 
-    ss = selector_register(selector_fd, sock_ipv4, sock_ipv6, &handlers, OP_READ + OP_WRITE, NULL);
+    int master_sockets[MASTER_SOCKET_SIZE] = {sock_ipv4, sock_ipv6};
+    for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
+        if (master_sockets[i] != -1) {
+            if (selector_fd_set_nio(master_sockets[i]) == -1){
+                log(ERROR, "Setting master socket flags");
+                return -1;
+            }
+            
+            ss = selector_register(selector_fd, master_sockets[i], OP_READ + OP_WRITE, NULL);
 
-    if(ss != SELECTOR_SUCCESS) {
-        log(ERROR, "Registering master socket on selector");
-        selector_destroy(selector_fd);
-        selector_close();
-        return -1;
+            if (ss != SELECTOR_SUCCESS) {
+                log(ERROR, "Registering master socket on selector");
+                selector_destroy(selector_fd);
+                selector_close();
+                return -1;
+            }
+        }
     }
 
     // Start listening selector

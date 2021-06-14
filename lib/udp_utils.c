@@ -77,7 +77,7 @@ int create_udp_server(const char *ip, const char *port)
     char addressBuffer[ADDR_BUFF_SIZE];
     sockaddr_print((struct sockaddr *)&localAddr, addressBuffer);
 
-    log(INFO, "Binding to %s", addressBuffer);
+    log(INFO, "UDP Binding to %s", addressBuffer);
 
     return servSock;
 }
@@ -147,7 +147,7 @@ int create_udp6_server(const char *ip, const char *port)
     char addressBuffer[ADDR_BUFF_SIZE];
     sockaddr_print((struct sockaddr *)&localAddr, addressBuffer);
 
-    log(INFO, "Binding to %s", addressBuffer);
+    log(INFO, "UDP Binding to %s", addressBuffer);
 
     return servSock;
 }

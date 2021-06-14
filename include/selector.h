@@ -13,6 +13,8 @@
 #include "http_response_parser.h"
 #include "pop3_parser.h"
 
+#define MASTER_SOCKET_SIZE 2
+
 /**
  * selector.c - un muliplexor de entrada salida
  *
@@ -74,6 +76,16 @@ typedef enum {
     SELECTOR_IO       = 5,
 } selector_status;
 
+/**
+ * Manejador de los diferentes eventos..
+ */
+typedef struct fd_handler
+{
+    void (*handle_block)(struct selector_key *key);
+    void (*handle_create)(struct selector_key *key);
+    void (*handle_close)(struct selector_key *key);
+} fd_handler;
+
 /** retorna una descripción humana del fallo */
 const char *
 selector_error(const selector_status status);
@@ -97,7 +109,7 @@ selector_close(void);
 
 /* instancia un nuevo selector. returna NULL si no puede instanciar  */
 fd_selector
-selector_new(const size_t initial_elements);
+selector_new(const size_t initial_elements, const fd_handler *handler);
 
 /** destruye un selector creado por _new. Tolera NULLs */
 void
@@ -117,15 +129,6 @@ struct selector_key {
     struct item * item;     // The connection item
 };
 
-/**
- * Manejador de los diferentes eventos..
- */
-typedef struct fd_handler {
-  void (*handle_block)     (struct selector_key *key);
-  void (*handle_create)     (struct selector_key *key);
-  void (*handle_close)     (struct selector_key *key);
-} fd_handler;
-
 
 void
 selector_update_fdset(fd_selector s, const struct item * item);
@@ -142,7 +145,7 @@ selector_update_fdset(fd_selector s, const struct item * item);
  * @return 0 si fue exitoso el registro.
  */
 selector_status
-selector_register(fd_selector s, const int sock_ipv4, const int sock_ipv6, const fd_handler *handler, const fd_interest interest, void *data);
+selector_register(fd_selector s, const int fd, const fd_interest interest, void *data);
 
 /**
  * desregistra un file descriptor del selector
@@ -209,6 +212,9 @@ struct fdselector {
     // esto podría mejorarse utilizando otra estructura de datos
     struct item    *fds; // podría ser estatico de tamaño MAX_CONNECTIONS
     size_t          fd_size;  // cantidad de elementos posibles de fds
+
+    struct item     *masters[2];
+    size_t          master_size;
 
     /** fd maximo para usar en select() */
     int max_fd;  // max(.fds[].fd)
