@@ -196,7 +196,7 @@ parse_state assign_target(http_request_parser * parser) {
     
     if (N(parser->request.url) <= size) {
         parser->error_code = URI_TOO_LONG;
-        return ERROR;
+        return FAILED;
     }
 
     COPY(parser->request.url, ptr, size);

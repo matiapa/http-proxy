@@ -38,10 +38,11 @@ struct method4 {
 };
 
 struct method5 {
-    unsigned int max_clients;
-    unsigned int timeout;
-    unsigned int frequency;
+    int timeout;
+    int frequency;
+    unsigned short max_clients :10;
     unsigned char disectors_enabled :1;
+    unsigned char logLevel :2;
 };
 
 union format {
@@ -68,6 +69,7 @@ enum req_status {
 
 char buffer[BUFFER_SIZE];
 char pass[32];
+char logLevels[4][6] = {"DEBUG", "INFO", "ERROR", "FATAL"};
 
 char retrieve_methods[MAX_RETRIEVE_METHODS][MAX_STRING] = {"totalConnections", "currentConnections", "totalSend", "totalRecieved", "allStats", "getConfigurations"};
 char set_methods[MAX_SET_METHODS][MAX_STRING] = {"setMaxClients", "setClientTimeout", "setStatsFrequency", "setDisector", "setLoggingLevel"};
@@ -92,7 +94,7 @@ int main(int argc, char **argv) {
         return sock;
     }
     memset(&serverAddr, 0, sizeof(serverAddr));
-    serverAddr.sin_family = AF_INET; // IPv4cle
+    serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = htons(args.client_port);
 
@@ -115,9 +117,9 @@ int main(int argc, char **argv) {
     char command[1024];
     while(1) {
 
-        //scanf("%s", command);
         int c;
         int i = 0;
+        printf("> ");
         while ((c = getchar()) != EOF && c != '\n') {
             command[i++] = (char)c;
         }
@@ -152,7 +154,7 @@ int main(int argc, char **argv) {
 
 void process_response(struct response_header * res) {
     if (res->status == REQ_BAD_REQUEST) {
-        printf("Bad Request\n");
+        printf("Pedido Invalido\n");
         return;
     } else if (res->status == REQ_UNAUTHORIZED) {
         printf("%s\n", buffer + sizeof(struct response_header));
@@ -160,10 +162,10 @@ void process_response(struct response_header * res) {
         if (res->type == 0){
             if (res->method == 4) {
                 struct method4 * results = (struct method4 *)(buffer + sizeof(struct response_header));
-                printf("Conecciones: %lu - Conecciones Actuales: %lu - Total Enviados: %lu - Total Recibidos: %lu\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
+                printf("- Conecciones Historicas: %lu\n- Conecciones Actuales: %lu\n- Total Enviados: %lu\n- Total Recibidos: %lu\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
             } else if (res->method == 5) {
-                struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header));
-                printf("Clients: %u - Timeout: %u - Frequency: %u - Disector Enabled: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE");
+                struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header)); 
+                printf("- Max Clients: %d\n- Timeout: %d\n- Frequency: %d\n- Disector Habilitado: %s\n- Log Level: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE", logLevels[results->logLevel]);
             } else {
                 unsigned long value;
                 memcpy(&value, buffer + sizeof(struct response_header), sizeof(long));
@@ -192,8 +194,8 @@ int parse_command(char * command, struct request_header * req, char * buff) {
     for (int i = 0; i < MAX_RETRIEVE_METHODS; i++) {
         if (strcmp(command, retrieve_methods[i]) == 0) {
             req->version = CURRENT_VERSION;
-            req->id = 25; // TODO: cambiarlo por dinamico
-            strcpy((char *)req->pass, pass); // TODO: cambiarlo por algo dinámico
+            req->id = 0;
+            strcpy((char *)req->pass, pass);
             req->type = RETRIEVE;
             req->method = i;
             req->length = 0; // porque es un request del tipo retrieve
@@ -227,7 +229,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
                         print_error("El valor no puede ser mayor a 1000");
                         return -1;
                     }
-                    memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
+                    memcpy(buff + sizeof(struct request_header), &value, sizeof(unsigned short));
                     break;
                 case 1:
                 case 2:
@@ -244,8 +246,8 @@ int parse_command(char * command, struct request_header * req, char * buff) {
                     break;
             }
             req->version = CURRENT_VERSION;
-            req->id = 25; // TODO: cambiarlo por dinamico
-            strcpy((char *)req->pass, pass); // TODO: cambiarlo por algo dinámico
+            req->id = 0;
+            strcpy((char *)req->pass, pass);
             req->type = SET;
             req->method = i;
             req->length = sizeof(long); // porque es un request del tipo retrieve

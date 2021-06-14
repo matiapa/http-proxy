@@ -8,7 +8,7 @@
 #define BLACKLIST_SIZE 1024
 
 typedef struct Config {
-    unsigned int maxClients;                    // Max allowed clients (up to 1000). Default is 1000.
+    unsigned short maxClients;                  // Max allowed clients (up to 1000). Default is 1000.
     int connectionTimeout;                      // Max inactivity time before disconnection, or -1 to disable it. Default is -1.
     int statisticsFrequency;                    // Frequency of statistics logging, or -1 to disable it.
     
