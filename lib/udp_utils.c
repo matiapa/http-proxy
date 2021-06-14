@@ -161,7 +161,7 @@ ssize_t uread(int fd, char *buffer, size_t buffSize, struct sockaddr *address, s
     }
 
     printSocketAddress((struct sockaddr *)address, addrBuffer);
-    log(INFO, "Handling client %s - Received %zu bytes", addrBuffer, recvBytes);
+    log(INFO, "Handling client %s - Received %ld bytes", addrBuffer, recvBytes);
 
     return recvBytes;
 }
@@ -177,7 +177,7 @@ ssize_t usend(int fd, char *buffer, size_t buffSize, struct sockaddr *address, s
     }
 
     printSocketAddress((struct sockaddr *)address, addrBuffer);
-    log(DEBUG, "Handling client %s - Sent %zu bytes", addrBuffer, sentBytes);
+    log(DEBUG, "Handling client %s - Sent %ld bytes", addrBuffer, sentBytes);
 
     return sentBytes;
 }

@@ -385,7 +385,7 @@ static unsigned request_read_ready(struct selector_key *key) {
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
-    log(DEBUG, "Received %lu bytes from socket %d", readBytes, key->item->client_socket);
+    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, key->item->client_socket);
 
     // Calculate statistics
 
@@ -453,9 +453,9 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
 
         // Process request headers
 
-        char proxy_hostname[128];
+        char proxy_hostname[VIA_PROXY_NAME_SIZE] = {0};
         if(strlen(proxy_conf.viaProxyName) > 0) {
-            strncpy(proxy_hostname, proxy_conf.viaProxyName, 128);
+            strncpy(proxy_hostname, proxy_conf.viaProxyName, VIA_PROXY_NAME_SIZE);
         } else {
             get_machine_fqdn(proxy_hostname);
         }
@@ -504,7 +504,7 @@ static unsigned request_forward_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
 
     if ((size_t) sentBytes < size)
         return REQUEST_FORWARD;
@@ -541,7 +541,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 
     buffer_write_adv(&(key->item->read_buffer), readBytes);
 
-    log(DEBUG, "Received %lu bytes from socket %d", readBytes, key->item->target_socket);
+    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, key->item->target_socket);
 
     // Calculate statistics
 
@@ -573,7 +573,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -608,7 +608,7 @@ static unsigned connect_response_ready(struct selector_key *key) {
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -655,7 +655,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     buffer_write_adv(buffer, readBytes);
 
-    log(DEBUG, "Received %lu bytes from socket %d", readBytes, key->active_fd);
+    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, key->active_fd);
 
     struct buffer aux_buffer;
     memcpy(&aux_buffer, buffer, sizeof(struct buffer));
@@ -726,7 +726,7 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 
     buffer_read_adv(buffer, sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->active_fd);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->active_fd);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -753,7 +753,7 @@ static unsigned error_write_ready(struct selector_key *key) {
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
-    log(ERROR, "Read %lu bytes from write buffer", sentBytes);
+    log(ERROR, "Read %lu bytes from write buffer", (size_t) sentBytes);
 
     if (sentBytes < 0) {
         log(ERROR, "Failed to notify error to client");
@@ -789,7 +789,7 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -817,7 +817,7 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
     
     //statistics
     add_sent_bytes(sentBytes);
@@ -1027,12 +1027,12 @@ static void process_request_headers(http_request * req, char * target_host, char
 static int extract_http_credentials(http_request * request) {
     // TODO: guardar la user_pass
 
-    char raw_authorization[HEADER_LENGTH];
+    char raw_authorization[HEADER_LENGTH] = {0};
     int found=0;
 
     for (size_t i = 0; i < request->message.header_count&&!found; i++){
         if (strcmp(request->message.headers[i][0],"Authorization")==0){
-            strncpy(raw_authorization,request->message.headers[i][1],HEADER_LENGTH);
+            strncpy(raw_authorization,request->message.headers[i][1], HEADER_LENGTH);
             int k=0;
             while (isspace(raw_authorization[k]))
             {
@@ -1126,9 +1126,9 @@ static unsigned process_response(struct selector_key * key) {
 
     // Process response headers
 
-    char proxy_hostname[128];
+    char proxy_hostname[VIA_PROXY_NAME_SIZE] = {0};
     if(strlen(proxy_conf.viaProxyName) > 0) {
-        strncpy(proxy_hostname, proxy_conf.viaProxyName, 128);
+        strncpy(proxy_hostname, proxy_conf.viaProxyName, VIA_PROXY_NAME_SIZE);
     } else {
         get_machine_fqdn(proxy_hostname);
     }

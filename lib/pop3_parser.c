@@ -212,7 +212,7 @@ pop3_state pop3_parse(buffer * readBuffer, pop3_parser_data * data) {
                 return POP3_FAILED;
 
             default:
-                log(ERROR, "Unexpected event type %d", e->type);
+                log(ERROR, "Unexpected event type %u", e->type);
                 return POP3_FAILED;
         }
 

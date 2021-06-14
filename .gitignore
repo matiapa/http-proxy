@@ -8,6 +8,7 @@ logs/*
 debugging/*
 informe/*
 .config
+cppcheck.txt
 
 # PVS related
 strace_out

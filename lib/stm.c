@@ -64,7 +64,7 @@ void jump(struct state_machine *stm, unsigned next, struct selector_key *key) {
         if(stm->states[next].description != NULL) {
             log(DEBUG, "Jumping to state %s\n", stm->states[next].description);
         } else {
-            log(DEBUG, "Jumping to state %d\n", next);
+            log(DEBUG, "Jumping to state %u\n", next);
         }
 
         if(NULL != stm->current->on_arrival) {
@@ -104,7 +104,7 @@ stm_handler_block(struct state_machine *stm, struct selector_key *key) {
     if(stm->current->on_block_ready == 0) {
         abort();
     }
-    log(DEBUG, "Handling block on state %d", stm->current->state);
+    log(DEBUG, "Handling block on state %u", stm->current->state);
     const unsigned int ret = stm->current->on_block_ready(key);
     jump(stm, ret, key);
 

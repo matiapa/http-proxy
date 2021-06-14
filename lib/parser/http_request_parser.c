@@ -296,7 +296,7 @@ parse_state http_request_parser_parse(http_request_parser * parser, buffer * rea
                     return FAILED;
 
                 default:
-                    log(ERROR, "Unexpected event type %d", e->type);
+                    log(ERROR, "Unexpected event type %u", e->type);
                     parser->error_code = INTERNAL_SERVER_ERROR;
                     return FAILED;
             }
