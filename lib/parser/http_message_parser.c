@@ -219,7 +219,7 @@ static void assign_header_name(http_message * message, http_message_parser * par
     COPY(message->headers[message->header_count][0], ptr, size);
 }
 
-static void assign_header_value(http_message * message, http_message_parser * parser){
+static void assign_header_value(http_message * message, http_message_parser * parser, bool ignore_length){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
@@ -228,8 +228,9 @@ static void assign_header_value(http_message * message, http_message_parser * pa
 
     COPY(message->headers[message->header_count][1], ptr, size);
 
-    if (parser->method != HEAD && strncmp(message->headers[message->header_count][0],
-            "Content-Length", HEADER_LENGTH) == 0) {
+    if (!ignore_length
+        && strncmp(message->headers[message->header_count][0], "Content-Length", HEADER_LENGTH) == 0
+    ) {
         message->body_length = atoi(message->headers[message->header_count][1]);
         log(DEBUG, "Expecting body length of %lu", message->body_length);
     }
@@ -264,7 +265,9 @@ void http_message_parser_destroy(http_message_parser * parser){
 }
 
 
-parse_state http_message_parser_parse(http_message_parser * parser, buffer * read_buffer, http_message * message) {
+parse_state http_message_parser_parse(
+    http_message_parser * parser, buffer * read_buffer, http_message * message, bool ignore_content_length
+) {
 
     while(buffer_can_read(read_buffer)){
         size_t nbytes;
@@ -302,7 +305,7 @@ parse_state http_message_parser_parse(http_message_parser * parser, buffer * rea
                 break;
             
             case HEADER_VALUE_END:
-                assign_header_value(message, parser);
+                assign_header_value(message, parser, ignore_content_length);
                 buffer_reset(&(parser->parse_buffer));
                 break;
 

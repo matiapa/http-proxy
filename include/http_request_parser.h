@@ -6,16 +6,18 @@
 
 typedef struct http_request_parser{
     struct parser * parser;
-    buffer parse_buffer;
-    http_request * request;
-    int error_code;
-
     http_message_parser message_parser;
+    buffer parse_buffer;
+
+    http_request request;
+    int error_code;
 } http_request_parser;
 
 void http_request_parser_init(http_request_parser * data);
 
-parse_state http_request_parser_parse(http_request_parser * parser, buffer * read_buffer, http_request * request);
+parse_state http_request_parser_parse(
+    http_request_parser * parser, buffer * read_buffer
+);
 
 void http_request_parser_reset(http_request_parser * data);
 

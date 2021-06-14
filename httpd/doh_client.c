@@ -154,10 +154,11 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
     buffer_write_adv(&buff, read_bytes);
 
     http_response_parser parser = {0};
-    http_response response = {0};
     http_response_parser_init(&parser);
-    parser.response = &response;
-    http_response_parser_parse(&parser, &buff, &response);
+
+    http_response_parser_parse(&parser, &buff, false);
+    http_response response = parser.response;
+
     buff.read = (unsigned char *)response.message.body;
 
     struct DNS_HEADER * dns = (struct DNS_HEADER *)buffer_read_ptr(&buff, &nbyte); // Obtengo el DNS_HEADER
