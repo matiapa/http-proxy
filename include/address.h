@@ -26,5 +26,7 @@ int sockaddr_equal(const struct sockaddr *addr1, const struct sockaddr *addr2);
 int get_machine_fqdn(char * fqdn);
 
 int parse_url(char * text, struct url * url);
+/* returns 1 if it shares the ip with some interface of the proxy if not return 0*/
+int isProxy(const struct sockaddr * input);
 
 #endif 
