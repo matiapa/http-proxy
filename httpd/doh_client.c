@@ -184,6 +184,7 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
     if (ans_count == 0) {
         free_buffer(&buff);
         close(s);
+        return 0;
     }
 
     out = calloc(1, ans_count * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
