@@ -278,7 +278,7 @@ static selector_status ensure_capacity(fd_selector s, const size_t n) {
 }
 
 
-fd_selector selector_new(const size_t initial_elements) {
+fd_selector selector_new(const size_t initial_elements, const fd_handler *handler) {
     size_t size = sizeof(struct fdselector);
     fd_selector ret = malloc(size);
     if(ret != NULL) {
@@ -292,6 +292,8 @@ fd_selector selector_new(const size_t initial_elements) {
             selector_destroy(ret);
             ret = NULL;
         }
+        ret->handlers = *handler;
+        ret->master_size = 0;
     }
     return ret;
 }
@@ -371,38 +373,29 @@ void selector_update_fdset(fd_selector s, const struct item * item) {
 /***************************************************************
   Registers a new fd, in the proxy case, the passive socket
 ****************************************************************/
-selector_status selector_register(fd_selector s, const int sock_ipv4, const int sock_ipv6, const fd_handler  *handler, const fd_interest interest, void *data) {
+selector_status selector_register(fd_selector s, const int fd, const fd_interest interest, void *data) {
                          
     selector_status ret = SELECTOR_SUCCESS;
 
-    if (s == NULL || INVALID_FD(sock_ipv4) || INVALID_FD(sock_ipv6) || handler == NULL) {
+    if (s == NULL || INVALID_FD(fd)) {
         ret = SELECTOR_IARGS;
         goto finally;
     }
 
-    int ufd[2] = {sock_ipv4, sock_ipv6};
-    for (int i = 0; i < 2; i++) {
-        if((size_t)ufd[i] > s->fd_size) {
-            ret = ensure_capacity(s, ufd[i]);
-            if(SELECTOR_SUCCESS != ret) {
-                goto finally;
-            }
-        }
-
+    for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
         struct item * item = s->fds + i;
-        if(ITEM_USED(item)) {
+        if (ITEM_USED(item)) {
             ret = SELECTOR_FDINUSE;
-            goto finally;
+            continue;
         } else {
-            item->client_socket   = ufd[i];
+            item->client_socket   = fd;
             item->client_interest = interest;
             item->data   = data;
 
-            log(DEBUG, "Registered socket %d with interests %d", ufd[i], interest);
+            log(DEBUG, "Registered socket %d with interests %d", fd, interest);
 
-            if(ufd[i] > s->max_fd) {
-                s->max_fd = ufd[i];
-            }
+            if(fd > s->max_fd)
+                s->max_fd = fd;
 
             FD_CLR(item->client_socket, &(s->master_r));
             FD_CLR(item->client_socket, &(s->master_w));
@@ -412,11 +405,12 @@ selector_status selector_register(fd_selector s, const int sock_ipv4, const int 
 
             if(item->client_interest & OP_WRITE)
                 FD_SET(item->client_socket, &(s->master_w));
+
+            ret = SELECTOR_SUCCESS;
+            s->masters[s->master_size++] = item;
+            goto finally;
         }
     }
-
-    
-    s->handlers = *handler;
 
 finally:
     return ret;
@@ -462,7 +456,6 @@ finally:
 
 }
 
-
 /***************************************************************
   Handles the result of pselect, ie. availables reads/writes
 ****************************************************************/
@@ -483,41 +476,40 @@ static void handle_iteration(fd_selector s) {
             item_kill(s, item);
         }
     }
-
-    int master_socket_ipv4 = s->fds[0].client_socket;
-    int master_socket_ipv6 = s->fds[1].client_socket;
+    
     int n = s->max_fd;
+    int flag = 0;
 
     struct selector_key key = { .s = s };
 
-    if (FD_ISSET(master_socket_ipv4, &s->slave_r) || FD_ISSET(master_socket_ipv6, &s->slave_r)) {
+    for (size_t i = 0; i < s->master_size && !flag; i++) {
+        int master_socket = s->masters[i]->client_socket;
+        if (FD_ISSET(s->masters[i]->client_socket, &s->slave_r)) {
+            for (size_t j = MASTER_SOCKET_SIZE; j < proxy_conf.maxClients; j++) {
+                struct item *item = s->fds + j;
 
-        // There is a new connection
+                if (ITEM_USED(item))
+                    continue;
 
-        for (size_t i = 0; i < proxy_conf.maxClients; i++) {
-            struct item *item = s->fds + i;
+                key.item = item;
+                item->master_socket = master_socket;
 
-            if (ITEM_USED(item))
-                continue;
+                s->handlers.handle_create(&key);
 
-            key.item = item;
-            if (FD_ISSET(master_socket_ipv4, &s->slave_r)) {
-                item->master_socket = master_socket_ipv4;
-            } else {
-                item->master_socket = master_socket_ipv6;
+                s->max_fd = item->client_socket > item->target_socket
+                                ? item->client_socket
+                                : item->target_socket;
+                break;
             }
-            s->handlers.handle_create(&key);
-
-            s->max_fd = item->client_socket > item->target_socket
-                ? item->client_socket : item->target_socket;
-            break;
+            flag = 1;
         }
+    }
 
-    } else {
+    if (!flag) {
 
         // A client/target demands attention
 
-        for (int i = 0; i <= n; i++) {
+        for (int i = MASTER_SOCKET_SIZE; i <= n; i++) {
             struct item *item = s->fds + i;
             key.item = item;
 
@@ -569,7 +561,6 @@ static void handle_iteration(fd_selector s) {
 
             }
         }
-
     }
 
 }

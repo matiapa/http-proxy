@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
     char proxy_port[6] = {0};
     snprintf(proxy_port, 6, "%d", args.proxy_port);
       
-    int sock_ipv4 = 0, sock_ipv6 = 0;
+    int sock_ipv4 = -1, sock_ipv6 = -1;
 
     if (listen_addr->ai_family == AF_INET || listen_ipv_both) {
         sock_ipv4 = create_tcp_server(args.proxy_addr, proxy_port);

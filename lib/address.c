@@ -4,6 +4,11 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <address.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <errno.h>
+#include <ifaddrs.h>
+
 
 
 int sockaddr_print(const struct sockaddr * address, char * addrBuffer) {
@@ -167,4 +172,32 @@ int parse_url(char * text, struct url * url) {
 
 	free(aux);
     return 0;
+}
+
+/* returns 1 if it shares the ip with some interface of the proxy if not return 0*/
+int isProxy(const struct sockaddr * input){
+    
+    int isOwn=0;
+    struct ifaddrs *ifaddr;
+    int family;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        // perror("getifaddrs");
+        // exit(EXIT_FAILURE);
+    }
+
+    /* Walk through linked list, maintaining head pointer so we
+        can free list later. */
+    for (struct ifaddrs *ifa = ifaddr; ifa != NULL &&!isOwn;ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+        family = ifa->ifa_addr->sa_family;
+        if (family == AF_INET || family == AF_INET6) {
+            if (family == input->sa_family){
+                isOwn=sockaddr_equal(ifa->ifa_addr, input);
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+    return isOwn;
 }
