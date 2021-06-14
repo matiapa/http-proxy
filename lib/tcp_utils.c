@@ -198,7 +198,6 @@ int create_tcp6_server(const char *port) {
 
 }
 
-
 int handle_connections( int sock_ipv4, int sock_ipv6, void (*handle_creates) (struct selector_key *key)) {
 
     if (selector_fd_set_nio(sock_ipv4) == -1) {

@@ -72,7 +72,7 @@ int change_to_dns_format(char* dns, const char * host);
 unsigned char * get_body(unsigned char * str);
 int get_name(unsigned char * body);
 int create_post(int length, char * body, char * write_buffer, int space);
-void send_doh_request(const char * target, int s, int type);
+int send_doh_request(const char * target, int s, int type);
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, int initial_size);
 int resolve_string(struct addrinfo ** addrinfo, const char * target, int port);
 
@@ -94,18 +94,20 @@ void change_configuration(struct doh * args) {
 // https://git.musl-libc.org/cgit/musl/tree/src/network/getaddrinfo.c
 int doh_client(const char * target, const int sin_port, struct addrinfo ** restrict addrinfo, int family) {
 
+    /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
+    if (resolve_string(addrinfo, target, sin_port) >= 0) return 0; // El target esta en formato IP
+
+
     if (family != AF_INET && family != AF_INET6) // pedido invalido
         return -1;
 
     struct sockaddr_in dest;
     buffer_init(&buff, BUFF_SIZE, calloc(1, BUFF_SIZE));
 
-    /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
-    if (resolve_string(addrinfo, target, sin_port) >= 0) return 0; // El target esta en formato IP
-
     int s = socket(AF_INET , SOCK_STREAM , IPPROTO_TCP); // Socket para conectarse al DOH Server
     if (s < 0) {
         log(ERROR, "Socket failed to create")
+        free_buffer(&buff);
         return -1;
     }
 
@@ -124,6 +126,8 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
 
     if (connect(s, (struct sockaddr*)&dest,sizeof(dest)) < 0) { // Establece la conexión con el servidor DOH
         log(ERROR, "Error in connect")
+        free_buffer(&buff);
+        close(s);
         return -1;
     }
 
@@ -135,7 +139,12 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
     memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
 
     /*----------- Mando el request DOH para IPv4 -----------*/
-    send_doh_request(target, s, type);
+    if (send_doh_request(target, s, type) < 0) {
+        free_buffer(&buff);
+        close(s);
+        return -1;
+    }
+    
     buffer_reset(&buff);
     memset(buff.data, 0, BUFF_SIZE); // Limpio el buffer
 
@@ -147,6 +156,7 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
     ssize_t read_bytes;
     if ((read_bytes = recvfrom (s, aux_buff, nbyte , 0 , (struct sockaddr*)&dest , (socklen_t*)&dim )) < 0) {
         log(ERROR, "Getting response from DOH server")
+        free_buffer(&buff);
         close(s);
         return -1;
     }
@@ -161,11 +171,32 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
 
     buff.read = (unsigned char *)response.message.body;
 
-    struct DNS_HEADER * dns = (struct DNS_HEADER *)buffer_read_ptr(&buff, &nbyte); // Obtengo el DNS_HEADER
+    struct DNS_HEADER * dns = calloc(1, sizeof(struct DNS_HEADER));
+    if (dns == NULL) {
+        log(ERROR, "Doing calloc of dns header");
+        free_buffer(&buff);
+        close(s);
+        return -1;
+    }
+    memcpy(dns, buffer_read_ptr(&buff, &nbyte), sizeof(struct DNS_HEADER)); // Obtengo el DNS_HEADER
+    // struct DNS_HEADER * dns = (struct DNS_HEADER *)buffer_read_ptr(&buff, &nbyte);
     buffer_read_adv(&buff, sizeof(struct DNS_HEADER));
 
     int ans_count = ntohs(dns->ans_count); // Cantidad de respuestas
+    free(dns);
+
+    if (ans_count == 0) {
+        free_buffer(&buff);
+        close(s);
+    }
+
     out = calloc(1, ans_count * sizeof(*out) + 1); // Se usa para llenar la estructura de las answers
+    if (out == NULL) {
+        log(ERROR, "Doing calloc of out");
+        free_buffer(&buff);
+        close(s);
+        return -1;
+    }
 
     int n = get_name(buffer_read_ptr(&buff, &nbyte)) + sizeof(struct QUESTION);
     buffer_read_adv(&buff, n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
@@ -175,6 +206,7 @@ int doh_client(const char * target, const int sin_port, struct addrinfo ** restr
 
     // Termine
     *addrinfo = &out->ai;
+    free_buffer(&buff);
     close(s);
     return 0;
 }
@@ -200,7 +232,7 @@ int create_post(int length, char * body, char * write_buffer, int space) {
     return write_request(&request, write_buffer, space);
 }
 
-void send_doh_request(const char * target, int s, int type) {
+int send_doh_request(const char * target, int s, int type) {
     unsigned char * qname;
     struct QUESTION * qinfo = NULL;
     size_t nbyte;
@@ -238,13 +270,20 @@ void send_doh_request(const char * target, int s, int type) {
     char * aux_buff = (char *)buffer_read_ptr(&buff, &nbyte);
 
     char * write_buffer = malloc(1024); // TODO: Choose a number
+    if (write_buffer == NULL) {
+        log(ERROR, "Doing malloc of write buffer");
+        return -1;
+    }
+
     int written = create_post((int)nbyte, aux_buff, write_buffer, 1024); // crea el http request
 
     if( send(s, write_buffer, written, 0) < 0) { // manda el paquete al servidor DOH
         log(ERROR, "Sending DOH request")
+        return -1;
     }
 
     free(write_buffer); // Libera el request http
+    return 0;
 }
 
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, int initial_size) {
@@ -297,6 +336,10 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, i
 
 int resolve_string(struct addrinfo ** addrinfo, const char * target, int port) {
     struct aibuf * out = calloc(1, sizeof(*out) + 1);
+    if (out == NULL) {
+        log(ERROR, "Doing calloc of out");
+        return -1;
+    }
     if (inet_pton(AF_INET, target, &out->sa.sin.sin_addr)) { // Es una IPv4
         out->ai = (struct addrinfo) {
                 .ai_family = AF_INET,

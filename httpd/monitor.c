@@ -32,6 +32,7 @@ struct request_header {
     unsigned short id;
     unsigned char type :1;
     unsigned char method :4;
+    unsigned char z :3;
     unsigned short length;
 };
 
@@ -41,11 +42,12 @@ struct response_header {
     unsigned char status :2;
     unsigned char type :1;
     unsigned char method :4;
+    unsigned char z :1;
     unsigned short length;
 };
 
 union format {
-    unsigned short clients;
+    unsigned int clients;
     short time;
     unsigned char boolean :1;
     unsigned char level :2;
@@ -91,7 +93,6 @@ int sockets[MASTER_SOCKET_SIZE];
 
 
 void * start_monitor(void * port) {
-
 
     // Creo el socket para ipv4
     sockets[0] = create_udp_server(port);
@@ -140,7 +141,8 @@ void * start_monitor(void * port) {
             }
 
             if (n > 0) { // puede que no haya leido nada y no sea un error
-                struct request_header *request_header = (struct request_header *) req_buffer;
+                struct request_header * request_header = calloc(1, sizeof(struct request_header));
+                memcpy(request_header, req_buffer, sizeof(struct request_header));
                 if (!validate_client((char *)request_header->pass)) {
                     send_no_authorization_message(request_header);
                 } else {
@@ -148,6 +150,7 @@ void * start_monitor(void * port) {
                     if (status != REQ_SUCCESS)
                         send_error(status);
                 }
+                free(request_header);
             }
         }
     }
@@ -164,7 +167,7 @@ void send_no_authorization_message(struct request_header * req) {
             .method = req->method,
             .type = req->type,
     };
-    memcpy(res_buffer, &res_header, sizeof(res_header));
+    memcpy(res_buffer, &res_header, sizeof(struct request_header));
     strcpy(res_buffer + sizeof(res_header), message);
 
     if (sendto(udp_socket, res_buffer, sizeof(res_header) + strlen(message) + 1, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
@@ -214,7 +217,8 @@ int process_request(char * body, struct request_header * req) {
         if (req->length <= 0)
             return REQ_BAD_REQUEST;
 
-        union format * ft = (union format *)body;
+        union format * ft = calloc(1, sizeof(union format));
+        memcpy(ft, body, sizeof(union format));
         switch (req->method) {
             case 0:
                 if (ft->clients > 1000)
@@ -236,6 +240,7 @@ int process_request(char * body, struct request_header * req) {
             default:
                 return REQ_BAD_REQUEST;
         }
+        free(ft);
         send_success(req);
     }
     return REQ_SUCCESS;
@@ -263,7 +268,7 @@ void send_retrieve_response(struct request_header * request_header, int body_len
     res->method = request_header->method;
     res->length = body_length;
 
-    if (sendto(udp_socket, res_buffer, sizeof(res) + body_length, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
+    if (sendto(udp_socket, res_buffer, sizeof(struct response_header) + body_length, 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
         log(ERROR, "Sending client response")
     }
 }
@@ -277,7 +282,7 @@ void send_success(struct request_header * request_header) {
     res->type = request_header->type;
     res->method = request_header->method;
     res->length = 0;
-    if (sendto(udp_socket, res_buffer, sizeof(res), 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
+    if (sendto(udp_socket, res_buffer, sizeof(struct response_header), 0, (const struct sockaddr *) &clientAddress, clientAddressSize) < 0) {
         log(ERROR, "Sending client response")
     }
 }
