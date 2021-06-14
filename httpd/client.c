@@ -58,7 +58,7 @@ enum req_status {
     REQ_UNAUTHORIZED = 2
 };
 
-#define BUFFER_SIZE (1024*4)
+#define BUFFER_SIZE 1024
 #define MAX_RETRIEVE_METHODS 6
 #define MAX_SET_METHODS 7
 #define MAX_CLIENT_METHODS 2
@@ -66,6 +66,7 @@ enum req_status {
 #define RETRIEVE 0
 #define SET 1
 #define CURRENT_VERSION 1
+#define COMMAND_SIZE 40
 
 char buffer[BUFFER_SIZE];
 char pass[32];
@@ -89,18 +90,8 @@ int main(int argc, char **argv) {
 
     int sock;
     ssize_t n;
-    struct sockaddr_in serverAddr;
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         return sock;
-    }
-    memset(&serverAddr, 0, sizeof(serverAddr));
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(args.client_port);
-
-    if (bind(sock, (const struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
-        close(sock);
-        return -1;
     }
 
     struct sockaddr_in dest;
@@ -108,27 +99,34 @@ int main(int argc, char **argv) {
     dest.sin_port = htons(args.monitor_port);
     dest.sin_addr.s_addr = inet_addr(args.monitor_addr);
 
-    if (connect(sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) { // Establece la conexión con el servidor DOH
+    if (connect(sock, (struct sockaddr *)&dest, sizeof(dest)) < 0) {
         return -1;
     }
 
     get_password();
 
-    char command[1024];
+    char command[COMMAND_SIZE];
+    int c, flag, i;
     while(1) {
-
-        int c;
-        int i = 0;
+        flag = i = 0;
         printf("> ");
-        while ((c = getchar()) != EOF && c != '\n') {
+        while ((c = getchar()) != EOF && c != '\n' && !flag) {
+            if (i == COMMAND_SIZE)
+                flag = 1;
+
             command[i++] = (char)c;
+        }
+        command[i] = 0;
+        if (flag) {
+            printf("\nComando Invalido\n");
+            continue;
         }
 
         memset(buffer, 0, BUFFER_SIZE);
         struct request_header req;
         if (parse_command(command, &req, buffer) <= 0) continue; // envio mal el command o fue un cambio del cliente
 
-        if (send(sock, buffer, sizeof(req) + req.length, 0) < 0) { // manda el paquete al servidor DOH
+        if (send(sock, buffer, sizeof(req) + req.length, 0) < 0) {
             return -1;
         }
 
@@ -222,7 +220,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
 
     for (int i = 0; i < MAX_SET_METHODS; i++) {
         if (strcmp(token, set_methods[i]) == 0) {
-
+            long length;
             switch (i) {
                 case 0:
                     if (value > 1000) {
@@ -230,10 +228,12 @@ int parse_command(char * command, struct request_header * req, char * buff) {
                         return -1;
                     }
                     memcpy(buff + sizeof(struct request_header), &value, sizeof(unsigned short));
+                    length = sizeof(unsigned short);
                     break;
                 case 1:
                 case 2:
                     memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
+                    length = sizeof(unsigned short);
                     break;
                 case 3:
                     if (value > 1) {
@@ -241,6 +241,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
                         return -1;
                     }
                     memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
+                    length = sizeof(unsigned short);
                     break;
                 default:
                     break;
@@ -250,7 +251,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
             strcpy((char *)req->pass, pass);
             req->type = SET;
             req->method = i;
-            req->length = sizeof(long); // porque es un request del tipo retrieve
+            req->length = length; // porque es un request del tipo retrieve
             memcpy(buff, req, sizeof(struct request_header));
 
             return 1;
@@ -303,7 +304,7 @@ void print_help() {
            "                                habilitar/deshabilitar la inspección de credenciales.\n\n"
            ">> setLoggingLevel <valor>      recive un valor númerico cuyo valor puede ser [0, 1, 2, 3],\n"
            "                                donde DEBUG = 0, INFO = 1, ERROR = 2, FATAL = 3\n\n"
-           "> Consultar el RFC del Protocolo para más información\n");
+           "> Consultar el RFC 20216 para más información\n");
 }
 
 void get_password() {

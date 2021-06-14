@@ -14,7 +14,6 @@
 #include <sys/select.h>
 
 #define BUFFER_SIZE 1024
-#define PF proxy_conf
 
 #define PASSWORD "quic"
 #define CURRENT_VERSION 1

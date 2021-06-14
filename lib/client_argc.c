@@ -44,7 +44,6 @@ usage(const char *progname) {
             "   -h                      Imprime la ayuda y termina.\n"
             "   -l <management addr>    Dirección a del management.\n"
             "   -p <management port>    Puerto a del management.\n"
-            "   -P <client port>        Puerto a utilizar.\n"
             "   -v                      Imprime información sobre la versión versión y termina.\n"
             "\n",
             progname
@@ -65,7 +64,7 @@ void client_parse_args(const int argc, char **argv, struct client_args *args) {
     while (true) {
         int option_index = 0;
 
-        c = getopt_long(argc, argv, "hl:L:Np:P:u:v", NULL, &option_index);
+        c = getopt_long(argc, argv, "hl:p:v", NULL, &option_index);
         if (c == -1)
             break;
 
@@ -78,9 +77,6 @@ void client_parse_args(const int argc, char **argv, struct client_args *args) {
                 break;
             case 'p':
                 args->monitor_port = port(optarg);
-                break;
-            case 'P':
-                args->client_port = port(optarg);
                 break;
             case 'v':
                 version();
