@@ -84,7 +84,7 @@ Config proxy_conf = {
     .connectionTimeout = -1,
     .statisticsFrequency = 3600,
 
-    .disectorsEnabled = false,
+    .disectorsEnabled = true,
 
     .viaProxyName = "",
     .clientBlacklist = "",
