@@ -45,6 +45,7 @@ extern char * methods_strings[8];
 typedef struct http_message {
     char headers[MAX_HEADERS][2][HEADER_LENGTH];
     size_t header_count;
+    bool hasExpect;
 
     char * body;
     size_t body_length;

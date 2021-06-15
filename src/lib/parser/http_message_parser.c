@@ -235,6 +235,11 @@ static void assign_header_value(http_message * message, http_message_parser * pa
         log(DEBUG, "Found Content-Length: %lu", message->body_length);
     }
 
+    if (strncmp(message->headers[message->header_count][0], "Expect", HEADER_LENGTH) == 0) {
+        message->hasExpect = true;
+        log(DEBUG, "Found Expect header");
+    }
+
     message->header_count += 1;
 }
 

@@ -579,7 +579,8 @@ static unsigned request_forward_ready(struct selector_key *key) {
         return REQ_BODY_FORWARD;
     } else {
         // Body present, didn't read bytes
-        return REQ_BODY_READ;
+        return key->item->req_parser.request.message.hasExpect
+            ? TCP_TUNNEL : REQ_BODY_READ;
     }
 
 }
@@ -865,8 +866,13 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 
     // If the buffer is full wait for it to be consumed
 
-    if (! buffer_can_write(buffer))
+    if (! buffer_can_write(buffer)) {
+        if (key->active_fd == key->item->client_socket)
+            key->item->client_interest &= ~OP_READ;
+        else
+            key->item->target_interest &= ~OP_READ;
         return TCP_TUNNEL;
+    }
 
     // Copy active socket bytes into peer socket buffer
 
@@ -971,6 +977,9 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 
         selector_update_fdset(key->s, key->item);
     }
+
+    key->item->client_interest |= OP_READ;
+    key->item->target_interest |= OP_READ;
 
     return TCP_TUNNEL;
 
