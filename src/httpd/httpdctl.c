@@ -283,7 +283,6 @@ int parse_command(char * command, struct request_header * req, char * buff) {
 
     for (int i = 0; i < MAX_SET_METHODS; i++) {
         if (strcmp(token, set_methods[i]) == 0) {
-            long length = 0;
             switch (i) {
                 case 0:
                     if (value > 1000) {

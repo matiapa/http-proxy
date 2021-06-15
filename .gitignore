@@ -1,14 +1,8 @@
 # Project related
-docs/*
 bin/*
+logs/*
 *.log
 *.o
-Testing/*
-logs/*
-debugging/*
-informe/*
-.config
-cppcheck.txt
 
 # PVS related
 strace_out
@@ -17,6 +11,12 @@ PVS-Studio.log
 .PVS-Studio
 suppress_base.json
 pvs.sh
+
+# CPP-Check related
+cppcheck.txt
+
+# GDB related
+.gdb_history
 
 # IDEs related
 .idea/*
