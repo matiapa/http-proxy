@@ -1,14 +1,18 @@
-#include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <errno.h>
 #include <strings.h>
 #include <arpa/inet.h>
-#include <logger.h>
 #include <stdio.h>
 #include <client_argc.h>
+#include <sys/termios.h>
+
+union format {
+    unsigned short clients :10;
+    int time;
+    unsigned char boolean :1;
+    unsigned char level :2;
+};
 
 struct request_header {
     unsigned char version;
@@ -18,6 +22,7 @@ struct request_header {
     unsigned char method :4;
     unsigned char z :3;
     unsigned short length;
+    union format ft;
 };
 
 struct response_header {
@@ -43,13 +48,6 @@ struct method5 {
     unsigned short max_clients :10;
     unsigned char disectors_enabled :1;
     unsigned char logLevel :2;
-};
-
-union format {
-    unsigned short clients;
-    int time;
-    unsigned char boolean :1;
-    unsigned char level :2;
 };
 
 enum req_status {
@@ -83,6 +81,22 @@ int is_number(const char * str);
 void print_help();
 void get_password();
 
+void red() {
+    printf("\033[1;31m");
+}
+
+void green() {
+    printf("\033[0;32m");
+}
+
+void cyan() {
+    printf("\033[0;36m");
+}
+
+void reset() {
+    printf("\033[0m");
+}
+
 int main(int argc, char **argv) {
 
     struct client_args args;
@@ -109,7 +123,9 @@ int main(int argc, char **argv) {
     int c, flag, i;
     while(1) {
         flag = i = 0;
+        green();
         printf("> ");
+        reset();
         while ((c = getchar()) != EOF && c != '\n' && !flag) {
             if (i == COMMAND_SIZE)
                 flag = 1;
@@ -118,7 +134,9 @@ int main(int argc, char **argv) {
         }
         command[i] = 0;
         if (flag) {
+            red();
             printf("\nComando Invalido\n");
+            reset();
             continue;
         }
 
@@ -152,7 +170,9 @@ int main(int argc, char **argv) {
 
 void process_response(struct response_header * res) {
     if (res->status == REQ_BAD_REQUEST) {
+        red();
         printf("Pedido Invalido\n");
+        reset();
         return;
     } else if (res->status == REQ_UNAUTHORIZED) {
         printf("%s\n", buffer + sizeof(struct response_header));
@@ -160,18 +180,59 @@ void process_response(struct response_header * res) {
         if (res->type == 0){
             if (res->method == 4) {
                 struct method4 * results = (struct method4 *)(buffer + sizeof(struct response_header));
-                printf("- Conecciones Historicas: %lu\n- Conecciones Actuales: %lu\n- Total Enviados: %lu\n- Total Recibidos: %lu\n", results->total_connections, results->current_connections, results->total_sent, results->total_recieved);
+                cyan();
+                printf("- Conecciones Historicas: ");
+                reset();
+                printf("%lu\n", results->total_connections);
+                cyan();
+                printf("- Conecciones Actuales: ");
+                reset();
+                printf("%lu\n", results->current_connections);
+                cyan();
+                printf("- Total Enviados: ");
+                reset();
+                printf("%lu\n", results->total_sent);
+                cyan();
+                printf("- Total Recibidos: ");
+                reset();
+                printf("%lu\n", results->total_recieved);
             } else if (res->method == 5) {
-                struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header)); 
-                printf("- Max Clients: %d\n- Timeout: %d\n- Frequency: %d\n- Disector Habilitado: %s\n- Log Level: %s\n", results->max_clients, results->timeout, results->frequency, results->disectors_enabled == 0 ? "FALSE" : "TRUE", logLevels[results->logLevel]);
+                struct method5 * results = (struct method5 *)(buffer + sizeof(struct response_header));
+                cyan();
+                printf("- Clientes Máximos: ");
+                reset();
+                printf("%d\n", results->max_clients);
+                cyan();
+                printf("- Timeout: ");
+                reset();
+                printf("%d\n", results->timeout);
+                cyan();
+                printf("- Total Enviados: ");
+                reset();
+                printf("%d\n", results->frequency);
+                cyan();
+                printf("- Total Recibidos: ");
+                reset();
+                printf("%s\n", results->disectors_enabled == 0 ? "FALSE" : "TRUE");
+                cyan();
+                printf("- Log Level: ");
+                reset();
+                printf("%s\n", logLevels[results->logLevel]);
             } else {
-                unsigned long value;
+                long value;
                 memcpy(&value, buffer + sizeof(struct response_header), sizeof(long));
-                printf("Respuesta: %lu\n", value);
+                cyan();
+                printf("Respuesta: ");
+                reset();
+                printf("%ld\n", value);
             }
         } else {
-            if (res->status == REQ_SUCCESS)
+            if (res->status == REQ_SUCCESS) {
+                green();
                 printf("Valor Actualizado\n");
+                reset();
+            }
+
         }
     }
 }
@@ -214,35 +275,40 @@ int parse_command(char * command, struct request_header * req, char * buff) {
     if (num != NULL && is_number(num)) {
         sscanf(num, "%d", &value);
     } else {
+        red();
         printf("Comando invalido\n");
+        reset();
         return -1;
     }
 
     for (int i = 0; i < MAX_SET_METHODS; i++) {
         if (strcmp(token, set_methods[i]) == 0) {
-            long length;
+            long length = 0;
             switch (i) {
                 case 0:
                     if (value > 1000) {
                         print_error("El valor no puede ser mayor a 1000");
                         return -1;
                     }
-                    memcpy(buff + sizeof(struct request_header), &value, sizeof(unsigned short));
-                    length = sizeof(unsigned short);
+                    req->ft.clients = value & 0x3FF;
                     break;
                 case 1:
                 case 2:
-                    memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
-                    length = sizeof(unsigned short);
+                    req->ft.time = value;
                     break;
                 case 3:
                     if (value > 1) {
                         print_error("El valor no puede ser mayor a 1");
                         return -1;
                     }
-                    memcpy(buff + sizeof(struct request_header), &value, sizeof(int));
-                    length = sizeof(unsigned short);
+                    req->ft.boolean = value;
                     break;
+                case 4:
+                    if (value > 3) {
+                        print_error("El valor no puede ser mayor a 3");
+                        return -1;
+                    }
+                    req->ft.level = value;
                 default:
                     break;
             }
@@ -251,7 +317,7 @@ int parse_command(char * command, struct request_header * req, char * buff) {
             strcpy((char *)req->pass, pass);
             req->type = SET;
             req->method = i;
-            req->length = length; // porque es un request del tipo retrieve
+            req->length = sizeof(req->ft); // porque es un request del tipo retrieve
             memcpy(buff, req, sizeof(struct request_header));
 
             return 1;
@@ -263,11 +329,16 @@ int parse_command(char * command, struct request_header * req, char * buff) {
 }
 
 void print_error(char * message) {
+    red();
     printf("Error: %s\n", message);
+    reset();
 }
 
 int is_number(const char * str) {
     int i = 0;
+    if (*str == '-') {
+        str++;
+    }
     while(*str != '\0') {
         if (*str > '9' || *str < '0') return 0;
         str++;
@@ -277,34 +348,47 @@ int is_number(const char * str) {
 }
 
 void print_help() {
-    printf("> Comandos Disponibles:\n"
-           ">> changePassword               permite cambiar la contraseña con la que se\n"
-           "                                accede al managment.\n\n"
-           ">> totalConnections             retorna la cantidad historica de clientes que\n"
-           "                                se conectaron al proxy.\n\n"
-           ">> currentConnections           retorna la cantidad actual de clientes que estan\n"
-           "                                conectados al proxy.\n\n"
-           ">> totalSend                    retorna la cantidad de bytes que han sido\n"
-           "                                enviados a traves dle proxy.\n\n"
-           ">> totalRecieved                retorna la cantidad de bytes que han sido\n"
-           "                                recividas por el proxy.\n\n"
-           ">> allStats                     retorna todos los valores estadísticos.\n\n"
-           ">> getConfigurations            retorna la configuración actual del proxy.\n\n"
-           ">> setMaxClients <valor>        recive un valor númerico menor a 1000 utilizado\n"
-           "                                para configurar la máxima cantidad de clientes\n"
-           "                                concurrentes que puede tener el proxy.\n\n"
-           ">> setClientTimeout <valor>     recive un valor númerico que representa tiempo\n"
-           "                                en segundos utilizado para configurar el tiempo\n"
-           "                                el cual un cliente puede estar inactivo.\n\n"
-           ">> setStatsFrequency <valor>    recive un valor númerico que representa tiempo\n"
-           "                                en segundos utilizado para configurar cada cuanto\n"
-           "                                se guardan los valores estadísticos del programa.\n\n"
-           ">> setDisector <valor>          recive un valor del conjunto {0, 1}, 1 siendo\n"
-           "                                activar y 0 desactivar, el cual se utiliza para\n"
-           "                                habilitar/deshabilitar la inspección de credenciales.\n\n"
-           ">> setLoggingLevel <valor>      recive un valor númerico cuyo valor puede ser [0, 1, 2, 3],\n"
-           "                                donde DEBUG = 0, INFO = 1, ERROR = 2, FATAL = 3\n\n"
-           "> Consultar el RFC 20216 para más información\n");
+    printf("\033[0;32mComandos Disponibles:\033[0m\n\n"
+           "\033[0;36m> changePassword \033[0m              permite cambiar la contraseña con la que se\n"
+           "                               accede al managment.\n\n"
+           "\033[0;36m> totalConnections \033[0m            retorna la cantidad historica de clientes que\n"
+           "                               se conectaron al proxy.\n\n"
+           "\033[0;36m> currentConnections \033[0m          retorna la cantidad actual de clientes que estan\n"
+           "                               conectados al proxy.\n\n"
+           "\033[0;36m> totalSend \033[0m                   retorna la cantidad de bytes que han sido\n"
+           "                               enviados a traves dle proxy.\n\n"
+           "\033[0;36m> totalRecieved  \033[0m              retorna la cantidad de bytes que han sido\n"
+           "                               recividas por el proxy.\n\n"
+           "\033[0;36m> allStats    \033[0m                 retorna todos los valores estadísticos.\n\n"
+           "\033[0;36m> getConfigurations \033[0m           retorna la configuración actual del proxy.\n\n"
+           "\033[0;36m> setMaxClients <valor> \033[0m       recive un valor númerico menor a 1000 utilizado\n"
+           "                               para configurar la máxima cantidad de clientes\n"
+           "                               concurrentes que puede tener el proxy.\n\n"
+           "\033[0;36m> setClientTimeout <valor>  \033[0m   recive un valor númerico que representa tiempo\n"
+           "                               en segundos utilizado para configurar el tiempo\n"
+           "                               el cual un cliente puede estar inactivo.\n\n"
+           "\033[0;36m> setStatsFrequency <valor> \033[0m   recive un valor númerico que representa tiempo\n"
+           "                               en segundos utilizado para configurar cada cuanto\n"
+           "                               se guardan los valores estadísticos del programa.\n\n"
+           "\033[0;36m> setDisector <valor>  \033[0m        recive un valor del conjunto {0, 1}, 1 siendo\n"
+           "                               activar y 0 desactivar, el cual se utiliza para\n"
+           "                               habilitar/deshabilitar la inspección de credenciales.\n\n"
+           "\033[0;36m> setLoggingLevel <valor> \033[0m     recive un valor númerico cuyo valor puede ser [0, 1, 2, 3],\n"
+           "                               donde DEBUG = 0, INFO = 1, ERROR = 2, FATAL = 3\n\n"
+           "\033[0;32mConsultar el RFC 20216 para más información\033[0m\n");
+}
+
+// https://stackoverflow.com/questions/6856635/hide-password-input-on-terminal
+int getch() {
+    struct termios oldtc, newtc;
+    int ch;
+    tcgetattr(STDIN_FILENO, &oldtc);
+    newtc = oldtc;
+    newtc.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newtc);
+    ch=getchar();
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldtc);
+    return ch;
 }
 
 void get_password() {
@@ -312,11 +396,14 @@ void get_password() {
     memset(pass, 0, sizeof(pass));
     int i = 0;
     while (i == 0) {
+        cyan();
         printf("Ingresar Contraseña: ");
-        while ((c = getchar()) != EOF && c != '\n') {
+        reset();
+        while ((c = getch()) != EOF && c != '\n') {
             pass[i++] = (char)c;
         }
     }
+    putchar('\n');
     pass[i] = '\0';
 }
 
