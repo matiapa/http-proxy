@@ -1,0 +1,338 @@
+
+        Trabajo práctico Protocolos de Comunicación
+                        2021
+ 
+Integrantes:
+        
+- Matías Apablaza               		59714
+- Ines Marcarian                		60016
+- Juan Ignacio Sackmann Sala    	    60340
+- Alejandro Rolandelli          		56644
+
+Índice:
+    1. Aplicaciones y protocolos desarrollados.
+	    1.1. Aplicaciones
+		    1.1.1. Servidor Proxy 1.1.2. Cliente / Monitoreo
+	    1.2 Protocolos
+    2. Problemas encontrados.
+    3. Limitaciones de la aplicación y Posibles extensiones
+    4. Conclusiones.
+    5. Ejemplos de prueba.
+    6. Guía de instalación.
+    7. Instrucciones para la configuración.
+    8. Ejemplos de configuración y monitoreo.
+    9. Documento de diseño del proyecto.
+	    9.1. Arquitectura básica del proyecto 9.2. Archivos principales y sus
+	    ubicaciones
+
+
+1. Aplicaciones y protocolos desarrolladas
+        
+1.1. Aplicaciones
+
+Desarrollamos dos aplicaciones, un servidor proxy para HTTP al que llamamos
+httpd y un cliente que simplifica la configuración del proxy mencionado. Para la
+correcta comunicación entre la aplicación cliente y el servicio managment del
+proxy, desarrollamos un protocolo de comunicación llamado HINET [RFC 20216].
+
+Todo el código fuente de las aplicaciones, casos de prueba, documentos de diseño
+y el presente informe pueden hayarse en el repositorio del proyecto:
+https://bitbucket.org/itba/pc-2021a-06/src/master/
+
+1.1.1. Servidor Proxy (httpd)
+
+El servidor proxy consiste de los siguientes módulos: Máquina de estados de
+proxy (aka. STM). Parsers de HTTP, URL y POP3. Cliente de DoH (DNS over HTTP).
+Administrador de clientes. (aka. Selector). Servicio de management de proxy.
+
+Administrador de clientes
+
+Gracias al código provisto por la cátedra pudimos modelar cada conexión como un
+elemento (ítem) en un arreglo. El administrador de clientes (selector.c) se
+encarga de crear, inicializar, atender y destruir las conexiones. Este crea un
+item al recibir una conexión en uno de los sockets pasivos (IPv4 o IPv6) y se
+encarga de notificar a la máquina de estados del proxy cada vez que se produce
+un evento de I/O, así como de modificar los intereses de I/O para cada ítem
+según su estado en STM.
+
+La piedra angular del proxy es poder atender múltiples conexiones de manera
+“simultánea”. Ignorando la capacidad de paralelizar de CPUs modernos, no sería
+posible atender 2 conexiones al mismo tiempo, sin embargo, la mayoría del tiempo
+que transcurre, el proxy no se encuentra trabajando sino que se encuentra
+bloqueado a la espera de eventos (resoluciones de DNS, escrituras bloqueantes o
+simplemente que el cliente o target decidan enviar algo nuevo). Es por esto
+mismo que si implementamos métodos de conexiones no bloqueantes podemos atender
+a nuevas conexiones en lo que antes era efectivamente tiempo muerto.
+
+Por supuesto esto tiene un límite natural; una vez que se consuma todo el tiempo
+muerto del proxy, ya no habria mejoría en recibir mas conexiones (de más está
+mencionar el overhead relacionado al manejo de los fd’s y las múltiples
+conexiones).
+
+Máquina de estados
+
+Para poder organizar los hilos de ejecución de cada conexión individual, se optó
+por modelarlas mediante una máquina de estados (proxy_stm.c). La misma contiene
+la gran mayoría de la lógica de proxy HTTP, implementando las especificaciones
+dadas por RFC 7230 y RFC 7231, así como de funcionalidades extra dadas por la
+cátedra. Entre sus labores se encuentran: Orquestar el flujo de
+escritura/lectura de cliente servidor, teniendo en cuenta que estos pueden tener
+o no disponibilidad de las operaciones de I/O. Interpretar el significado de los
+requests/responses recibidos, procesarlos correspondientemente y forwardearlos
+de ser necesario. Soportar el establecimiento de un túnel TCP en el cual las
+partes transfieren datos de manera libre, sin restricciones de turno ni
+validaciones de protocolo. Registrar estadísticas de uso y sniffear credenciales
+en texto plano. Controlar el acceso de clientes y conexiones a targets según
+blacklists. Gestionar el cierre de conexiones tanto por parte del cliente como
+del origin server, realizando un graceful exit para ambas partes. Notificar
+debidamente el surgimiento de errores tanto por parte de los peers como por
+parte del proxy, y si es posible recuperarse del error, hacerlo.
+ 
+En código de la máquina de estados se puede encontrar una descripción detallada
+del funcionamiento de cada estado, así como de los criterios de transición. En
+la sección de diagramas (ver sección 9) se puede encontrar un diagrama del
+autómata usado por la STM.
+
+Parsers de protocolos
+
+Usando el motor de parsing provisto por la cátedra, se desarrollaron parsers
+para los protocolos HTTP (RFC 7230, RFC 7231), POP3 (RFC 1939) y el formato URI
+(RFC 3986). Todos los parsers usan los conjuntos de caracteres definidos por las
+core rules de ABNF (RFC 5234). Las gramáticas utilizadas son más laxas que las
+gramáticas reales, ya que como se supone que el destinatario del protocolo es
+capaz de detectar sintáxis inválidas, solo nos interesa parsear las cosas que
+son de interés para el funcionamiento del proxy.
+
+En la sección de diagramas (ver sección 9) se pueden encontrar diagramas de los
+autómatas usados por los parsers de HTTP.
+
+
+Cliente DoH
+
+Se implementó un cliente DoH para poder resolver las direcciones en formato FQDN
+ingresadas por el cliente del proxy. Dicho cliente establece una conexión con un
+servidor DoH que puede ser configurado mediante los argumentos de invocación del
+proxy. La implementación del DoH client mimetiza la funcionalidad de la función
+getaddrinfo de la librería estándar de C. Decidimos utilizar el método POST para
+hacer el request de DoH ya que en su momento se nos presentó como la opción más
+fácil de implementar, sin la necesidad de llevar a cabo codificaciones
+auxiliares como hubiese sido necesario con el método GET. Se decidió realizar la
+resolución de IPv4 primero y retornar con las respuestas y en caso de un fallo
+con las respuestas obtenidas para IPv4 se realiza la consulta para IPv6. 
+
+
+Servicio de Management
+
+El proxy provee el servicio de management el cual se comunica por UDP con sus
+clientes. Este servicio provee información estadística sobre el funcionamiento
+del proxy y permite cambiar la configuración del proxy mientras está en
+ejecución. Para poder comunicarse con el servicio de management se debe seguir
+los lineamientos del protocolo HINET que fue desarrollado por el grupo. Dichas
+reglas están en el RFC 20216. El servicio de management cuenta con autenticación
+la cual debe ser enviada en cada paquete del pedido.
+
+
+1.1.2. Cliente / Monitoreo
+
+La aplicación client fue creada como un ejemplo de posible cliente del  servicio
+managment del proxy. Este utiliza los estándares establecidos en el protocolo de
+comunicación HINET para interactuar con el servicio. Esta aplicación permite la
+configuración de direcciones y puertos de salida. El servicio de managment
+utiliza UDP para comunicarse con sus clientes, y precisa que se le envíe una
+contraseña para decidir si enviar la información que se pidió.
+
+1.2 Protocolos
+
+     HINET: Ver RFC 20216, ubicado en la carpeta docs del repositorio.
+
+
+2. Problemas encontrados
+
+En la creación de este proxy hubieron varios problemas, tanto prácticos como
+teóricos. En cuanto a los teóricos, tuvimos varios problemas frente a la
+comprensión o el seguimiento de los RFC 7230 y 7231 debido a su complejidad y
+extensión y en cuanto a qué secciones debíamos implementar y qué cosas podíamos
+dejar de lado porque excedían el alcance de esta materia.
+
+Los problemas prácticos fueron más que nada que reiteradamente subestimamos la
+complejidad del funcionamiento de un proxy, lo que nos llevó a tener que hacer
+cambios a la estructura del proyecto al encontrarnos con problemas que no
+consideramos en un principio.
+
+
+3. Limitaciones de la aplicación y Posibles extensiones
+
+Las especificaciones del tipo MUST de los RFC 7230 y 7231 fueron todas
+implementadas, pero hay algunos elementos del protocolo HTTP que todavía no se
+toleran, como por ejemplo el uso de Transfer-Encoding. Otra extensión posible
+sería agregar soporte a versiones de HTTP, ya que actualmente solo se tolera la
+1.1.
+
+Así mismo, si bien las pruebas de rendimiento y concurrencia dieron bien con una
+numerosa cantidad de clientes usando el proxy, se puede trabajar mucho más en
+cuanto a la eficiencia y robustez del manejo de conexiones.
+
+En términos de seguridad, también sería conveniente algún sistema de filtros
+para frenar repetidos intentos de conecciones o ataques del estilo Slowloris.
+Por último podríamos ser más permisivos en cuanto a implementaciones de headers
+y métodos.
+
+
+4. Conclusiones
+
+La realización del proyecto supuso un verdadero desafío técnico que sin dudas
+nos aportó de una significativa experiencia práctica, así como nos ayudó a
+asimilar los conceptos teóricos vistos en la materia, fundamentalmente los
+relacionados a HTTP, DNS, TCP, UDP y programación con sockets. También nos
+acostumbramos a leer e interpretar las especificaciones de los RFCs y a
+desarrollar y utilizar parsers y máquinas de estados.
+
+
+5. Ejemplos de prueba
+
+ Performance de get de un archivo grande (1.iso)
+
+Sin Proxy		    Con Proxy
++-------+-------+-------+--+-------+-------+-------+
+| real  | user  | sys   |  | real  | user  | sys   |
++-------+-------+-------+--+-------+-------+-------+
+| 7.723 | 6.914 | 4.655 |  | 7.799 | 6.94  | 4.937 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.525 | 7.115 | 4.747 |  | 7.585 | 7.079 | 4.937 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.555 | 6.908 | 4.957 |  | 7.806 | 6.951 | 4.956 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.772 | 7.062 | 4.787 |  | 7.775 | 6.928 | 4.932 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.54  | 7.085 | 4.626 |  | 7.774 | 7.114 | 4.806 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.576 | 7.002 | 4.925 |  | 7.787 | 6.851 | 4.806 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.525 | 6.942 | 4.852 |  | 7.812 | 6.951 | 4.961 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.741 | 6.973 | 4.832 |  | 7.817 | 7.053 | 4.809 |
++-------+-------+-------+--+-------+-------+-------+
+| 7.757 | 7.008 | 4.898 |  | 8.088 | 6.984 | 4.949 |
++-------+-------+-------+--+-------+-------+-------+
+
+Promediando a
++-------+-------+-------+--+-------+-------+-------+
+| real  | user  | sys   |  | real  | user  | sys   |
++-------+-------+-------+--+-------+-------+-------+
+| 7.634 | 7.001 | 4.808 |  | 7.804 | 6.983 | 4.899 |
++-------+-------+-------+--+-------+-------+-------+
+
+
+6. Guia de instalación
+
+Nuestro proyecto es compilado a partir de un MAKEFILE en el que especificamos
+que los ejecutables queden localizados en el directorio bin. Para compilarlo
+simplemente se debe ejecutar el comando make desde la terminal desde la
+ubicación del proyecto. Si se quiere borrar los binarios se debe usar make
+clean.
+
+
+7. Instrucciones para la configuración
+
+Opciones para la configuración del Proxy: Después de ejecutar las instrucciones
+de compilación detalladas en el README.md, dentro de la carpeta bin se va a
+encontrar el binario del proxy con el nombre httpd se puede correr de la
+siguiente manera:
+
+Dentro de la carpeta bin ejecutar ./httpd [OPTION]  … 
+
+Puede recibir estos parámetros al inicio del programa
+
+   -h                   	Imprime la ayuda y termina.
+   -l <proxy addr>          Dirección donde servirá el proxy. (por default 0.0.0.0)
+   -L <conf  addr>          Dirección donde servirá el servicio de management . (por default 127.0.0.1)
+   -p <proxy port>      	Puerto entrante del proxy. (por default 8080)
+   -o <confport>      	    Puerto entrante del servicio de management. (por default 9090)
+   -N                       Deshabilita los passwords dissectors y termina.
+   -v           		    Imprime información sobre la versión versión y termina.
+
+   --doh-ip    <ip>     	Dirección del servidor DoH (por default 0.0.0.0)
+   --doh-port  <port>   	Puerto del servidor DoH (por default 8053)
+   --doh-host  <host>       Host del servidor DoH (por default localhost)
+   --doh-path  <host>       Path del servidor DoH (por default es /getnsrecord )
+
+Cliente de Management:
+
+Después de ejecutar las instrucciones de compilación detalladas en el README.md,
+dentro de la carpeta bin se va a encontrar el binario del cliente con el nombre
+httpdctl se puede correr de la siguiente manera:
+
+dentro de la carpeta bin ejecutar ./httpdctl [OPTION]  … 
+
+puede recibir estos parámetros al inicio del programa
+
+   -h                      		Imprime la ayuda y termina.
+   -l <management addr>         Dirección del servicio de management. (por default 127.0.0.1)
+   -p <management port>   	    Puerto del servicio de management.(por default 9090)
+   -v                           Imprime información sobre la versión versión y termina.
+
+
+8. Ejemplos de configuración y monitoreo.
+
+Las funciones que dispone el cliente se pueden ver corriendo el comando: > help
+
+El cliente precisa de que el usuario ingrese una contraseña para poder
+autenticarse con el servicio de management. Si el Hint no es suficiente la
+contraseña es QUIC. En caso de que haya ingresado mal la contraseña puede
+ingresar el comando: > changePassword Que permite ingresar una vez más la
+contraseña.
+
+Algunos ejemplos de funciones que dispone el cliente son:
+
+allStats - que retorna todas las estadísticas actuales del proxy.
+getConfigurations - que retorna la configuración actual del proxy.
+
+También se dispone de funciones que modifican la configuración del proxy como:
+
+setLoggingLevel, setMaxClients, setClientTimeout, setStatsFrequency y
+setDisector, que requieren de que se les ingrese un valor numérico.
+
+
+9. Documento de diseño del proyecto
+
+En la carpeta docs/diagramas del repositorio del proyecto se pueden hayar los
+siguientes diagramas, todos ellos en formato GraphViz:
+
+architecture.dot: Componentes de la aplicación y cómo interactúan.
+proxy_stm.dot: Autómata utilizado por la máquina de estados del proxy.
+http_parser.dot: Autómata utilizado para el parsing de requests HTTP.
+
+Así mismo, casi todos los archivos se encuentran debidamente documentados. Los
+archivos de headers describen el contrato de uso de las funciones/componentes, y
+los archivos .c tienen comentarios que facilitan el entendimiento de la
+implementación de las funciones.
+
+
+9.2. Archivos principales y sus ubicaciones
+
+El proyecto está dividido en varias carpetas, la más importante es el directorio
+httpd, donde se encuentra:
+        
+        - main.c: Se encarga de establecer los puertos
+                        pasivos e inicializa el selector.
+
+        - proxy_stm.c: Donde se manejan los estados por los que pasa un cliente
+
+        - monitor.c: Es el servicio de management del proxy, el cual se comunica
+        por UDP con sus clientes
+        
+        - doh_client.c: Es el cliente DoH que se encarga de comunicarse con el
+        DoH server.
+
+Después el resto del proyecto se encuentra en el directorio lib.
+	
+Los pasers para nuestro proxy: pop3_parser.c Parsea las credenciales de pop3 al
+hacer un connect. http_request_parser.c Parsea la primera linea del las http
+requests. http_response_parser.c Parsea la primera linea del las http response.
+http_message_parser.c Parsea los headers de las responses y requests de http.
+dissector.c Hace un decode de base 64 para las contraseñas de http http.c se
+utiliza como factory de http requests y responses statistics.c se encarga de
+registrar la cantidad de accesos y adicionalmente los escribe en un archivo cada
+3600 segundos para ser recuperable en evento de algún desprovisto logger.c
+Imprimimos con 3 niveles de logs, debug, info y error pudiendo filtrar por el
+nivel de importancia. El resto son los códigos otorgados por la materia.

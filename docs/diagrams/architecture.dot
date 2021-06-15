@@ -1,0 +1,20 @@
+digraph g {
+    //rankdir=LR;
+    //size= "8.27,11.69";
+    size="8.27,11.69" ratio="compress"
+    margin=0;
+    node                    [shape = circle];    
+
+    MAIN -> SELECTOR                 [label="Inicia el selector e inicia\n la espera pasiva"]
+    MAIN -> MANAGEMENT               [label="Inicia el manager en\n un thread aparte"]
+    MAIN -> PROXY_STM                [label="Instancia la máquina de estados\n cuando surge una nueva conexión"]
+    
+    PROXY_STM -> SELECTOR            [label="Registra trabajos bloqueantes\n y solicita el cierre de conexiones"]
+    PROXY_STM -> HTTP_PARSER         [label="Solicita el parseo de requests\n y responses HTTP"]
+    PROXY_STM -> POP3_PARSER         [label="Solicita la extracción de\n credenciales de paquetes potencialmente POP3"]
+    PROXY_STM -> DOH_CLIENT          [label="Solicita la resolución de FQDNs\n de origin servers"]
+    PROXY_STM -> MANAGEMENT          [label="Registra estadísticas de uso y\ncredenciales sniffeadas"]
+
+    SELECTOR -> PROXY_STM            [label="Notifica operaciones I/O sobre\n clientes y la finalización de trabajos bloqueantes"]
+    MANAGEMENT -> PROXY_STM          [label="Permite cambiar el\n comportamiento del proxy"]
+}

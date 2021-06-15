@@ -181,11 +181,11 @@ void process_response(struct response_header * res) {
             if (res->method == 4) {
                 struct method4 * results = (struct method4 *)(buffer + sizeof(struct response_header));
                 cyan();
-                printf("- Conecciones Historicas: ");
+                printf("- Conexiones Históricas: ");
                 reset();
                 printf("%lu\n", results->total_connections);
                 cyan();
-                printf("- Conecciones Actuales: ");
+                printf("- Conexiones Actuales: ");
                 reset();
                 printf("%lu\n", results->current_connections);
                 cyan();

@@ -1,0 +1,57 @@
+digraph g {
+    //rankdir=LR;
+    //size= "8.27,11.69";
+    size="8.27,11.69" ratio="compress"
+    margin=0;
+    node                    [shape = circle];
+
+    METHOD;
+    TARGET;
+    VERSION;
+
+    REQ_LINE_CR;
+    REQ_LINE_CRLF;
+    
+    HEADER_NAME;
+    HEADER_VALUE;
+    
+    HEADER_LINE_CR;
+    HEADER_LINE_CRLF;
+    
+    HEADERS_ENDLINE_CR;
+    HEADERS_ENDLINE_CRLF    [shape = doublecircle];
+    
+    BODY                    [shape = doublecircle];
+    
+    
+    METHOD              -> METHOD               [label="CHAR\nmethod(c)"]
+    METHOD              -> TARGET               [label="SPACE\nmethod_end(c)"]
+            
+    TARGET              -> TARGET               [label="CHAR|DIGIT|SPECIAL\ntarget(c)"]
+    TARGET              -> VERSION              [label="SPACE\ntarget_end(c)"]
+            
+    VERSION             -> VERSION              [label="CHAR|DIGIT|SPECIAL\nversion(c)"]
+    VERSION             -> REQ_LINE_CR          [label="\\r\nversion_end(c)"]
+            
+    REQ_LINE_CR         -> REQ_LINE_CRLF        [label="\\n\nwait(c)"]
+            
+    REQ_LINE_CRLF       -> HEADERS_ENDLINE_CR   [label="\\r\nwait(c)"]
+    REQ_LINE_CRLF       -> HEADER_NAME          [label="CHAR\nheader_name(c)"]
+        
+    HEADER_NAME         -> HEADER_NAME          [label="CHAR\nheader_name(c)"]
+    HEADER_NAME         -> HEADER_VALUE         [label=":\nheader_name_end(c)"]
+            
+    HEADER_VALUE        -> HEADER_VALUE         [label="CHAR|DIGIT|SPECIAL|SPACE\nheader_value(c)"]
+    HEADER_VALUE        -> HEADER_LINE_CR       [label="\\r\nheader_value_end(c)"]
+            
+    HEADER_LINE_CR      -> HEADER_LINE_CRLF     [label="\\n\nwait(c)"]
+
+    HEADER_LINE_CRLF    -> HEADERS_ENDLINE_CR   [label="\\r\nwait(c)"]
+    HEADER_LINE_CRLF    -> HEADER_NAME          [label="CHAR\nheader_name(c)"]
+
+    HEADERS_ENDLINE_CR  -> HEADERS_ENDLINE_CRLF [label="\\n\nwait(c)"]
+
+    HEADERS_ENDLINE_CRLF -> BODY                [label="ANY\nbody(c)"]
+
+    BODY                -> BODY                 [label="ANY\nbody(c)"]
+}

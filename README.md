@@ -13,8 +13,8 @@ Este proyecto es un proxy HTTP/1.1 desarrollado para la cátedra de Protocolos d
 En este repositorio se pueden encontrar los siguientes elementos.
 
 - `src/`: Contiene los archivos de código fuente.
+- `docs/`: Contiene la documentación del proyecto, incluyendo el informe.
 - `Makefile`: Configuración de compilación para la herramienta [make](https://www.gnu.org/software/make/).
-- `Informe.pdf`: Informe detallado del proyecto.
 
 ## Instrucciones de compilación
 

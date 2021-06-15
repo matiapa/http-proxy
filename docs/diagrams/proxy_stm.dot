@@ -1,0 +1,49 @@
+digraph g {
+    //rankdir=LR;
+    //size= "8.27,11.69";
+    size="8.27,11.69" ratio="compress"
+    margin=0;
+    node                    [shape = circle];    
+    
+    REQUEST_READ -> REQUEST_READ            [label="Request parse pending."]
+    REQUEST_READ -> REQUEST_CONNECT         [label="Request parsed.\nInitiated connection to target"]
+
+    REQUEST_CONNECT -> REQUEST_FORWARD      [label="Completed connection to target.\nTraditional method."]
+    REQUEST_CONNECT -> CONNECT_RESPONSE     [label="Completed connection to target.\nConnect method."]
+
+    REQUEST_FORWARD -> REQUEST_FORWARD      [label="Remaining bytes to write"]
+    REQUEST_FORWARD -> RESPONSE_READ        [label="Request sending complete. No body."]
+    REQUEST_FORWARD -> REQ_BODY_READ        [label="Request sending complete. Body present and not read."]
+    REQUEST_FORWARD -> REQ_BODY_FORWARD     [label="Request sending complete. Body present and read."]
+
+    REQ_BODY_READ -> REQ_BODY_READ          [label="Remaining body bytes expected"]
+    REQ_BODY_READ -> REQ_BODY_FORWARD       [label="All bytes received or full read buffer"]
+
+    REQ_BODY_FORWARD -> REQ_BODY_FORWARD    [label="Remaining bytes to write"]
+    REQ_BODY_FORWARD -> REQ_BODY_READ       [label="Remaining body bytes expected"]
+    REQ_BODY_FORWARD -> RESPONSE_READ       [label="All body sent"]
+
+    // ---------------------------------------------------------------------------------------
+
+    RESPONSE_READ -> RESPONSE_READ          [label="Response parse pending"]
+    RESPONSE_READ -> RESPONSE_FORWARD       [label="Response parse complete"]
+
+    RESPONSE_FORWARD -> RESPONSE_FORWARD    [label="Remaining bytes to write"]
+    RESPONSE_FORWARD -> REQUEST_READ        [label="Response sent complete. No body."]
+    RESPONSE_FORWARD -> RES_BODY_READ       [label="Response sent complete. Body present and not read."]
+    RESPONSE_FORWARD -> RES_BODY_FORWARD    [label="Response sent complete. Body present and read."]
+
+    RES_BODY_READ -> RES_BODY_READ          [label="Remaining body bytes expected"]
+    RES_BODY_READ -> RES_BODY_FORWARD       [label="All bytes received or full read buffer"]
+
+    RES_BODY_FORWARD -> RES_BODY_FORWARD    [label="Remaining bytes to write"]
+    RES_BODY_FORWARD -> RES_BODY_READ       [label="Remaining body bytes expected"]
+    RES_BODY_FORWARD -> REQUEST_READ        [label="All body sent"]
+
+    // ---------------------------------------------------------------------------------------
+
+    CONNECT_RESPONSE -> CONNECT_RESPONSE    [label="Remaining bytes to write"]
+    CONNECT_RESPONSE -> TCP_TUNNEL          [label="Connect response sent"]
+
+    TCP_TUNNEL -> TCP_TUNNEL                [label="Any I/O event"]
+}

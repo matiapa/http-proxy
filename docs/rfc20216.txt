@@ -1,0 +1,375 @@
+
+Grupo 6                                                      Junio 2021
+
+Matías Apablaza 59714
+Inés Marcarian 60016
+Juan Ignacio Sackmann Sala 60340
+Alejandro Rolandelli 56644
+
+
+                           PROTOCOLO HINET
+
+
+1. Estado de este Memo
+
+El siguiente RFC describe el protocolo HINET y su correcta 
+implementación para llevar a cabo un cliente que interactue con el 
+servicio de management del proxy. La conexión con el servicio de 
+management se realiza a través de UDP en donde se debe mandar las 
+credenciales correctas para poder recibir una respuesta satisfactoria.
+
+
+
+                          Tabla de Contenidos
+
+1. Estado de este Memo                                                1
+2. Estructura del pedido                                              2
+    2.1. VERSION valores                                              2
+    2.2. TYPE valores                                                 2
+    2.3. METHOD valores                                               3
+        2.3.1. TYPE 0 - RETRIEVE                                      3
+        2.3.2. TYPE 1 - SET                                           3
+3. Estructura de la Respuesta                                         3
+    3.1. STATUS valores                                               4
+4. Formato del Body de Pedido                                         4
+    4.1. CHANGE MAX CLIENTS                                           4
+    4.2. CHANGE TIMEOUT                                               4
+    4.3. CHANGE FREQUENCY                                             5
+    4.4. DISECTOR ENABLE                                              5
+    4.5. CHANGE LOG LEVEL                                             5
+5. Formato del Body de Respuesta                                      6
+    5.1. ALL STATS - TOTAL CONNECTIONS, CURRENT CONNECTIONS,          6
+         TOTAL SENT, TOTAL RECEIVED                      
+    5.2. GET CONFIGURATION                                            6
+   
+    
+
+
+
+
+
+Postel [Page 1]
+
+
+RFC 20216                RFC Protocolo HINET                  Junio 2021
+
+
+2. Estructura del pedido
+
+0                         8 bits
++-------------------------+ 0
+|          VERSION        |
++-------------------------+ 1
+/        PASSPHRASE       /
+/                         /
++-------------------------+ 33
+/            ID           /
+/                         /
++--------+---------+------+ 35 
+|  TYPE  |  METHOD |   Z  |
++--------+---------+------+ 36
+/          LENGTH         /
+/                         /
++-------------------------+ 38
+
+donde:
+
+VERSION         Valor de 1 byte que especifica la versión del servicio.
+
+PASSPHRASE      Valor de 32 bytes utilizado como credencial para 
+                acceder al servicio.
+
+ID              Valor de 2 bytes asignado por la aplicación para
+                identificar la respuesta a su pedido.
+
+TYPE            Valor de 1 bit utilizado para especificar el tipo de
+                método solicitado.
+
+METHOD          Valor de 4 bits utilizado para especificar el método
+                que se está solicitando.
+                
+Z               Valor de 3 bits reservado para futuras implementaciones.
+
+LENGTH          Valor de 2 bytes utilizado para especificar el tamaño
+                del body.
+
+
+2.1. VERSION valores
+
+1               Versión actual del servicio.
+
+
+
+2.2 TYPE valores
+
+0               Método del tipo RETRIEVE, el cual retorna datos de 
+                configuración del proxy o datos estadísticos del proxy.
+
+1               Método del tipo SET, el cual recibe valores utilizados 
+                para modificar la configuración del proxy.
+
+
+
+Postel [Page 2]
+
+RFC 20216                RFC Protocolo HINET                 Junio 2021
+
+
+2.3. METHOD valores
+
+2.3.1. TYPE 0 - RETRIEVE
+
+0               El método que se pide es TOTAL CONNECTIONS. 
+
+1               El método que se pide es CURRENT CONNECTIONS. 
+
+2               El método que se pide es TOTAL SENT. 
+
+3               El método que se pide es TOTAL RECIEVED. 
+
+4               El método que se pide es ALL STATS. 
+
+5               El método que se pide es GET CONFIGURATION.             
+
+
+2.3.2. TYPE 1 - SET
+
+0               El método que se pide es CHANGE MAX CLIENTS.
+
+1               El método que se pide es CHANGE TIMEOUT.
+
+2               El método que se pide es CHANGE FREQUENCY.
+
+3               El método que se pide es DISECTOR ENABLE.
+
+4               El método que se pide es CHANGE LOG LEVEL.
+
+
+3. Estructura de la Respuesta
+
+0                             8 bits
++-----------------------------+ 0
+|            VERSION          |
++-----------------------------+ 1
+/              ID             /
+/                             /
++--------+------+-------------+ 3
+| STATUS | TYPE | METHOD  | Z |
++--------+------+-------------+ 4
+/            LENGTH           /
+/                             /
++-----------------------------+ 6
+
+donde:
+
+VERSION         Valor de 1 byte que especifica la versión del servicio.
+
+ID              Valor de 2 bytes asignado por la aplicación para 
+                identificar la respuesta a su pedido.
+
+STATUS          Valor de 2 bits utilizado para especificar el estado 
+                de la respuesta.
+
+Postel [Page 3]
+
+RFC 20216                RFC Protocolo HINET                 Junio 2021
+
+
+
+TYPE            Valor de 1 bit utilizado para especificar el tipo de
+                solicitud.
+
+METHOD          Valor de 4 bits utilizado para especificar el método
+                que se está solicitando.
+
+Z               Valor de 1 bit reservado para futuras implementaciones.
+
+LENGTH          Número de 2 bytes utilizado para especificar el tamaño 
+                del body.
+
+
+
+3.1. STATUS valores
+
+0               SUCCESS, el pedido salió con éxito.
+
+1               BAD REQUEST, el pedido no cumplía con los requisitos 
+                del protocolo.
+
+2               UNAUTHORIZED, las credenciales enviadas no están 
+                autorizadas por el servicio.
+
+3               Reservado para futuras implementaciones.
+
+
+
+4. Formato del Body de Pedido
+
+4.1. CHANGE MAX CLIENTS
+
+0                          10 bits
++--------------------------+
+|        MAX CLIENTS       |
++--------------------------+
+
+MAX CLIENTS         Valor de 10 bits que especifica la cantidad máxima 
+                    de file descriptores qué se pueden asignar. El valor 
+                    máximo aceptado es 1000. 
+
+
+4.2. CHANGE TIMEOUT
+
+0                                       2 bytes
++---------------------------------------+
+/             CLIENT TIMEOUT            /
+/                                       /
++---------------------------------------+
+
+CLIENT TIMEOUT      Valor de 4 bytes que especifica cuanto tiempo (en
+                    segundos)  puede un cliente estar inactivo. Para 
+                    desactivar esta funcionalidad enviar un -1. Por 
+                    defecto está en -1.
+
+
+Postel [Page 4]
+
+
+RFC 20216                RFC Protocolo HINET                 Junio 2021
+
+
+4.3. CHANGE FREQUENCY
+
+0                                       2 bytes
++---------------------------------------+
+/            STATS FREQUENCY            /
+/                                       /
++---------------------------------------+
+
+STATS FREQUENCY     Valor de 4 bytes que especifica la frequencia en la
+                    que se realizan las estadísticas. Para
+                    deshabilitarlo mandar un -1. Por defecto 3600 
+                    segundos.
+
+
+4.4. DISECTOR ENABLE
+
+0          1 bits
++----------+
+| DISECTOR |
++----------+
+
+DISECTOR            Valor de 1 bit el cual especifica si habilitar o
+                    deshabilitar la funcionalidad de disectors. Donde:
+                    0           DESHABILITAR
+                    1           ACTIVAR
+                    El valor es 1 por defecto.
+
+
+
+4.5. CHANGE LOG LEVEL
+
+0           4 bits
++-----------+
+| LOG LEVEL |
++-----------+
+
+LOG LEVEL           Valor de 4 bits que especifica el nivel de logeo. 
+                    Los posibles valores son:
+                    0           DEBUG
+                    1           INFO
+                    2           ERROR
+                    3           FATAL
+                    Por defecto el valor es 0.
+                    
+
+
+
+
+
+
+
+Postel [Page 5]
+
+
+RFC 20216                RFC Protocolo HINET                 Junio 2021
+
+
+5. Formato del Body de Respuesta
+
+5.1. ALL STATS - TOTAL CONNECTIONS, CURRENT CONNECTIONS, TOTAL SENT, 
+TOTAL RECEIVED
+
+0                           8 bytes
++---------------------------+
+|      TOTAL CONNECTIONS    |
++---------------------------+
+|    CURRENT CONNECTIONS    |
++---------------------------+
+|         TOTAL SENT        |
++---------------------------+
+|       TOTAL RECEIVED      |
++---------------------------+
+
+
+TOTAL CONNECTIONS       Cantidad total de conexiones históricas.
+
+CURRENT CONNECTIONS     Cantidad total de conexiones actuales.
+
+TOTAL SENT              Cantidad total de bytes enviados a través del
+                        proxy
+
+TOTAL RECIEVED          Cantidad total de bytes recibidos por el proxy.
+
+ALL STATS               Retorna todos los valores anteriores en el orden
+                        que se especifica en el cuadro.
+
+Notar que el cuadro es para el caso de ALL STATS, caso contrario se
+retorna solo el valor que fue pedido con el tamaño que se especifica en
+el cuadro.
+
+
+5.2. GET CONFIGURATION
+
+0                                       2 bytes
++---------------------------------------+
+/             CLIENT TIMEOUT            /
+/                                       /
++---------------------------------------+
+/            STATS FREQUENCY            /
+/                                       /
++-------------+----------+-----------+--+
+| MAX CLIENTS | DISECTOR | LOG LEVEL |  |
++-------------+----------+-----------+--+
+
+
+CLIENT TIMEOUT          Valor de 4 bytes que especifica la cantidad de 
+                        segundos que un cliente puede estar inactivo.
+
+STATS FREQUENCY         Valor de 4 bytes que especifica cada cuantos 
+                        segundos se realiza la copia de las estadísticas 
+                        del proxy al archivo 'stadistics.txt'.
+
+MAX CLIENTS             Valor de 10 bits que especifica la cantidad 
+                        máxima de file descriptors que se pueden 
+                        asignar. Por defecto el valor es 1000.
+
+Postel [Page 6]
+
+
+RFC 20216                RFC Protocolo HINET                 Junio 2021
+
+
+DISECTOR                Valor de 1 bit que especifica si activar el 
+                        disector del proxy donde:
+                        0               DESACTIVADO
+                        1               ACTIVADO
+
+LOG LEVEL               Valor de 2 bits que especifica el nivel de 
+                        logeo. Los posibles valores son:
+                        0               DEBUG
+                        1               INFO
+                        2               ERROR
+                        3               FATAL
+
+
+Postel [Page 7]
