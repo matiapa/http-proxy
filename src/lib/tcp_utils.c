@@ -30,12 +30,13 @@ int create_tcp_client(const char *host, const int port) {
 	addrCriteria.ai_socktype = SOCK_STREAM;
 	addrCriteria.ai_protocol = IPPROTO_TCP;
 
-    struct addrinfo * servAddr=NULL;
+    struct addrinfo * servAddr;
 
     int types[2] = {AF_INET, AF_INET6};
 
     int sock = -1;
     for (int i = 0; i < 2 && sock == -1; i++) {
+        servAddr = NULL;
 
         // Resolve host string for posible addresses
         int getaddr = doh_client(host, port, &servAddr, types[i]);
@@ -44,6 +45,8 @@ int create_tcp_client(const char *host, const int port) {
             log(ERROR, "doh_client() failed %s", gai_strerror(getaddr))
             return -1;
         }
+
+        if (servAddr == NULL) continue; // no hubieron resultados
 
         if (is_proxy_host(servAddr->ai_addr) && port == proxy_conf.proxyArgs.proxy_port) {
             return -3;
@@ -70,9 +73,7 @@ int create_tcp_client(const char *host, const int port) {
         }
 
         // Release address resource and return socket number
-        if(servAddr != NULL){
-            free(servAddr);
-        }
+        free(servAddr);
         
     }
 
