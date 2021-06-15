@@ -10,7 +10,7 @@
 
 static void version(void) {
     printf(
-            "client version 0.0\n"
+            "client version 1.0\n"
             "ITBA Protocolos de Comunicación 2021/1 -- Grupo 6\n"
     );
 }

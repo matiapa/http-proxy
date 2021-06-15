@@ -15,7 +15,7 @@
 
 #define BUFFER_SIZE 1024
 
-#define PASSWORD "quic"
+#define PASSWORD "QUIC"
 #define CURRENT_VERSION 1
 #define MASTER_SOCKET_SIZE 2
 

@@ -11,7 +11,7 @@
 static void
 version(void) {
     printf(
-        "httpd version 0.0\n"
+        "httpd version 1.0\n"
         "ITBA Protocolos de Comunicación 2021/1 -- Grupo 6\n"
     );
 }
