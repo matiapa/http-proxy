@@ -60,6 +60,13 @@ struct method5 {
     unsigned char logLevel :2;
 };
 
+struct method4 {
+    unsigned long total_connections;
+    unsigned long current_connections;
+    unsigned long total_sent;
+    unsigned long total_recieved;
+};
+
 int process_request(char * body, struct request_header * request_header, int udp_socket);
 
 void send_retrieve_response(struct request_header * request_header, int body_length, int udp_socket);
@@ -211,7 +218,8 @@ int process_request(char * body, struct request_header * req, int udp_socket) {
         get_statistics(&stats);
         int length = sizeof(long);
 
-        struct method5 method;
+        struct method5 method5;
+        struct method4 method4;
         switch (req->method) {
             case 0:
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
@@ -226,20 +234,21 @@ int process_request(char * body, struct request_header * req, int udp_socket) {
                 memcpy(res_buffer + sizeof(struct response_header), &stats.total_recieved, sizeof(long));
                 break;
             case 4:
-                memcpy(res_buffer + sizeof(struct response_header), &stats.total_connections, sizeof(long));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(long), &stats.current_connections, sizeof(int));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int) + sizeof(long), &stats.total_sent, sizeof(long));
-                memcpy(res_buffer + sizeof(struct response_header) + sizeof(int) + sizeof(long)*2, &stats.total_recieved, sizeof(long));
-                length *= 4;
+                method4.total_connections = stats.total_connections;
+                method4.current_connections = stats.current_connections;
+                method4.total_sent = stats.total_sent;
+                method4.total_recieved = stats.total_recieved;
+                length = sizeof(struct method4);
+                memcpy(res_buffer + sizeof(struct response_header), &method4, length);
                 break;
             case 5:
-                method.max_clients = proxy_conf.maxClients & 0x3FF;
-                method.timeout = proxy_conf.connectionTimeout;
-                method.frequency = proxy_conf.statisticsFrequency;
-                method.disectors_enabled = proxy_conf.disectorsEnabled & 0x1;
-                method.logLevel = proxy_conf.logLevel & 0x3;
+                method5.max_clients = proxy_conf.maxClients & 0x3FF;
+                method5.timeout = proxy_conf.connectionTimeout;
+                method5.frequency = proxy_conf.statisticsFrequency;
+                method5.disectors_enabled = proxy_conf.disectorsEnabled & 0x1;
+                method5.logLevel = proxy_conf.logLevel & 0x3;
                 length = sizeof(struct method5);
-                memcpy(res_buffer + sizeof(struct response_header), &method, length);
+                memcpy(res_buffer + sizeof(struct response_header), &method5, length);
                 break;
             default:
                 return REQ_BAD_REQUEST;

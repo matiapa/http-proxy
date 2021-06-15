@@ -10,10 +10,10 @@ extern long total_bytes_recieved;
 
 typedef struct statistics
 {
-    long total_connections;
-    int current_connections;
-    long total_sent;
-    long total_recieved;   
+    unsigned long total_connections;
+    unsigned int current_connections;
+    unsigned long total_sent;
+    unsigned long total_recieved;   
 } statistics;
 
 

@@ -78,10 +78,10 @@ void update(int signal_recv){
     time(&rawtime);
     timeinfo = localtime(&rawtime);
     fprintf(fptr,"time and date of last statistics backup: %s", asctime(timeinfo) );
-    fprintf(fptr,"Number of total connections since server start: %ld\n",global_total_connections);
+    fprintf(fptr,"Number of total connections since server start: %lu\n",global_total_connections);
     fprintf(fptr,"Number of current concurrent connections: %d\n",global_concurent_connections);
-    fprintf(fptr,"Number of total bytes sent since server start: %ld\n",total_bytes_sent);
-    fprintf(fptr,"Number of total bytes recieved since server start: %ld\n\n",total_bytes_recieved);
+    fprintf(fptr,"Number of total bytes sent since server start: %lu\n",total_bytes_sent);
+    fprintf(fptr,"Number of total bytes recieved since server start: %lu\n\n",total_bytes_recieved);
     fclose(fptr);
 
     alarm(proxy_conf.statisticsFrequency);
