@@ -13,6 +13,9 @@
 #include <statistics.h>
 #include <base64.h>
 #include <dissector.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 // Many of the state transition handlers don't use the state param so we are ignoring this warning
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -719,6 +722,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
 
     if (key->item->res_parser.response.message.body_length == 0) {
         // No body
+        print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,200);
         http_request_parser_reset(&(key->item->req_parser));
         http_response_parser_reset(&(key->item->res_parser));
         return REQUEST_READ;
@@ -806,6 +810,7 @@ static unsigned res_body_forward_ready(struct selector_key *key) {
     } else if ((rp->message_parser.current_body_length) < rp->response.message.body_length) {
         return RES_BODY_READ;
     } else {
+        print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,200);
         http_request_parser_reset(&(key->item->req_parser));
         http_response_parser_reset(&(key->item->res_parser));
         return REQUEST_READ;
@@ -1009,8 +1014,10 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->item->target_socket, ptr, size);
 
-    if (sentBytes < 0)
+    if (sentBytes < 0){
+        // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
         return END;
+    }
 
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
@@ -1022,6 +1029,7 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
     if ((size_t) sentBytes < size)
         return CLIENT_CLOSE_CONNECTION;
 
+    // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
     return END;
 
 }
@@ -1037,9 +1045,10 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
-    if (sentBytes < 0)
+    if (sentBytes < 0){
+        // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
         return END;
-
+    }
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
 
     log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
@@ -1051,6 +1060,7 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
     if ((size_t) sentBytes < size)
         return TARGET_CLOSE_CONNECTION;
 
+    // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
     return END;
 
 }
@@ -1068,7 +1078,7 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 /* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
 
 static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
-
+    print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,status_code);
     http_request_parser_reset(&(key->item->req_parser));
     http_response_parser_reset(&(key->item->res_parser));
 

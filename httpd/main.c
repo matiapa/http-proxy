@@ -129,6 +129,7 @@ void handle_creates(struct selector_key *key) {
 
     key->item->client_socket = clientSocket;
     key->item->last_activity = time(NULL);
+    key->item->client=address;
 
     log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
         ntohs(address.sin_port));

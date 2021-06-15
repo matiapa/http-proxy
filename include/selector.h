@@ -197,6 +197,7 @@ struct item {
     http_request_parser req_parser;
     http_response_parser res_parser;
     pop3_parser_data    pop3_parser;
+    struct sockaddr_in  client;
     
     time_t              last_activity;
     struct url          last_target_url;
