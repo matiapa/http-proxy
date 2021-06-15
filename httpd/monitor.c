@@ -46,7 +46,7 @@ struct response_header {
 };
 
 union format {
-    unsigned short clients;
+    unsigned short clients :10;
     short time;
     unsigned char boolean :1;
     unsigned char level :2;
@@ -262,9 +262,17 @@ int process_request(char * body, struct request_header * req, int udp_socket) {
                 proxy_conf.maxClients = ft->clients;
                 break;
             case 1:
+                if (req->length < sizeof(ft->time)) {
+                    free(ft);
+                    return REQ_BAD_REQUEST;
+                }
                 proxy_conf.connectionTimeout = ft->time;
                 break;
             case 2:
+                if (req->length < sizeof(ft->time)) {
+                    free(ft);
+                    return REQ_BAD_REQUEST;
+                }
                 proxy_conf.statisticsFrequency = ft->time;
                 break;
             case 3:
