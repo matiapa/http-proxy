@@ -34,15 +34,18 @@ Inicia los servicios de proxy y management.
 > httpd -h
 Usage: ./httpd [OPTION]...
 
-   -h               Imprime la ayuda y termina.
-   -l <proxy addr>  Dirección donde servirá el proxy.
-   -L <conf  addr>  Dirección donde servirá el servicio de management.
-   -p <proxy port>  Puerto entrante del proxy.
-   -o <conf port>   Puerto entrante sel servicio de management.
-   -N               Deshabilita los passwords disectors y termina.
-   -v               Imprime información sobre la versión versión y termina.
-
-   --doh-ip    <ip>    # HTTP Proxy
+   -h                   Imprime la ayuda y termina.
+   -l <proxy addr>      Dirección donde servirá el proxy.
+   -L <conf  addr>      Dirección donde servirá el servicio de management.
+   -p <proxy port>      Puerto entrante del proxy.
+   -o <conf port>       Puerto entrante sel servicio de management.
+   -N                   Deshabilita los passwords disectors y termina.
+   -v                   Imprime información sobre la versión versión y termina.
+   
+   --doh-ip    <ip>     Dirección del servidor DoH
+   --doh-port  <port>   Puerto del servidor DoH
+   --doh-host  <host>   Host del servidor DoH
+   --doh-path  <host>   Path del servidor DoH
 
 Este proyecto es un proxy HTTP/1.1 desarrollado para la cátedra de Protocolos de Comunicación del ITBA durante la cursada de 2021-1C.
 ```
