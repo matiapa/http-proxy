@@ -450,26 +450,18 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
     // Check if connection was successfull
 
     if (targetSocket == -1) {
-
         log_error("Failed to connect to target. Internal error");
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-
-    } else if (targetSocket == -2) {
-
-        log_error("Failed to connect to target. Target disconnected");
+    } else if (targetSocket == -2)
         return notify_error(key, GATEWAY_TIMEOUT, REQUEST_READ);
-
-    } else if (targetSocket == -3) {
-
-        log(INFO, "Rejected connection to proxy itself");
+    else if (targetSocket == -3)
         return notify_error(key, FORBIDDEN, REQUEST_READ);
-
-    }
+    else if (targetSocket == -4)
+        return notify_error(key, GATEWAY_TIMEOUT, REQUEST_READ);
 
     key->item->target_socket = targetSocket;
 
     // Update last connection
-
     http_request * request = &(key->item->req_parser.request);
     struct url url; parse_url(request->url, &url);
 
@@ -992,8 +984,6 @@ static unsigned error_write_ready(struct selector_key *key) {
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
-    log(ERROR, "Read %lu bytes from write buffer", (size_t) sentBytes);
-
     if (sentBytes < 0) {
         log(ERROR, "Failed to notify error to client");
         return END;
@@ -1157,7 +1147,7 @@ static unsigned process_request(struct selector_key * key) {
     // Check that target is not blacklisted
 
     if (strstr(proxy_conf.targetBlacklist, url.hostname) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", url.hostname);
+        log(INFO, "\x1b[1;31mRejected connection to %s due to target blacklist\x1b[1;0m", url.hostname);
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 

@@ -119,7 +119,7 @@ void * start_monitor(void * port) {
         if (sockets[0] == -1) {
             log(FATAL, "Creating server socket for ipv4: %s ", strerror(errno))
         }
-        log(INFO, "Server socket for Managment ipv4 created: %d ", sockets[0])
+        log(DEBUG, "Managment IPv4 socket created: %d ", sockets[0])
     }
 
     if (listen_addr->ai_family == AF_INET6 || listen_ipv_both) {
@@ -128,7 +128,7 @@ void * start_monitor(void * port) {
         if (sockets[1] == -1) {
             log(FATAL, "Creating server socket for ipv6: %s ", strerror(errno))
         }
-        log(INFO, "Server socket for Managment ipv6 created: %d ", sockets[1])
+        log(DEBUG, "Managment IPv6 socket created: %d ", sockets[1])
     }
     
     fd_set readfds;

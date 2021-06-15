@@ -46,11 +46,11 @@ int create_tcp_client(const char *host, const int port) {
             return -1;
         }
 
-        if (servAddr == NULL) continue; // no hubieron resultados
+        if (servAddr == NULL)
+            return -4;
 
-        if (is_proxy_host(servAddr->ai_addr) && port == proxy_conf.proxyArgs.proxy_port) {
+        if (is_proxy_host(servAddr->ai_addr) && port == proxy_conf.proxyArgs.proxy_port)
             return -3;
-        }
 
         // Try to connect to an address
 
@@ -59,14 +59,14 @@ int create_tcp_client(const char *host, const int port) {
             sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
             if (sock < 0){
                 sockaddr_print(addr->ai_addr, addrBuffer);
-                log(DEBUG, "Can't create client socket on %s", addrBuffer)
+                log(ERROR, "Can't create client socket on %s", addrBuffer)
                 continue;
             }
 
             int conn = connect(sock, addr->ai_addr, addr->ai_addrlen);
             if (conn != 0) {
                 sockaddr_print(addr->ai_addr, addrBuffer);
-                log(INFO, "can't connect to %s: %s", addrBuffer, strerror(errno))
+                log(ERROR, "Can't connect to %s: %s", addrBuffer, strerror(errno))
                 close(sock); // Socket connection failed; try next address
                 sock = -2;
             }
@@ -79,8 +79,6 @@ int create_tcp_client(const char *host, const int port) {
 
     if (sock < 0) {
         log(ERROR, "Connecting to target")
-    } else {
-        log(INFO, "Connected to target (DoH)")
     }
 
 	return sock;
@@ -100,7 +98,7 @@ void print_address(int servSock) {
     char addressBuffer[ADDR_BUFFER_SIZE];
     sockaddr_print((struct sockaddr *) &localAddr, addressBuffer);
 
-    log(INFO, "Binding to %s", addressBuffer);
+    log(INFO, "\x1b[1;4mTCP\x1b[0m: Binding to %s", addressBuffer);
 }
 
 
@@ -289,6 +287,6 @@ int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (str
 }
 
 void handle_close(struct selector_key * key) {
-    log(INFO, "Destroying item with client socket %d and target socket %d", key->item->client_socket, key->item->target_socket);
+    log(DEBUG, "Destroying item with client socket %d", key->item->client_socket);
     item_kill(key->s, key->item);
 }

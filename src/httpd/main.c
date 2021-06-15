@@ -37,6 +37,8 @@ int main(int argc, char **argv) {
 
     close(0);
 
+    log(INFO, "\x1b[1m\x1b[1;35mWelcome to HTTP Proxy!\x1b[0m");
+
     // Register handlers for closing program appropiately
 
     signal(SIGTERM, sigterm_handler);
@@ -131,11 +133,11 @@ void handle_creates(struct selector_key *key) {
     key->item->last_activity = time(NULL);
     key->item->client=address;
 
-    log(INFO, "New connection - FD: %d - IP: %s - Port: %d\n", clientSocket, inet_ntoa(address.sin_addr),
-        ntohs(address.sin_port));
+    log(INFO, "\x1b[1;32mAccepted client %s:%d (FD: %d)\n\x1b[1;0m", inet_ntoa(address.sin_addr),
+        ntohs(address.sin_port), clientSocket);
 
     if (strstr(proxy_conf.clientBlacklist, inet_ntoa(address.sin_addr)) != NULL) {
-        log(INFO, "Kicking %s due to blacklist", inet_ntoa(address.sin_addr));
+        log(INFO, "\x1b[1;31mRejecting %s due to client blacklist\x1b[1;0m", inet_ntoa(address.sin_addr));
         item_kill(key->s, key->item);
     }
 

@@ -170,17 +170,13 @@ void item_kill(fd_selector s, struct item * item) {
     struct sockaddr_in address;
     int addrlen = sizeof(struct sockaddr_in);
 
-    if (item->client_socket ==  s->fds[0].client_socket){
-        log(INFO, "Item kill Master socket\n");
-    } else {
-        if (getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen) != 0){
-            log(ERROR, "Doing getpeername %s", strerror(errno));
-        } else {
+    if (item->client_socket !=  s->fds[0].client_socket) {
+        if (getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen) == 0) {
             char * ip_str = inet_ntoa(address.sin_addr);
-            if (ip_str == NULL) {
+            if (ip_str == NULL)
                 return;
-            }
-            log(INFO, "Closed connection - Client: %d - Target: %d - IP: %s - Port: %d\n", item->client_socket, item->target_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+            log(INFO, "\x1b[1;33mDisconnected client: %s:%d (FD: %d)\n\x1b[1;0m", inet_ntoa(address.sin_addr),
+                ntohs(address.sin_port), item->client_socket);
         }
     }
     
@@ -468,11 +464,10 @@ static void handle_iteration(fd_selector s) {
 
         if(!ITEM_USED(item))
             continue;
-        // log(INFO, "%d last activity: %lu", item->client_socket, item->last_activity);
 
         int delta = time(NULL) - item->last_activity;
         if(proxy_conf.connectionTimeout > 0 && proxy_conf.connectionTimeout < delta){
-            log(INFO, "Kicking %d due to timeout", item->client_socket);
+            log(INFO, "\x1b[1;33mKicking %d due to timeout\x1b[1;0m", item->client_socket);
             item_kill(s, item);
         }
     }
@@ -661,8 +656,6 @@ selector_status selector_select(fd_selector s) {
     // log(DEBUG, "Exited pselect() with %d", fds);
 
     if(-1 == fds) {
-        log(ERROR, "pselect %s", strerror(errno));
-        perror("pselect");
         switch(errno) {
             case EAGAIN:
             case EINTR:
