@@ -841,6 +841,9 @@ static unsigned connect_response_ready(struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return CONNECT_RESPONSE;
 
+    memset(&(key->item->pop3_parser), 0, sizeof(pop3_parser_data));
+    pop3_parser_init(&(key->item->pop3_parser));
+
     return TCP_TUNNEL;
 
 }
@@ -890,25 +893,23 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
     struct buffer aux_buffer;
     memcpy(&aux_buffer, buffer, sizeof(struct buffer));
 
-    pop3_state state = pop3_parse(&aux_buffer, &(key->item->pop3_parser));
+    if (proxy_conf.disectorsEnabled) {
+        pop3_state state = pop3_parse(&aux_buffer, &(key->item->pop3_parser));
 
-    if (state == POP3_SUCCESS) {
-        if (key->item->pop3_parser.user[0]!= 0) {
-            log(DEBUG, "User: %s", key->item->pop3_parser.user);
+        if (state == POP3_SUCCESS) {
+            if (key->item->pop3_parser.user [0]!= 0 && key->item->pop3_parser.pass [0]!= 0) {
+                log(DEBUG, "User: %s", key->item->pop3_parser.user);
+                log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
+                print_credentials(
+                    POP3,key->item->last_target_url.hostname, key->item->last_target_url.port,
+                    key->item->pop3_parser.user, key->item->pop3_parser.pass
+                );
+                memset(key->item->pop3_parser.user, 0, MAX_USER_LENGTH);
+                memset(key->item->pop3_parser.pass, 0, MAX_PASS_LENGTH);
+            }      
+            
+            
         }
-        else{
-            pop3_parser_reset(&(key->item->pop3_parser));
-        }
-        if (key->item->pop3_parser.user [0]!= 0 && key->item->pop3_parser.pass [0]!= 0) {
-            log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
-            print_credentials(
-                POP3,key->item->last_target_url.hostname, key->item->last_target_url.port,
-                key->item->pop3_parser.user, key->item->pop3_parser.pass
-            );
-            pop3_parser_reset(&(key->item->pop3_parser));
-        }      
-        
-        
     }
 
     // Calculate statistics

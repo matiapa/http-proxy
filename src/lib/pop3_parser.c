@@ -13,9 +13,13 @@
 #define PARSE_BUFF_SIZE 1024
 
 enum states {
+    GREETING,
+    GREETING_CR,
     COMMAND,
     COMMAND_VAL,
     COMMAND_CR,
+    RESPONSE,
+    RESPONSE_CR,
     UNEXPECTED,
 };
 
@@ -73,6 +77,16 @@ static void error(struct parser_event *ret, const uint8_t c) {
 ///////////////////////////////////////////////////////////////////////////////
 // Transiciones
 
+static const struct parser_state_transition ST_GREETING [] =  {
+    {.when = '\r',                  .dest = GREETING_CR,                 .act1 = wait_msg,},
+    {.when = '\n',                  .dest = COMMAND,                     .act1 = wait_msg,},
+    {.when = ANY,                   .dest = GREETING,                    .act1 = wait_msg,},
+};
+
+static const struct parser_state_transition ST_GREETING_CR [] =  {
+    {.when = '\n',                  .dest = COMMAND,                     .act1 = wait_msg,},
+    {.when = ANY,                   .dest = UNEXPECTED,                  .act1 = error,},
+};
 static const struct parser_state_transition ST_COMMAND [] =  {
     {.when = TOKEN_ALPHA,           .dest = COMMAND,                       .act1 = command,},
     {.when = TOKEN_DIGIT,           .dest = COMMAND,                       .act1 = command,},
@@ -83,15 +97,25 @@ static const struct parser_state_transition ST_COMMAND [] =  {
 static const struct parser_state_transition ST_COMMAND_VAL [] =  {
     {.when = TOKEN_ALPHA,           .dest = COMMAND_VAL,                   .act1 = value,},
     {.when = '\r',                  .dest = COMMAND_CR,                    .act1 = val_end,},
-    {.when = '\n',                  .dest = COMMAND,                       .act1 = val_end,},
+    {.when = '\n',                  .dest = RESPONSE,                       .act1 = val_end,},
     {.when = ANY,                   .dest = UNEXPECTED,                    .act1 = error,},
 };
 
 static const struct parser_state_transition ST_COMMAND_CR[] =  {
-    {.when = '\n',                  .dest = COMMAND,                       .act1 = wait_msg,},
+    {.when = '\n',                  .dest = RESPONSE,                       .act1 = wait_msg,},
     {.when = ANY,                   .dest = UNEXPECTED,                    .act1 = error,},
 };
 
+static const struct parser_state_transition ST_RESPONSE [] =  {
+    {.when = '\r',                  .dest = RESPONSE_CR,                 .act1 = wait_msg,},
+    {.when = '\n',                  .dest = COMMAND,                     .act1 = wait_msg,},
+    {.when = ANY,                   .dest = RESPONSE,                    .act1 = wait_msg,},
+};
+
+static const struct parser_state_transition ST_RESPONSE_CR [] =  {
+    {.when = '\n',                  .dest = COMMAND,                     .act1 = wait_msg,},
+    {.when = ANY,                   .dest = UNEXPECTED,                  .act1 = error,},
+};
 static const struct parser_state_transition ST_UNEXPECTED [] =  {
     {.when = ANY,                   .dest = UNEXPECTED,                   .act1 = error,},
 };
@@ -100,26 +124,34 @@ static const struct parser_state_transition ST_UNEXPECTED [] =  {
 // Declaración formal
 
 static const struct parser_state_transition *states [] = {
+        ST_GREETING,
+        ST_GREETING_CR,
         ST_COMMAND,
         ST_COMMAND_VAL,
-        ST_UNEXPECTED,
         ST_COMMAND_CR,
+        ST_RESPONSE,
+        ST_RESPONSE_CR,
+        ST_UNEXPECTED,
 };
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
 static const size_t states_n [] = {
+        N(ST_GREETING),
+        N(ST_GREETING_CR),
         N(ST_COMMAND),
         N(ST_COMMAND_VAL),
+        N(ST_COMMAND_CR),
+        N(ST_RESPONSE),
+        N(ST_RESPONSE_CR),
         N(ST_UNEXPECTED),
-        N(ST_COMMAND_CR)
 };
 
 static struct parser_definition definition = {
         .states_count = N(states),
         .states       = states,
         .states_n     = states_n,
-        .start_state  = COMMAND,
+        .start_state  = GREETING,
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -139,10 +171,7 @@ void pop3_parser_init(pop3_parser_data * data){
 
 void pop3_parser_reset(pop3_parser_data * data){
     parser_reset(data->parser);
-    buffer_reset(&(data->popBuffer));
-    memset(data->user,0,sizeof((*data).user));
-    memset(data->pass,0,sizeof((*data).pass));
-    
+    buffer_reset(&(data->popBuffer));  
 }
 
 void pop3_parser_destroy(pop3_parser_data * data){
@@ -209,7 +238,7 @@ pop3_state pop3_parse(buffer * readBuffer, pop3_parser_data * data) {
 
             case UNEXPECTED_VALUE:
                 pop3_parser_reset(data);
-                return POP3_FAILED;
+                break;
 
             default:
                 log(ERROR, "Unexpected event type %u", e->type);

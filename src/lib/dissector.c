@@ -45,5 +45,7 @@ void print_Access(char * origin,int origin_port,char * target, methods method,in
     
 
     strftime(buf, 256, "%Y-%m-%dT%TZ", ptm);
-    printf("%s  A   %s  %d  %s  %s  %d\n",buf,origin,origin_port,methods_strings[method-1],target,status_code);
+    char * method_str = method > 0 ? methods_strings[method-1] : "??";
+    char * target_str = target[0] != 0 ? target : "??";
+    printf("%s  A   %s  %d  %s  %s  %d\n",buf,origin,origin_port,method_str,target_str,status_code);
 }
