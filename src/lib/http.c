@@ -74,6 +74,7 @@ int write_response(http_response * response, char * buffer, size_t space, bool w
     for (size_t i = 0; i < response->message.header_count; i++) {
         print("%s:%s\r\n", response->message.headers[i][0], response->message.headers[i][1])
     }
+    print("Content-Length: %lu\r\n", response->message.body_length)
     print("\r\n")
 
     if (write_body && response->message.body != NULL){
