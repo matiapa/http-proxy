@@ -487,6 +487,8 @@ static unsigned request_connect_block_ready(struct selector_key *key) {
 
         buffer_write_adv(&(key->item->write_buffer), written);
 
+        print_Access(inet_ntoa(key->item->client.sin_addr), ntohs(key->item->client.sin_port), key->item->req_parser.request.url, key->item->req_parser.request.method, 200);
+
         // Go to send response state
 
         return CONNECT_RESPONSE;
@@ -713,9 +715,9 @@ static unsigned response_forward_ready(struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return RESPONSE_FORWARD;
 
+       
     if (key->item->res_parser.response.message.body_length == 0) {
         // No body
-        print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,200);
         http_request_parser_reset(&(key->item->req_parser));
         http_response_parser_reset(&(key->item->res_parser));
         return REQUEST_READ;
@@ -729,6 +731,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
         // Body present, didn't read bytes
         return RES_BODY_READ;
     }
+    
 
 }
 
@@ -803,7 +806,6 @@ static unsigned res_body_forward_ready(struct selector_key *key) {
     } else if ((rp->message_parser.current_body_length) < rp->response.message.body_length) {
         return RES_BODY_READ;
     } else {
-        print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,200);
         http_request_parser_reset(&(key->item->req_parser));
         http_response_parser_reset(&(key->item->res_parser));
         return REQUEST_READ;
@@ -1014,7 +1016,6 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
     ssize_t sentBytes = write(key->item->target_socket, ptr, size);
 
     if (sentBytes < 0){
-        // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
         return END;
     }
 
@@ -1028,7 +1029,6 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
     if ((size_t) sentBytes < size)
         return CLIENT_CLOSE_CONNECTION;
 
-    // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
     return END;
 
 }
@@ -1045,7 +1045,6 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0){
-        // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
         return END;
     }
     buffer_read_adv(&(key->item->write_buffer), sentBytes);
@@ -1059,7 +1058,6 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
     if ((size_t) sentBytes < size)
         return TARGET_CLOSE_CONNECTION;
 
-    // print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->last_target_url.protocol,key->item->res_parser.error_code);
     return END;
 
 }
@@ -1344,6 +1342,9 @@ static unsigned process_response(struct selector_key * key) {
     if (parser_state == FAILED) {
         return notify_error(key, BAD_GATEWAY, REQUEST_READ);
     }
+
+    print_Access(inet_ntoa(key->item->client.sin_addr), ntohs(key->item->client.sin_port), key->item->req_parser.request.url, 
+    key->item->req_parser.request.method, key->item->res_parser.response.status);
 
     http_response * response = &(key->item->res_parser.response);
 
