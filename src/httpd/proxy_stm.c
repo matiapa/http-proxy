@@ -15,6 +15,7 @@
 #include <dissector.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <doh_client.h>
 #include <arpa/inet.h>
 
 // Many of the state transition handlers don't use the state param so we are ignoring this warning
@@ -170,7 +171,7 @@ static unsigned request_read_ready(struct selector_key *key);
 /* ------------------------------------------------------------
   Handles the completion of connection to target.
 ------------------------------------------------------------ */
-static unsigned request_connect_block_ready(struct selector_key *key);
+static unsigned request_connect_write_ready(struct selector_key *key);
 
 /* ------------------------------------------------------------
   Forwards HTTP requests to target.
@@ -219,6 +220,7 @@ static unsigned client_close_connection_arrival(const unsigned state, struct sel
   Sends last messages from target to client then closes connection
 ------------------------------------------------------------ */
 static unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key);
+
 /* ------------------------------------------------------------
   Trap state handler
 ------------------------------------------------------------ */
@@ -248,10 +250,9 @@ static unsigned process_request(struct selector_key * key);
 static void process_request_headers(http_request * req, char * target_host, char * proxy_host);
 
 /* ------------------------------------------------------------
-  Initiates a connection to target and returns next state.
-  This function must be executed on a new thread.
+  Initiates a connection to target and returns next state. (NIO)
 ------------------------------------------------------------ */
-static void * connect_target(void * arg);
+static int connect_target(struct selector_key * key, struct url * url);
 
 /* ------------------------------------------------------------
   Processes request headers and deposits user:password into raw authorization.
@@ -283,9 +284,9 @@ static const struct state_definition state_defs[] = {
     {
         .state            = REQUEST_CONNECT,
         .client_interest  = OP_NOOP,
-        .target_interest  = OP_NOOP,
+        .target_interest  = OP_WRITE,
         .description      = "REQUEST_CONNECT",
-        .on_block_ready   = request_connect_block_ready
+        .on_write_ready   = request_connect_write_ready
     },
     {
         .state            = REQUEST_FORWARD,
@@ -442,26 +443,13 @@ static unsigned request_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned request_connect_block_ready(struct selector_key *key) {
-    
-    #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
-    int targetSocket = (int) key->item->data;
+static unsigned request_connect_write_ready(struct selector_key *key) {
 
-    // Check if connection was successfull
-
-    if (targetSocket == -1) {
-        log_error("Failed to connect to target. Internal error");
-        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-    } else if (targetSocket == -2)
-        return notify_error(key, GATEWAY_TIMEOUT, REQUEST_READ);
-    else if (targetSocket == -3)
-        return notify_error(key, FORBIDDEN, REQUEST_READ);
-    else if (targetSocket == -4)
-        return notify_error(key, GATEWAY_TIMEOUT, REQUEST_READ);
-
-    key->item->target_socket = targetSocket;
+    // Connection was "established"
+    // TODO: Check how to check if failed
 
     // Update last connection
+
     http_request * request = &(key->item->req_parser.request);
     struct url url; parse_url(request->url, &url);
 
@@ -906,9 +894,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
                 );
                 memset(key->item->pop3_parser.user, 0, MAX_USER_LENGTH);
                 memset(key->item->pop3_parser.pass, 0, MAX_PASS_LENGTH);
-            }      
-            
-            
+            }            
         }
     }
 
@@ -1150,23 +1136,9 @@ static unsigned process_request(struct selector_key * key) {
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 
-    // Establish connection to target on a separate thread
+    // Establish connection to target
 
-    struct selector_key * k = malloc(sizeof(*key));
-    if (k == NULL) {
-        log(ERROR, "Failed to allocate memory");
-        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-    }
-
-    memcpy(k, key, sizeof(*k));
-
-    pthread_t tid;
-    if (pthread_create(&tid, 0, connect_target, k) != 0) {
-        log(ERROR, "Failed to create thread for connecting to target");
-        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-    }
-
-    return REQUEST_CONNECT;
+    return connect_target(key, &url);
     
 }
 
@@ -1304,25 +1276,89 @@ static int extract_http_credentials(http_request * request) {
 }
 
 
-static void * connect_target(void * arg) {
+#define ADDR_BUFFER_SIZE 1024
 
-    pthread_detach(pthread_self());
 
-    struct selector_key * key = (struct selector_key *) arg;
-    struct url url; parse_url(key->item->req_parser.request.url, &url);
+static int connect_target(struct selector_key * key, struct url * url) {
 
-    // Open connection with target
+    char addrBuffer[ADDR_BUFFER_SIZE];
 
-    int targetSocket = create_tcp_client(url.hostname, url.port);
+    struct addrinfo * servAddr;
+    int error = -1;
 
-    // Notify blocking job finished
+    int types[2] = {AF_INET, AF_INET6};
 
-    key->item->data = (void *) targetSocket;
-    selector_notify_block(key->s, key->item->client_socket);
+    int sock = -1;
+    for (int i = 0; i < 2 && sock == -1; i++) {
+        servAddr = NULL;
 
-    free(key);
+        // Resolve host string for posible addresses
 
-    return NULL;
+        int getaddr = doh_client(url->hostname, url->port, &servAddr, types[i]);
+        
+        if (getaddr != 0) {
+            log(ERROR, "DoH client failed %s", gai_strerror(getaddr))
+            error = INTERNAL_SERVER_ERROR;
+            goto finally;
+        }
+
+        if (servAddr == NULL) {
+            log(ERROR, "DoH server timeout %s", gai_strerror(getaddr))
+            error = GATEWAY_TIMEOUT;
+            goto finally;
+        }
+
+        if (is_proxy_host(servAddr->ai_addr) && url->port == proxy_conf.proxyArgs.proxy_port) {
+            log(INFO, "Prevented proxy loop")
+            error = FORBIDDEN;
+            goto finally;
+        }
+
+        // Try to connect to an address
+
+        sock = -1;
+        for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+            sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+            
+            selector_fd_set_nio(sock); // TODO: Handle error here
+
+            if (sock < 0){
+                sockaddr_print(addr->ai_addr, addrBuffer);
+                log(DEBUG, "Can't create client socket on %s", addrBuffer)
+                continue;
+            }
+
+            if (connect(sock, addr->ai_addr, addr->ai_addrlen) == -1) {
+                if(errno != EINPROGRESS) {
+                    sockaddr_print(addr->ai_addr, addrBuffer);
+                    log(ERROR, "Can't connect to %s: %s", addrBuffer, strerror(errno))
+                    error = GATEWAY_TIMEOUT;
+                }
+                goto finally;
+            } else {
+                abort();    // Such a thing can't happen!
+            }
+        }
+
+    }
+
+    // Release address resource and return socket number
+
+finally:
+    free(servAddr);
+    if (error > 0) {
+        if (sock != -1)
+            close(sock);
+        return notify_error(key, error, REQUEST_READ);
+    }
+
+    if (sock < 0) {
+        log(ERROR, "Connecting to target")
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    } else {
+        key->item->target_socket = sock;
+        return REQUEST_CONNECT;
+    }
 
 }
 
