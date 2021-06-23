@@ -1,17 +1,12 @@
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <unistd.h>
-#include <errno.h>
 #include <logger.h>
-#include <udp_utils.h>
 #include <strings.h>
 #include <config.h>
 #include <monitor.h>
 #include <statistics.h>
-#include <arpa/inet.h>
-#include <sys/select.h>
+#include <selector.h>
 
 #define BUFFER_SIZE 1024
 
@@ -77,10 +72,8 @@ void send_no_authorization_message(struct request_header * req, int udp_socket);
 
 void send_error(int status, int udp_socket);
 
-void set_variable(char * command, char * response);
-
 Config proxy_conf = {
-    .maxClients = 1000,
+    .maxClients = 512,
     .connectionTimeout = -1,
     .statisticsFrequency = 3600,
 
@@ -101,93 +94,29 @@ char res_buffer[BUFFER_SIZE];
 
 struct sockaddr_storage clientAddress;
 socklen_t clientAddressSize = sizeof(clientAddress);
-int sockets[MASTER_SOCKET_SIZE];
-int master_sockets_size = 0;
 
-
-void * start_monitor(void * port) {
-
-    bool listen_ipv_both = false;
-    if (proxy_conf.proxyArgs.mng_addr == NULL) {
-        proxy_conf.proxyArgs.mng_addr = "127.0.0.1";
-        listen_ipv_both = true;
-    }
-
-    struct addrinfo hint = { .ai_family = PF_UNSPEC, .ai_flags = AI_NUMERICHOST};
-    struct addrinfo * listen_addr;
-    if (getaddrinfo(proxy_conf.proxyArgs.mng_addr, NULL, &hint, &listen_addr)) {
-        log(ERROR, "Invalid manager address");
-        exit(EXIT_FAILURE);
-    }
-
-    if (listen_addr->ai_family == AF_INET || listen_ipv_both) {
-        // Creo el socket para ipv4
-        sockets[master_sockets_size++] = create_udp_server(proxy_conf.proxyArgs.mng_addr, port);
-        if (sockets[0] == -1) {
-            log(FATAL, "Creating server socket for ipv4: %s ", strerror(errno))
-        }
-        log(DEBUG, "Managment IPv4 socket created: %d ", sockets[0])
-    }
-
-    if (listen_addr->ai_family == AF_INET6 || listen_ipv_both) {
-        // Creo el socket para ipv6
-        sockets[master_sockets_size++] = create_udp6_server(proxy_conf.proxyArgs.mng_addr, port);
-        if (sockets[1] == -1) {
-            log(FATAL, "Creating server socket for ipv6: %s ", strerror(errno))
-        }
-        log(DEBUG, "Managment IPv6 socket created: %d ", sockets[1])
-    }
+void handle_read_monitor(struct selector_key * key) {
+    int n = recvfrom(key->item->client_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&clientAddress, &clientAddressSize);
     
-    fd_set readfds;
-    ssize_t n;
-    int max_fd;
-    while(1) {
-        FD_ZERO(&readfds);
-        memset(req_buffer, 0, BUFFER_SIZE);
-        memset(res_buffer, 0, BUFFER_SIZE);
+    if (n < 0) { // si hubo un error
+        log(ERROR, "Receiving request from client")
+    }
 
-        max_fd = 0;
-        for (int i = 0; i < master_sockets_size; i++) {
-            FD_SET(sockets[i], &readfds);
-            max_fd = max_fd > sockets[i] ? max_fd : sockets[i];
+    if (n > 0) { // puede que no haya leido nada y no sea un error
+        struct request_header *request_header = calloc(1, sizeof(struct request_header));
+        if (request_header == NULL)
+            log(ERROR, "Doing calloc of request_header")
+
+        memcpy(request_header, req_buffer, sizeof(struct request_header)); //-V512
+
+        if (!validate_client((char *)request_header->pass)){
+            send_no_authorization_message(request_header, key->item->client_socket);
+        } else {
+            int status = process_request(req_buffer + sizeof(struct request_header), request_header, key->item->client_socket);
+            if (status != REQ_SUCCESS)
+                send_error(status, key->item->client_socket);
         }
-
-        int fds = pselect(max_fd + 1, &readfds, NULL, 0, NULL, NULL);
-        if (fds == -1) {
-            log(ERROR, "Exiting pselect")
-            continue;
-        }
-
-        for (int i = 0; i < master_sockets_size; i++) {
-
-            if (!FD_ISSET(sockets[i], &readfds)) {
-                continue;
-            }
-
-            n = recvfrom(sockets[i], req_buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &clientAddressSize);
-            if (n < 0) { // si hubo un error
-                log(ERROR, "Receiving request from client")
-            }
-
-            if (n > 0) { // puede que no haya leido nada y no sea un error
-                struct request_header * request_header = calloc(1, sizeof(struct request_header));
-                if (request_header == NULL) {
-                    log(ERROR, "Doing calloc of request_header")
-                    break;
-                }
-
-                memcpy(request_header, req_buffer, sizeof(struct request_header)); //-V512
-
-                if (!validate_client((char *)request_header->pass)) {
-                    send_no_authorization_message(request_header, sockets[i]);
-                } else {
-                    int status = process_request(req_buffer + sizeof(struct request_header), request_header, sockets[i]);
-                    if (status != REQ_SUCCESS)
-                        send_error(status, sockets[i]);
-                }
-                free(request_header);
-            }
-        }
+        free(request_header);
     }
 }
 

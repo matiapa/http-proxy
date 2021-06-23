@@ -3,6 +3,8 @@
 
 #include <selector.h>
 
-_Noreturn void * start_monitor(void * port);
+void * start_monitor(void * port);
+
+void handle_read_monitor(struct selector_key *key);
 
 #endif 

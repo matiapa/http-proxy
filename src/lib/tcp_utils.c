@@ -145,7 +145,7 @@ int create_tcp6_server(const char *ip, const char *port) {
 
 }
 
-int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (struct selector_key *key)) {
+int handle_connections(int master_sockets[MASTER_SOCKET_SIZE], int udp_sockets[MASTER_SOCKET_SIZE], void (*handle_creates) (struct selector_key *key)) {
 
     // Initialize selector library
 
@@ -183,7 +183,6 @@ int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (str
 
     selector_status ss = SELECTOR_SUCCESS;
 
-    int master_sockets[MASTER_SOCKET_SIZE] = {sock_ipv4, sock_ipv6};
     for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
         if (master_sockets[i] != -1) {
             if (selector_fd_set_nio(master_sockets[i]) == -1){
@@ -195,6 +194,24 @@ int handle_connections(int sock_ipv4, int sock_ipv6, void (*handle_creates) (str
 
             if (ss != SELECTOR_SUCCESS) {
                 log(ERROR, "Registering master socket on selector");
+                selector_destroy(selector_fd);
+                selector_close();
+                return -1;
+            }
+        }
+    }
+
+    for (int i = 0; i < UDP_SOCKET_SIZE; i++) {
+        if (udp_sockets[i] != -1) {
+            if (selector_fd_set_nio(udp_sockets[i]) == -1){
+                log(ERROR, "Setting master socket flags")
+                return -1;
+            }
+
+            ss = selector_udp_register(selector_fd, udp_sockets[i], OP_READ, NULL);
+
+            if (ss != SELECTOR_SUCCESS) {
+                log(ERROR, "Registering master socket on selector")
                 selector_destroy(selector_fd);
                 selector_close();
                 return -1;

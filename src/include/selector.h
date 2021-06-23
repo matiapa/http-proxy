@@ -15,6 +15,7 @@
 #include <doh_client.h>
 
 #define MASTER_SOCKET_SIZE 2
+#define UDP_SOCKET_SIZE 2
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -148,12 +149,15 @@ selector_update_fdset(fd_selector s, const struct item * item);
 selector_status
 selector_register(fd_selector s, const int fd, const fd_interest interest, void *data);
 
-/**
+selector_status 
+selector_udp_register(fd_selector s, const int fd, const fd_interest interest, void *data);
+
+    /**
  * desregistra un file descriptor del selector
  */
-selector_status
-selector_unregister_fd(fd_selector   s,
-                       const int     fd);
+    selector_status
+    selector_unregister_fd(fd_selector s,
+                           const int fd);
 
 /** permite cambiar los intereses para un file descriptor */
 selector_status
@@ -218,6 +222,9 @@ struct fdselector {
 
     struct item     *masters[2];
     size_t          master_size;
+
+    struct item     *udps[2];
+    size_t          udp_size;
 
     /** fd maximo para usar en select() */
     int max_fd;  // max(.fds[].fd)

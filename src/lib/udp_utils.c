@@ -17,8 +17,7 @@
 
 #define ADDR_BUFF_SIZE 128
 
-int create_udp_server(const char *ip, const char *port)
-{
+int create_udp_server(const char *ip, unsigned short port) {
 
     struct addrinfo addrCriteria;
     memset(&addrCriteria, 0, sizeof(addrCriteria));
@@ -42,15 +41,14 @@ int create_udp_server(const char *ip, const char *port)
     struct timeval timeout;
     timeout.tv_sec = 10;
     timeout.tv_usec = 0;
-    if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0)
-    {
+    if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0){
         log(ERROR, "set IPv4 socket options SO_REUSEADDR failed %s ", strerror(errno));
         return -1;
     }
 
     memset(&serveraddr, 0, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
-    serveraddr.sin_port = htons(atoi(port));
+    serveraddr.sin_port = htons(port);
 
     inet_pton(serveraddr.sin_family, ip, &serveraddr.sin_addr.s_addr);
 
@@ -77,13 +75,12 @@ int create_udp_server(const char *ip, const char *port)
     char addressBuffer[ADDR_BUFF_SIZE];
     sockaddr_print((struct sockaddr *)&localAddr, addressBuffer);
 
-    log(INFO, "\x1b[1;4mUDP\x1b[0m: Binding to %s", addressBuffer);
+    log(INFO, "UDP: Binding to %s", addressBuffer);
 
     return servSock;
 }
 
-int create_udp6_server(const char *ip, const char *port)
-{
+int create_udp6_server(const char *ip, unsigned short port) {
 
     // Create address criteria
 
@@ -100,8 +97,7 @@ int create_udp6_server(const char *ip, const char *port)
     int servSock = -1;
     struct sockaddr_in6 server6addr;
     servSock = socket(addrCriteria.ai_family, addrCriteria.ai_socktype, addrCriteria.ai_protocol);
-    if (servSock < 0)
-    {
+    if (servSock < 0) {
         log(ERROR, "Creating passive socket");
         return -1;
     }
@@ -112,17 +108,14 @@ int create_udp6_server(const char *ip, const char *port)
     timeout.tv_usec = 0;
 
     if (setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0)
-    {
         log(ERROR, "set IPv6 socket options SO_REUSEADDR failed %s ", strerror(errno));
-    }
+    
     if (setsockopt(servSock, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&timeout, sizeof(int)) < 0)
-    {
         log(ERROR, "set IPv6 socket options IPV6_V6ONLY failed %s ", strerror(errno));
-    }
 
     memset(&server6addr, 0, sizeof(server6addr));
     server6addr.sin6_family = AF_INET6;
-    server6addr.sin6_port = htons(atoi(port));
+    server6addr.sin6_port = htons(port);
 
     inet_pton(server6addr.sin6_family, ip, &server6addr.sin6_addr);
 
@@ -147,7 +140,7 @@ int create_udp6_server(const char *ip, const char *port)
     char addressBuffer[ADDR_BUFF_SIZE];
     sockaddr_print((struct sockaddr *)&localAddr, addressBuffer);
 
-    log(INFO, "\x1b[1;4mUDP\x1b[0m: Binding to %s", addressBuffer);
+    log(INFO, "UDP: Binding to %s", addressBuffer);
 
     return servSock;
 }

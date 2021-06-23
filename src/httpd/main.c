@@ -12,6 +12,7 @@
 #include <http_request_parser.h>
 #include <http_response_parser.h>
 #include <proxy_stm.h>
+#include <udp_utils.h>
 
 void handle_creates(struct selector_key *key);
 
@@ -37,7 +38,7 @@ int main(int argc, char **argv) {
 
     close(0);
 
-    log(INFO, "\x1b[1m\x1b[1;35mWelcome to HTTP Proxy!\x1b[0m");
+    log(INFO, "Welcome to HTTP Proxy!");
 
     // Register handlers for closing program appropiately
 
@@ -49,65 +50,101 @@ int main(int argc, char **argv) {
 
     config_doh_client(&(args.doh));
 
-    // Start monitor on another thread
-
-    char mng_port[6] = {0};
-    snprintf(mng_port, 6, "%d", args.mng_port);
-
-    pthread_create(&thread_monitor, NULL, start_monitor, mng_port);
-
     // Initialize
 
     initialize_statistics();
 
     // Start accepting connections
 
-    bool listen_ipv_both = false;
+    int master_sockets[MASTER_SOCKET_SIZE] = {-1, -1};
+    int i = 0;
+    char *ipv4_addr, *ipv6_addr;
     if (args.proxy_addr == NULL) {
-        args.proxy_addr = "0.0.0.0";
-        listen_ipv_both = true;
-    }
-
-    struct addrinfo hint = { .ai_family = PF_UNSPEC, .ai_flags = AI_NUMERICHOST};
-    struct addrinfo * listen_addr;
-    if (getaddrinfo(args.proxy_addr, NULL, &hint, &listen_addr)) {
-        log(ERROR, "Invalid proxy address");
-        exit(EXIT_FAILURE);
+        ipv4_addr = "0.0.0.0";
+        ipv6_addr = "::0";
+    } else {
+        struct addrinfo hint = { .ai_family = PF_UNSPEC, .ai_flags = AI_NUMERICHOST};
+        struct addrinfo * listen_addr;
+        if (getaddrinfo(args.proxy_addr, NULL, &hint, &listen_addr)) {
+            log(ERROR, "Invalid proxy address");
+            exit(EXIT_FAILURE);
+        }
+        ipv4_addr = listen_addr->ai_family == AF_INET ? args.proxy_addr : NULL;
+        ipv6_addr = listen_addr->ai_family == AF_INET6 ? args.proxy_addr : NULL;
     }
 
     char proxy_port[6] = {0};
     snprintf(proxy_port, 6, "%d", args.proxy_port);
-      
-    int sock_ipv4 = -1, sock_ipv6 = -1;
 
-    if (listen_addr->ai_family == AF_INET || listen_ipv_both) {
-        sock_ipv4 = create_tcp_server(args.proxy_addr, proxy_port);
-        if(sock_ipv4 < 0) {
+    if (ipv4_addr != NULL) {
+        master_sockets[i] = create_tcp_server(ipv4_addr, proxy_port);
+        if(master_sockets[i] < 0) {
             log(ERROR, "Creating passive socket ipv4");
+            exit(EXIT_FAILURE);
+        }
+        i++;
+    }
+
+    if (ipv6_addr != NULL) {
+        master_sockets[i] = create_tcp6_server(ipv6_addr, proxy_port);
+        if(master_sockets[i] < 0) {
+            log(ERROR, "Creating passive socket ipv6");
             exit(EXIT_FAILURE);
         }
     }
 
-    if (listen_addr->ai_family == AF_INET6 || listen_ipv_both) {
-        sock_ipv6 = create_tcp6_server(args.proxy_addr, proxy_port);
-        if(sock_ipv6 < 0) {
+    // Start monitor
+
+    int udp_sockets[MASTER_SOCKET_SIZE] = {-1, -1};
+    i = 0;
+    ipv4_addr = NULL;
+    ipv6_addr = NULL;
+    if (args.mng_addr == NULL) {
+        ipv4_addr = "127.0.0.1";
+        ipv6_addr = "::1";
+    } else {
+        struct addrinfo hint = { .ai_family = PF_UNSPEC, .ai_flags = AI_NUMERICHOST};
+        struct addrinfo * listen_addr;
+        if (getaddrinfo(args.mng_addr, NULL, &hint, &listen_addr)) {
+            log(ERROR, "Invalid proxy address");
+            exit(EXIT_FAILURE);
+        }
+        ipv4_addr = listen_addr->ai_family == AF_INET ? args.proxy_addr : NULL;
+        ipv6_addr = listen_addr->ai_family == AF_INET6 ? args.proxy_addr : NULL;
+    }
+
+    if (ipv4_addr != NULL) {
+        udp_sockets[i] = create_udp_server(ipv4_addr, proxy_conf.proxyArgs.mng_port);
+        if (udp_sockets[i] < 0) {
+            log(ERROR, "Creating passive socket ipv4");
+            exit(EXIT_FAILURE);
+        }
+        i++;
+    }
+
+    if (ipv6_addr != NULL) {
+        udp_sockets[i] = create_udp6_server(ipv6_addr, proxy_conf.proxyArgs.mng_port);
+        if (udp_sockets[i] < 0) {
             log(ERROR, "Creating passive socket ipv6");
             exit(EXIT_FAILURE);
         }
     }
 
     // Start handling connections
-
-    int res = handle_connections(sock_ipv4, sock_ipv6, handle_creates);
+    int res = handle_connections(master_sockets, udp_sockets, handle_creates);
     if(res < 0) {
         log(ERROR, "Handling connections");
-        close(sock_ipv4);
-        close(sock_ipv6);
+        close(master_sockets[0]);
+        close(master_sockets[1]);
+        close(udp_sockets[0]);
+        close(udp_sockets[1]);
         exit(EXIT_FAILURE);
     }
 
-    close(sock_ipv4);
-    close(sock_ipv6);
+    close(master_sockets[0]);
+    close(master_sockets[1]);
+    close(udp_sockets[0]);
+    close(udp_sockets[1]);
 
     return EXIT_SUCCESS;
     
@@ -133,11 +170,11 @@ void handle_creates(struct selector_key *key) {
     key->item->last_activity = time(NULL);
     key->item->client=address;
 
-    log(INFO, "\x1b[1;32mAccepted client %s:%d (FD: %d)\n\x1b[1;0m", inet_ntoa(address.sin_addr),
+    log(INFO, "Accepted client %s:%d (FD: %d)", inet_ntoa(address.sin_addr),
         ntohs(address.sin_port), clientSocket);
 
     if (strstr(proxy_conf.clientBlacklist, inet_ntoa(address.sin_addr)) != NULL) {
-        log(INFO, "\x1b[1;31mRejecting %s due to client blacklist\x1b[1;0m", inet_ntoa(address.sin_addr));
+        log(INFO, "Rejecting %s due to client blacklist", inet_ntoa(address.sin_addr));
         item_kill(key->s, key->item);
     }
 

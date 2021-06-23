@@ -18,6 +18,7 @@
 #include <logger.h>
 #include <config.h>
 #include <statistics.h>
+#include <monitor.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -413,6 +414,50 @@ finally:
 
 }
 
+selector_status selector_udp_register(fd_selector s, const int fd, const fd_interest interest, void *data) {
+                         
+    selector_status ret = SELECTOR_SUCCESS;
+
+    if (s == NULL || INVALID_FD(fd)) {
+        ret = SELECTOR_IARGS;
+        goto finally;
+    }
+
+    for (int i = MASTER_SOCKET_SIZE; i < MASTER_SOCKET_SIZE + UDP_SOCKET_SIZE; i++) {
+        struct item * item = s->fds + i;
+        if (ITEM_USED(item)) {
+            ret = SELECTOR_FDINUSE;
+            continue;
+        } else {
+            item->client_socket   = fd;
+            item->client_interest = interest;
+            item->data   = data;
+
+            log(DEBUG, "Registered socket %d with interests %d", fd, interest);
+
+            if (fd > s->max_fd)
+                s->max_fd = fd;
+
+            FD_CLR(item->client_socket, &(s->master_r));
+            FD_CLR(item->client_socket, &(s->master_w));
+
+            if(item->client_interest & OP_READ)
+                FD_SET(item->client_socket, &(s->master_r));
+
+            if(item->client_interest & OP_WRITE)
+                FD_SET(item->client_socket, &(s->master_w));
+
+            ret = SELECTOR_SUCCESS;
+            s->udps[s->udp_size++] = item;
+            goto finally;
+        }
+    }
+
+finally:
+    return ret;
+
+}
+
 
 /***************************************************************
   Unregisters a fd, in the proxy case, the passive socket
@@ -459,7 +504,7 @@ static void handle_iteration(fd_selector s) {
 
     // Check for item timeouts
 
-    for (size_t i = 1; i < proxy_conf.maxClients; i++) {
+    for (size_t i = MASTER_SOCKET_SIZE + UDP_SOCKET_SIZE; i < proxy_conf.maxClients; i++) {
         struct item * item = s->fds + i;
 
         if(!ITEM_USED(item))
@@ -467,7 +512,7 @@ static void handle_iteration(fd_selector s) {
 
         int delta = time(NULL) - item->last_activity;
         if(proxy_conf.connectionTimeout > 0 && proxy_conf.connectionTimeout < delta){
-            log(INFO, "\x1b[1;33mKicking %d due to timeout\x1b[1;0m", item->client_socket);
+            log(INFO, "Kicking %d due to timeout", item->client_socket);
             item_kill(s, item);
         }
     }
@@ -500,11 +545,21 @@ static void handle_iteration(fd_selector s) {
         }
     }
 
+    flag = 0;
+    for (size_t i = 0; i < s->udp_size && !flag; i++) {
+        if (FD_ISSET(s->udps[i]->client_socket, &s->slave_r)) {
+            key.item = s->udps[i];
+            handle_read_monitor(&key);
+            selector_update_fdset(s, s->udps[i]);
+            flag = 1;
+        }
+    }
+
     if (!flag) {
 
         // A client/target demands attention
 
-        for (int i = MASTER_SOCKET_SIZE; i <= n; i++) {
+        for (int i = MASTER_SOCKET_SIZE + UDP_SOCKET_SIZE; i <= n; i++) {
             struct item *item = s->fds + i;
             key.item = item;
 
