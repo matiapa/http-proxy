@@ -29,7 +29,7 @@ void print_address(int servSock) {
     char addressBuffer[ADDR_BUFFER_SIZE];
     sockaddr_print((struct sockaddr *) &localAddr, addressBuffer);
 
-    log(INFO, "\x1b[1;4mTCP\x1b[0m: Binding to %s", addressBuffer);
+    log(INFO, "TCP: Binding to %s", addressBuffer);
 }
 
 

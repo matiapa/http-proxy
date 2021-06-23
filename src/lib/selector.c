@@ -176,7 +176,7 @@ void item_kill(fd_selector s, struct item * item) {
             char * ip_str = inet_ntoa(address.sin_addr);
             if (ip_str == NULL)
                 return;
-            log(INFO, "\x1b[1;33mDisconnected client: %s:%d (FD: %d)\n\x1b[1;0m", inet_ntoa(address.sin_addr),
+            log(INFO, "Disconnected client: %s:%d (FD: %d)", inet_ntoa(address.sin_addr),
                 ntohs(address.sin_port), item->client_socket);
         }
     }

@@ -207,11 +207,11 @@ void process_response(struct response_header * res) {
                 reset();
                 printf("%d\n", results->timeout);
                 cyan();
-                printf("- Total Enviados: ");
+                printf("- Frecuencia de estadística: ");
                 reset();
                 printf("%d\n", results->frequency);
                 cyan();
-                printf("- Total Recibidos: ");
+                printf("- Disectores habilitados: ");
                 reset();
                 printf("%s\n", results->disectors_enabled == 0 ? "FALSE" : "TRUE");
                 cyan();

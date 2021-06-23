@@ -62,6 +62,7 @@ int write_response(http_response * response, char * buffer, size_t space, bool w
         case CONFLICT: default_reason = "Conflict"; break;
         case PAYLOAD_TOO_LARGE: default_reason = "Payload Too Large"; break;
         case INTERNAL_SERVER_ERROR: default_reason = "Internal Server Error"; break;
+        case NOT_IMPLEMENTED: default_reason = "Not Implemented"; break;
         case BAD_GATEWAY: default_reason = "Bad Gateway"; break;
         case GATEWAY_TIMEOUT: default_reason = "Gateway Timeout"; break;
     }
@@ -71,10 +72,17 @@ int write_response(http_response * response, char * buffer, size_t space, bool w
     
     print("%s %d %s\r\n", HTTP_VERSION, response->status, response->reason)
 
+    bool hasContentLength = false;
     for (size_t i = 0; i < response->message.header_count; i++) {
         print("%s:%s\r\n", response->message.headers[i][0], response->message.headers[i][1])
+        if (strcmp(response->message.headers[i][0], "Content-Length") == 0)
+            hasContentLength = true;
     }
-    print("Content-Length: %lu\r\n", response->message.body_length)
+
+    if (!hasContentLength) {
+        print("Content-Length: 0\r\n")
+    }
+
     print("\r\n")
 
     if (write_body && response->message.body != NULL){

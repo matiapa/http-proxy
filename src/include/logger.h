@@ -17,7 +17,7 @@ int descriptionLevel(char * description);
 		if(level != INFO) \
 			fprintf(stderr, "%s: %s:%d, ", levelDescription(level), __FILE__, __LINE__); \
 		else \
-			fprintf(stderr, "\x1b[1;34m> \x1b[1;0m"); \
+			fprintf(stderr, "> "); \
 		fprintf(stderr, ##__VA_ARGS__); \
 		fprintf(stderr, "\n"); \
 	} \

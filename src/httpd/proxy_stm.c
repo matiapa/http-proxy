@@ -565,9 +565,9 @@ static unsigned response_doh_read_ready(unsigned int state, struct selector_key 
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
 
     } else if (ans_count == 0) {
-        if (key->item->doh.family == AF_INET6) {
+        if (key->item->doh.family == AF_INET) {
             free(key->item->doh.target_address_list);
-            key->item->doh.family = AF_INET;
+            key->item->doh.family = AF_INET6;
 
             if (send_doh_request(key, key->item->doh.family) < 0)
                 return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
@@ -629,9 +629,9 @@ static unsigned try_ips_arrival(const unsigned int state, struct selector_key *k
     key->item->doh.current_target_addr = current_addr;
 
     if (target_socket < 0) {
-        if (key->item->doh.family == AF_INET6) {
+        if (key->item->doh.family == AF_INET) {
             free(address_list);
-            key->item->doh.family = AF_INET;
+            key->item->doh.family = AF_INET6;
             key->item->target_socket = key->item->doh.server_socket; 
             // Esto último es provisional, por compatibilidad con los permisos de la STM
 
@@ -1352,7 +1352,7 @@ static unsigned process_request(struct selector_key * key) {
     // Check that target is not blacklisted
 
     if (strstr(proxy_conf.targetBlacklist, key->item->doh.url.hostname) != NULL) {
-        log(INFO, "\x1b[1;31mRejected connection to %s due to target blacklist\x1b[1;0m", key->item->doh.url.hostname);
+        log(INFO, "Rejected connection to %s due to target blacklist", key->item->doh.url.hostname);
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 

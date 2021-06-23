@@ -37,6 +37,7 @@ extern char * methods_strings[8];
 #define PAYLOAD_TOO_LARGE 413
 #define URI_TOO_LONG 414
 #define INTERNAL_SERVER_ERROR 500
+#define NOT_IMPLEMENTED 501
 #define BAD_GATEWAY 502
 #define GATEWAY_TIMEOUT 504
 

@@ -1,7 +1,6 @@
 #include <signal.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <pthread.h>
 #include <statistics.h>
 #include <tcp_utils.h>
 #include <logger.h>
@@ -25,7 +24,6 @@ void sigpipe_handler(int signum);
 
 void sigterm_handler(int signal);
 
-pthread_t thread_monitor;
 
 int main(int argc, char **argv) {
 
@@ -201,7 +199,6 @@ void handle_creates(struct selector_key *key) {
 void sigterm_handler(int signal) {
     printf("signal %d, cleaning up selector and exiting\n",signal);
     selector_destroy(selector_fd); // destruyo al selector
-    pthread_kill(thread_monitor, SIGINT); // destruyo al monitor
     _exit(EXIT_SUCCESS);
 }
 

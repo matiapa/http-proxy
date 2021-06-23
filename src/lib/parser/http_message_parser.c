@@ -219,12 +219,12 @@ static void assign_header_name(http_message * message, http_message_parser * par
     COPY(message->headers[message->header_count][0], ptr, size);
 }
 
-static void assign_header_value(http_message * message, http_message_parser * parser, bool ignore_length){
+static int assign_header_value(http_message * message, http_message_parser * parser, bool ignore_length){
     size_t size;
     char * ptr = (char *) buffer_read_ptr(&(parser->parse_buffer), &size);
 
     if (message->header_count >= N(message->headers))
-        return;
+        return 0;
 
     COPY(message->headers[message->header_count][1], ptr, size);
 
@@ -240,7 +240,18 @@ static void assign_header_value(http_message * message, http_message_parser * pa
         log(DEBUG, "Found Expect header");
     }
 
+    if (strncmp(message->headers[message->header_count][0], "Transfer-Encoding", HEADER_LENGTH) == 0) {
+        char * value = message->headers[message->header_count][1];
+        while(*value == ' ') value++;
+        log(DEBUG, "Found Transfer-Encoding: %s", value);
+        
+        if (strcmp(value, "chunked") == 0)
+            return NOT_IMPLEMENTED;
+    }
+
     message->header_count += 1;
+
+    return 0;
 }
 
 
@@ -283,6 +294,8 @@ parse_state http_message_parser_parse(
         // log(DEBUG, "STATE %s", state_names[parser->parser->state]);
         // log(DEBUG, "%s %c", event_names[e->type], e->data[0]);
 
+        int res;
+
         switch(e->type) {
             case HEADER_NAME_VAL:
                 buffer_write(&(parser->parse_buffer), e->data[0]);
@@ -298,8 +311,12 @@ parse_state http_message_parser_parse(
                 break;
             
             case HEADER_VALUE_END:
-                assign_header_value(message, parser, ignore_content_length);
+                res = assign_header_value(message, parser, ignore_content_length);
                 buffer_reset(&(parser->parse_buffer));
+                if (res > 0) {
+                    parser->error_code = res;
+                    return FAILED;
+                }
                 break;
 
             case HEADER_SECTION_END:

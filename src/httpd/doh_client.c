@@ -118,7 +118,7 @@ int doh_client_init(struct selector_key * key) {
         if (errno == EINPROGRESS) {
             key->item->target_socket = s;       // Provisional, por compatibilidad con los permisos de la STM
             key->item->doh.server_socket = s;
-            key->item->doh.family = AF_INET6;   // Set to IPv6 first
+            key->item->doh.family = AF_INET;   // Set to IPv4 first
             return 0; // Ok
         } else {
             log(ERROR, "Error in connect")
