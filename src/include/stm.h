@@ -62,10 +62,10 @@ struct state_definition {
     void     (*on_departure)  (const unsigned state, struct selector_key *selector_key);
 
     /** ejecutado cuando hay datos disponibles para ser leidos */
-    unsigned (*on_read_ready) (struct selector_key *selector_key);
+    unsigned (*on_read_ready) (unsigned int state, struct selector_key *selector_key);
 
     /** ejecutado cuando hay datos disponibles para ser escritos */
-    unsigned (*on_write_ready) (struct selector_key *selector_key);
+    unsigned (*on_write_ready) (unsigned int state, struct selector_key *selector_key);
     
     /** ejecutado cuando hay un trabajo bloqueante listo */
     unsigned (*on_block_ready) (struct selector_key *selector_key);
@@ -77,7 +77,7 @@ void
 stm_init(struct state_machine *stm);
 
 /** obtiene el identificador del estado actual */
-unsigned stm_state(struct state_machine *stm); // TODO: Ver si dejarlo
+unsigned stm_state(struct state_machine *stm);
 
 /** indica que ocurrió el evento read. retorna nuevo id de nuevo estado. */
 unsigned
@@ -88,9 +88,9 @@ unsigned
 stm_handler_write(struct state_machine *stm, struct selector_key *selector_key);
 
 /** indica que ocurrió el evento block. retorna nuevo id de nuevo estado. */
-unsigned stm_handler_block(struct state_machine *stm, struct selector_key *selector_key); // TODO: Ver si dejarlo
+unsigned stm_handler_block(struct state_machine *stm, struct selector_key *selector_key);
 
 /** indica que ocurrió el evento close. retorna nuevo id de nuevo estado. */
-void stm_handler_close(struct state_machine *stm, struct selector_key *selector_key); // TODO: Ver si dejarlo
+void stm_handler_close(struct state_machine *stm, struct selector_key *selector_key);
 
 #endif

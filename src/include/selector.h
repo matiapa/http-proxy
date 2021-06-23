@@ -12,6 +12,7 @@
 #include "http_request_parser.h"
 #include "http_response_parser.h"
 #include "pop3_parser.h"
+#include <doh_client.h>
 
 #define MASTER_SOCKET_SIZE 2
 
@@ -198,6 +199,7 @@ struct item {
     http_response_parser res_parser;
     pop3_parser_data    pop3_parser;
     struct sockaddr_in  client;
+    struct doh_client   doh;
     
     time_t              last_activity;
     struct url          last_target_url;

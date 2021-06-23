@@ -24,7 +24,7 @@
 #define ERROR_DEFAULT_MSG "something failed"
 
 /** retorna una descripción humana del fallo */
-const char * selector_error(const selector_status status) { // TODO: Ver si dejarlo
+const char * selector_error(const selector_status status) {
     const char *msg;
     switch(status) {
         case SELECTOR_SUCCESS:
@@ -108,7 +108,7 @@ struct blocking_job {
     int fd;
 
     /** datos del trabajo provisto por el usuario */
-    void *data; // TODO: Ver si dejarlo
+    void *data;
 
     /** el siguiente en la lista */
     struct blocking_job *next;
@@ -640,20 +640,13 @@ selector_status selector_select(fd_selector s) {
     }
 
     s->max_fd = maxSocket;
-    // log(DEBUG, "Max fd is %d", s->max_fd);
-
-    // log(DEBUG, "Entering pselect()");
-    // log(DEBUG, "read_fd[4] = %d  | read_fd[5] = %d",
-    //     FD_ISSET(4, &(s->slave_r)), FD_ISSET(5, &(s->slave_r)));
-    // log(DEBUG, "write_fd[4] = %d | write_fd[5] = %d",
-    //     FD_ISSET(4, &(s->slave_w)), FD_ISSET(5, &(s->slave_w)));
         
     struct timespec t = { .tv_sec = SELECTOR_TIMEOUT_SECS };
 
     s->selector_thread = pthread_self();
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &t, &emptyset); // sacar el NULL despues
 
-    // log(DEBUG, "Exited pselect() with %d", fds);
+    log(DEBUG, "Exited pselect() with %d", fds);
 
     if(-1 == fds) {
         switch(errno) {
@@ -662,6 +655,7 @@ selector_status selector_select(fd_selector s) {
                 log(DEBUG,"interrupted pselect");
                 break;
             default:
+                printf("%s\n", strerror(errno));
                 ret = SELECTOR_IO;
                 goto finally;
 

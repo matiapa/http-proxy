@@ -23,7 +23,10 @@
 
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
+/// TODO: Update comments for this enums
+
 enum proxy_state {
+
     /*
      * Recieves an HTTP request from client
      *
@@ -39,11 +42,52 @@ enum proxy_state {
     REQUEST_READ,
 
     /*
-     * Waits for the connection to target on a separate thread to complete
+     * Waits for the connection to DoH server to complete
+     *
+     * Interests:
+     *   - Client: OP_NOOP
+     *   - Target: OP_WRITE
+     *
+     * Transitions:
+     *   - RESPONSE_DOH         Connection completed and request sent
+     *   - ERROR_STATE          IO error
+    */
+    DOH_CONNECT,
+
+    /*
+     * Recieves a response from DoH server
+     *
+     * Interests:
+     *   - Client: OP_NOOP
+     *   - Target (DoH): OP_READ
+     *
+     * Transitions:
+     *   - RESPONSE_DOH         While response message is not over
+     *   - TRY_IPS              When request message is over
+     *   - ERROR_STATE          Parsing/IO error
+    */
+    RESPONSE_DOH,
+
+    /*
+     * Tries to connnect to a resolved target IP
      *
      * Interests:
      *   - Client: OP_NOOP
      *   - Target: OP_NOOP
+     *
+     * Transitions:
+     *   - REQUEST_CONNECT      Initialized a connection to a target IP.
+     *   - RESPONSE_DOH         No IPv6s left to try. Sent IPv4 DoH request.
+     *   - ERROR_STATE          No IPv4s left to try. Game over.
+    */
+    TRY_IPS,
+
+    /*
+     * Waits for the connection to target to complete
+     *
+     * Interests:
+     *   - Client: OP_NOOP
+     *   - Target: OP_WRITE
      *
      * Transitions:
      *   - REQUEST_FORWARD      When connection is completed
@@ -164,52 +208,79 @@ enum proxy_state {
 /* -------------------------------------- HANDLERS PROTOTYPES -------------------------------------- */
 
 /* ------------------------------------------------------------
-  Reads HTTP requests from client.
+  Reads HTTP requests message part from client.
 ------------------------------------------------------------ */
-static unsigned request_read_ready(struct selector_key *key);
+static unsigned request_read_ready(unsigned int state, struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Handles the completion of connection to DoH.
+------------------------------------------------------------ */
+static unsigned doh_connect_write_ready(unsigned int state, struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Reads DoH response from server.
+------------------------------------------------------------ */
+static unsigned response_doh_read_ready(unsigned int state, struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Tries to connect to a target resolved IP.
+------------------------------------------------------------ */
+static unsigned try_ips_arrival(const unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
   Handles the completion of connection to target.
 ------------------------------------------------------------ */
-static unsigned request_connect_write_ready(struct selector_key *key);
+static unsigned request_connect_write_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
-  Forwards HTTP requests to target.
+  Forwards HTTP requests message part to target.
 ------------------------------------------------------------ */
-static unsigned request_forward_ready(struct selector_key *key);
-
-static unsigned req_body_read_ready(struct selector_key *key);
-
-static unsigned req_body_forward_ready(struct selector_key *key);
+static unsigned request_forward_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
-  Reads HTTP responses from target.
+  Reads HTTP requests body part from client.
 ------------------------------------------------------------ */
-static unsigned response_read_ready(struct selector_key *key);
+static unsigned req_body_read_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
-  Forwards HTTP responses to client.
+  Forwards HTTP requests body part to target.
 ------------------------------------------------------------ */
-static unsigned response_forward_ready(struct selector_key *key);
+static unsigned req_body_forward_ready(unsigned int state, struct selector_key *key);
 
-static unsigned res_body_read_ready(struct selector_key *key);
+/* ------------------------------------------------------------
+  Reads HTTP responses message part from target.
+------------------------------------------------------------ */
+static unsigned response_read_ready(unsigned int state, struct selector_key *key);
 
-static unsigned res_body_forward_ready(struct selector_key *key);
+/* ------------------------------------------------------------
+  Forwards HTTP responses message part to client.
+------------------------------------------------------------ */
+static unsigned response_forward_ready(unsigned int state, struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Reads HTTP responses body part from target.
+------------------------------------------------------------ */
+static unsigned res_body_read_ready(unsigned int state, struct selector_key *key);
+
+/* ------------------------------------------------------------
+  Forwards HTTP responses body part to client.
+------------------------------------------------------------ */
+static unsigned res_body_forward_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
   Sends connection response to client.
 ------------------------------------------------------------ */
-static unsigned connect_response_ready(struct selector_key *key);
+static unsigned connect_response_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
   Reads TCP traffic from client or target. 
 ------------------------------------------------------------ */
-static unsigned tcp_tunnel_read_ready(struct selector_key *key);
+static unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
   Forwards TCP traffic to corresponding peer.
 ------------------------------------------------------------ */
-static unsigned tcp_tunnel_forward_ready(struct selector_key *key);
+static unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key);
 
 /* ------------------------------------------------------------
   Sends last messages from client to target then closes connection
@@ -229,7 +300,7 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key);
 /* ------------------------------------------------------------
   Notifies proxy errors.
 ------------------------------------------------------------ */
-static unsigned error_write_ready(struct selector_key *key);
+static unsigned error_write_ready(unsigned int state, struct selector_key *key);
 
 
 /* -------------------------------------- AUXILIARS PROTOTYPES -------------------------------------- */
@@ -248,11 +319,6 @@ static unsigned process_request(struct selector_key * key);
   Processes request headers according to RFC 7230 specs.
 ------------------------------------------------------------ */
 static void process_request_headers(http_request * req, char * target_host, char * proxy_host);
-
-/* ------------------------------------------------------------
-  Initiates a connection to target and returns next state. (NIO)
------------------------------------------------------------- */
-static int connect_target(struct selector_key * key, struct url * url);
 
 /* ------------------------------------------------------------
   Processes request headers and deposits user:password into raw authorization.
@@ -280,6 +346,27 @@ static const struct state_definition state_defs[] = {
         .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
         .description      = "REQUEST_READ",
         .on_read_ready    = request_read_ready,
+    },
+    {
+        .state            = DOH_CONNECT,
+        .client_interest  = OP_NOOP,
+        .target_interest  = OP_WRITE,
+        .description      = "DOH_CONNECT",
+        .on_write_ready   = doh_connect_write_ready,
+    },
+    {
+        .state            = RESPONSE_DOH,
+        .client_interest  = OP_NOOP,
+        .target_interest  = OP_READ,
+        .description      = "RESPONSE_DOH",
+        .on_read_ready    = response_doh_read_ready,
+    },
+    {
+        .state            = TRY_IPS,
+        .client_interest  = OP_NOOP,
+        .target_interest  = OP_NOOP,
+        .description      = "TRY_IPS",
+        .on_arrival       = try_ips_arrival,
     },
     {
         .state            = REQUEST_CONNECT,
@@ -404,10 +491,12 @@ state_machine proto_stm = {
     while(isspace(*--back)); \
     *(back+1) = 0;
 
+#define ADDR_BUFFER_SIZE 1024
+
 
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
-static unsigned request_read_ready(struct selector_key *key) {
+static unsigned request_read_ready(unsigned int state, struct selector_key *key) {
 
     key->item->last_activity = time(NULL);
 
@@ -443,20 +532,152 @@ static unsigned request_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned request_connect_write_ready(struct selector_key *key) {
+static unsigned doh_connect_write_ready(unsigned int state, struct selector_key *key) {
 
-    // Connection was "established"
-    // TODO: Check how to check if failed
+    int socket_error;
+    socklen_t socket_error_len = sizeof(socket_error);
+    int sock_opt = getsockopt(key->item->doh.server_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
+    if(sock_opt != 0){
+        log(ERROR, "DoH server getsockopt(%d) failed", key->item->doh.server_socket)
+        perror("reason");
+    }
+
+    if(socket_error != 0){
+        log(ERROR, "Failed to connect to DoH server")
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+
+    if (send_doh_request(key, key->item->doh.family) < 0) {
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+    }
+    
+    return RESPONSE_DOH;
+
+}
+
+
+static unsigned response_doh_read_ready(unsigned int state, struct selector_key *key) {
+
+    int ans_count = doh_client_read(key);
+    if (ans_count == -1) {
+
+        log(ERROR, "Failed to read response from DoH server")
+        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+
+    } else if (ans_count == 0) {
+        if (key->item->doh.family == AF_INET6) {
+            free(key->item->doh.target_address_list);
+            key->item->doh.family = AF_INET;
+
+            if (send_doh_request(key, key->item->doh.family) < 0)
+                return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+            return RESPONSE_DOH;
+        } else {
+            doh_kill(key);
+            log(ERROR, "Connecting to target")
+
+            return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+        }
+    } else { // Salio todo joya
+        return TRY_IPS;
+    }
+
+}
+
+
+static unsigned try_ips_arrival(const unsigned int state, struct selector_key *key) {
+    char addrBuffer[ADDR_BUFFER_SIZE];
+
+    struct addrinfo * current_addr = key->item->doh.current_target_addr;
+    struct addrinfo * address_list = key->item->doh.target_address_list;
+
+    // Try to connect to an address
+    int target_socket = -1;
+    while (current_addr != NULL && target_socket == -1) {
+        if (is_proxy_host(current_addr->ai_addr) && key->item->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
+            log(INFO, "Prevented proxy loop")
+            free(address_list);
+            return notify_error(key, FORBIDDEN, REQUEST_READ);
+        }
+
+        target_socket = socket(current_addr->ai_family, current_addr->ai_socktype, current_addr->ai_protocol);
+
+        selector_fd_set_nio(target_socket);
+
+        if (target_socket < 0) {
+            sockaddr_print(current_addr->ai_addr, addrBuffer);
+            log(DEBUG, "Can't create target socket on %s", addrBuffer) 
+            current_addr = current_addr->ai_next;
+            continue;
+        }
+
+        if (connect(target_socket, current_addr->ai_addr, current_addr->ai_addrlen) == -1) {
+            if (errno == EINPROGRESS) {
+                current_addr = current_addr->ai_next;
+                break;
+            } else {
+                current_addr = current_addr->ai_next;
+                continue;
+            }
+        } else {
+            abort(); // Such a thing can't happen!
+        }
+    }
+
+    // Release address resource
+
+    key->item->doh.current_target_addr = current_addr;
+
+    if (target_socket < 0) {
+        if (key->item->doh.family == AF_INET6) {
+            free(address_list);
+            key->item->doh.family = AF_INET;
+            key->item->target_socket = key->item->doh.server_socket; 
+            // Esto último es provisional, por compatibilidad con los permisos de la STM
+
+            if (send_doh_request(key, key->item->doh.family) < 0)
+                return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+
+            return RESPONSE_DOH;
+        } else {
+            doh_kill(key);
+            log(ERROR, "Connecting to target")
+            return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+        }
+    } else {
+        key->item->target_socket = target_socket;
+        return REQUEST_CONNECT;
+    }
+}
+
+
+static unsigned request_connect_write_ready(unsigned int state, struct selector_key *key) {
+
+    int socket_error;
+    socklen_t socket_error_len = sizeof(socket_error);
+    int sock_opt = getsockopt(key->item->target_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
+    if (sock_opt != 0) {
+        log(ERROR, "Target getsockopt(%d) failed", key->item->target_socket)
+        perror("reason");
+    }
+
+    if (socket_error != 0) {
+        close(key->item->target_socket);
+        if (key->item->doh.server_socket > 0)
+            return TRY_IPS;
+        else
+            return notify_error(key, BAD_GATEWAY, REQUEST_READ);
+    } else { // la conexión funciono
+        memcpy(&(key->item->last_target_url), &(key->item->doh.url), sizeof(struct url));
+        if (key->item->doh.server_socket > 0)
+            doh_kill(key);
+        // int aux = key->item->doh.target_socket;
+        // key->item->target_socket = aux;
+    }
 
     // Update last connection
 
     http_request * request = &(key->item->req_parser.request);
-    struct url url; parse_url(request->url, &url);
-
-    strncpy(key->item->last_target_url.hostname, url.hostname, LINK_LENGTH);
-    strncpy(key->item->last_target_url.path, url.path, PATH_LENGTH);
-    strncpy(key->item->last_target_url.protocol, url.protocol, PROTOCOL_LENGTH);
-    key->item->last_target_url.port = url.port;
 
     // Check for request method
 
@@ -486,7 +707,7 @@ static unsigned request_connect_write_ready(struct selector_key *key) {
         // The request method is a traditional one, request shall be proccessed
         // and then forwarded
         
-        if (request->method == OPTIONS && strlen(url.path) == 0)
+        if (request->method == OPTIONS && strlen(key->item->last_target_url.path) == 0)
             sprintf(request->url, "*");
 
         // Process request headers
@@ -498,7 +719,7 @@ static unsigned request_connect_write_ready(struct selector_key *key) {
             get_machine_fqdn(proxy_hostname);
         }
         
-        process_request_headers(request, url.hostname, proxy_hostname);
+        process_request_headers(request, key->item->last_target_url.hostname, proxy_hostname);
 
         // Extract credentials if present
 
@@ -519,11 +740,10 @@ static unsigned request_connect_write_ready(struct selector_key *key) {
         return REQUEST_FORWARD;
 
     }
-
 }
 
 
-static unsigned request_forward_ready(struct selector_key *key) {
+static unsigned request_forward_ready(unsigned int state, struct selector_key *key) {
 
     if (! buffer_can_read(&(key->item->write_buffer)))
         return REQUEST_FORWARD;
@@ -568,7 +788,7 @@ static unsigned request_forward_ready(struct selector_key *key) {
 }
 
 
-static unsigned req_body_read_ready(struct selector_key *key) {
+static unsigned req_body_read_ready(unsigned int state, struct selector_key *key) {
 
     key->item->last_activity = time(NULL);
 
@@ -605,7 +825,7 @@ static unsigned req_body_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned req_body_forward_ready(struct selector_key *key) {
+static unsigned req_body_forward_ready(unsigned int state, struct selector_key *key) {
 
     // Will read the content directly from read buffer
 
@@ -641,7 +861,7 @@ static unsigned req_body_forward_ready(struct selector_key *key) {
 }
 
 
-static unsigned response_read_ready(struct selector_key *key) {
+static unsigned response_read_ready(unsigned int state, struct selector_key *key) {
 
     if (! buffer_can_write(&(key->item->read_buffer))) {
         log_error("Read buffer limit reached")
@@ -678,7 +898,7 @@ static unsigned response_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned response_forward_ready(struct selector_key *key) {
+static unsigned response_forward_ready(unsigned int state, struct selector_key *key) {
 
     // Read response bytes from write buffer
 
@@ -724,7 +944,7 @@ static unsigned response_forward_ready(struct selector_key *key) {
 }
 
 
-static unsigned res_body_read_ready(struct selector_key *key) {
+static unsigned res_body_read_ready(unsigned int state, struct selector_key *key) {
 
     key->item->last_activity = time(NULL);
 
@@ -763,7 +983,7 @@ static unsigned res_body_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned res_body_forward_ready(struct selector_key *key) {
+static unsigned res_body_forward_ready(unsigned int state, struct selector_key *key) {
 
     // Will read the content directly from read buffer
 
@@ -802,7 +1022,7 @@ static unsigned res_body_forward_ready(struct selector_key *key) {
 }
 
 
-static unsigned connect_response_ready(struct selector_key *key) {
+static unsigned connect_response_ready(unsigned int state, struct selector_key *key) {
 
     if (! buffer_can_read(&(key->item->write_buffer)))
         return CONNECT_RESPONSE;
@@ -837,7 +1057,7 @@ static unsigned connect_response_ready(struct selector_key *key) {
 }
 
 
-static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
+static unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key) {
 
     // On this context: read_buffer = client_buffer, write_buffer = target_buffer
 
@@ -915,7 +1135,7 @@ static unsigned tcp_tunnel_read_ready(struct selector_key *key) {
 }
 
 
-static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
+static unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key) {
 
     // On this context: read_buffer = client_buffer, write_buffer = target_buffer
 
@@ -967,7 +1187,7 @@ static unsigned tcp_tunnel_forward_ready(struct selector_key *key) {
 }
 
 
-static unsigned error_write_ready(struct selector_key *key) {
+static unsigned error_write_ready(unsigned int state, struct selector_key *key) {
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
@@ -1028,13 +1248,13 @@ static unsigned target_close_connection_arrival(const unsigned state, struct sel
     // Read last bytes from write buffer
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
+    uint8_t *ptr = buffer_read_ptr(&(key->item->read_buffer), &size);
     ssize_t sentBytes = write(key->item->client_socket, ptr, size);
 
     if (sentBytes < 0){
         return END;
     }
-    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+    buffer_read_adv(&(key->item->read_buffer), sentBytes);
 
     log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
     
@@ -1062,6 +1282,7 @@ static unsigned end_arrival(const unsigned state, struct selector_key *key){
 /* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
 
 static unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
+    
     print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,status_code);
     http_request_parser_reset(&(key->item->req_parser));
     http_response_parser_reset(&(key->item->res_parser));
@@ -1100,8 +1321,10 @@ static unsigned process_request(struct selector_key * key) {
 
     // Parse the request target URL
 
-    struct url url;
-    int r = parse_url(request->url, &url);
+    memset(&(key->item->doh), 0, sizeof(struct doh_client));
+    int r = parse_url(request->url, &(key->item->doh.url));
+    // TODO: Move parsed URL to another structure
+
     if (r < 0)
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
 
@@ -1115,30 +1338,63 @@ static unsigned process_request(struct selector_key * key) {
 
     log_client_access(key->item->client_socket, request->url);
 
-    // If there is an established connection to another target close it
-    // If it is to same target proceed to forward request
+    // If there is an established connection close it
+    // TODO: Close the connection on a previous stage
 
-    if (key->item->target_socket > 0 && strcmp(key->item->last_target_url.hostname, request->url) == 0) {
-        if (strcmp(key->item->last_target_url.hostname, url.hostname) != 0)
-            close(key->item->target_socket);
-        else
-            return REQUEST_FORWARD;
+    if (key->item->target_socket > 0) {
+        close(key->item->target_socket);
     }
 
     // Prepare to connect to new target
 
-    log(DEBUG, "Connection requested to %s:%d", url.hostname, url.port);
+    log(DEBUG, "Connection requested to %s:%d", key->item->doh.url.hostname, key->item->doh.url.port);
 
     // Check that target is not blacklisted
 
-    if (strstr(proxy_conf.targetBlacklist, url.hostname) != NULL) {
-        log(INFO, "\x1b[1;31mRejected connection to %s due to target blacklist\x1b[1;0m", url.hostname);
+    if (strstr(proxy_conf.targetBlacklist, key->item->doh.url.hostname) != NULL) {
+        log(INFO, "\x1b[1;31mRejected connection to %s due to target blacklist\x1b[1;0m", key->item->doh.url.hostname);
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 
-    // Establish connection to target
+    // Prepare to resolve target address
 
-    return connect_target(key, &url);
+    /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
+    struct addrinfo * addrinfo;
+    if (resolve_string(&(addrinfo), key->item->doh.url.hostname, key->item->doh.url.port) >= 0) {
+
+        if (is_proxy_host(addrinfo->ai_addr) && key->item->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
+            log(INFO, "Prevented proxy loop")
+            free(addrinfo);
+            return notify_error(key, FORBIDDEN, REQUEST_READ);
+        }
+
+        int sock = socket(addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol);
+
+        selector_fd_set_nio(sock);
+
+        if (sock < 0) 
+            return notify_error(key, BAD_GATEWAY, REQUEST_READ);
+
+        if (connect(sock, addrinfo->ai_addr, addrinfo->ai_addrlen) == -1) {
+            if (errno == EINPROGRESS) {
+                key->item->target_socket = sock;
+                free(addrinfo);
+                return REQUEST_CONNECT;
+            } else {
+                free(addrinfo);
+                return notify_error(key, BAD_GATEWAY, REQUEST_READ);
+            }
+        } else {
+            abort(); // Such a thing can't happen!
+        }
+
+    } else {
+        if (doh_client_init(key) < 0) {
+            return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+        }
+    }
+
+    return DOH_CONNECT;
     
 }
 
@@ -1209,7 +1465,7 @@ static void process_request_headers(http_request * req, char * target_host, char
         sprintf(req->message.headers[req->message.header_count - 1][1], " 1.1 %s", proxy_host);
     }
 
-    // TODO: Handle close detected
+    /// TODO: Handle close detected
 
     if (close_detected) {
         log(DEBUG, "Should close connection");
@@ -1219,7 +1475,6 @@ static void process_request_headers(http_request * req, char * target_host, char
 
 
 static int extract_http_credentials(http_request * request) {
-    // TODO: guardar la user_pass
 
     char raw_authorization[HEADER_LENGTH] = {0};
     int found=0;
@@ -1273,93 +1528,6 @@ static int extract_http_credentials(http_request * request) {
     
 
     return found;
-}
-
-
-#define ADDR_BUFFER_SIZE 1024
-
-
-static int connect_target(struct selector_key * key, struct url * url) {
-
-    char addrBuffer[ADDR_BUFFER_SIZE];
-
-    struct addrinfo * servAddr;
-    int error = -1;
-
-    int types[2] = {AF_INET, AF_INET6};
-
-    int sock = -1;
-    for (int i = 0; i < 2 && sock == -1; i++) {
-        servAddr = NULL;
-
-        // Resolve host string for posible addresses
-
-        int getaddr = doh_client(url->hostname, url->port, &servAddr, types[i]);
-        
-        if (getaddr != 0) {
-            log(ERROR, "DoH client failed %s", gai_strerror(getaddr))
-            error = INTERNAL_SERVER_ERROR;
-            goto finally;
-        }
-
-        if (servAddr == NULL) {
-            log(ERROR, "DoH server timeout %s", gai_strerror(getaddr))
-            error = GATEWAY_TIMEOUT;
-            goto finally;
-        }
-
-        if (is_proxy_host(servAddr->ai_addr) && url->port == proxy_conf.proxyArgs.proxy_port) {
-            log(INFO, "Prevented proxy loop")
-            error = FORBIDDEN;
-            goto finally;
-        }
-
-        // Try to connect to an address
-
-        sock = -1;
-        for (struct addrinfo * addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
-            sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-            
-            selector_fd_set_nio(sock); // TODO: Handle error here
-
-            if (sock < 0){
-                sockaddr_print(addr->ai_addr, addrBuffer);
-                log(DEBUG, "Can't create client socket on %s", addrBuffer)
-                continue;
-            }
-
-            if (connect(sock, addr->ai_addr, addr->ai_addrlen) == -1) {
-                if(errno != EINPROGRESS) {
-                    sockaddr_print(addr->ai_addr, addrBuffer);
-                    log(ERROR, "Can't connect to %s: %s", addrBuffer, strerror(errno))
-                    error = GATEWAY_TIMEOUT;
-                }
-                goto finally;
-            } else {
-                abort();    // Such a thing can't happen!
-            }
-        }
-
-    }
-
-    // Release address resource and return socket number
-
-finally:
-    free(servAddr);
-    if (error > 0) {
-        if (sock != -1)
-            close(sock);
-        return notify_error(key, error, REQUEST_READ);
-    }
-
-    if (sock < 0) {
-        log(ERROR, "Connecting to target")
-        return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
-    } else {
-        key->item->target_socket = sock;
-        return REQUEST_CONNECT;
-    }
-
 }
 
 
@@ -1460,7 +1628,7 @@ static void process_response_headers(http_response * res, char * proxy_host) {
         sprintf(res->message.headers[res->message.header_count - 1][1], "1.1 %s", proxy_host);
     }
 
-    // TODO: Handle close detected
+    /// TODO: Handle close detected
 
     if (close_detected) {
         log(DEBUG, "Should close connection");

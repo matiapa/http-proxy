@@ -80,7 +80,7 @@ stm_handler_read(struct state_machine *stm, struct selector_key *key) {
     if(stm->current->on_read_ready == 0) {
         abort();
     }
-    const unsigned int ret = stm->current->on_read_ready(key);
+    const unsigned int ret = stm->current->on_read_ready(stm->current->state, key);
     jump(stm, ret, key);
 
     return ret;
@@ -92,7 +92,7 @@ stm_handler_write(struct state_machine *stm, struct selector_key *key) {
     if(stm->current->on_write_ready == 0) {
         abort();
     }
-    const unsigned int ret = stm->current->on_write_ready(key);
+    const unsigned int ret = stm->current->on_write_ready(stm->current->state, key);
     jump(stm, ret, key);
 
     return ret;

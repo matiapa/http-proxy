@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
 
     // Initialize DOH client
 
-    initialize_doh_client(&(args.doh));
+    config_doh_client(&(args.doh));
 
     // Start monitor on another thread
 

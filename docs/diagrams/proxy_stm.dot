@@ -3,11 +3,22 @@ digraph g {
     //size= "8.27,11.69";
     size="8.27,11.69" ratio="compress"
     margin=0;
-    node                    [shape = circle];    
+    node                                    [shape = circle];    
     
     REQUEST_READ -> REQUEST_READ            [label="Request parse pending."]
-    REQUEST_READ -> REQUEST_CONNECT         [label="Request parsed.\nInitiated connection to target"]
+    REQUEST_READ -> DOH_CONNECTED           [label="Request parsed. Initialized DoH connection."]
+    REQUEST_READ -> REQUEST_CONNECT         [label="Request parsed. Initialized target connection."]
 
+    DOH_CONNECTED -> RESPONSE_DOH           [label="Completed DoH connection. Sent DoH request."]
+
+    RESPONSE_DOH -> RESPONSE_DOH            [label="Remaining bytes to recieve"]
+    RESPONSE_DOH -> TRY_IPS                 [label="Received full DoH response"]
+
+    TRY_IPS -> REQUEST_CONNECT              [label="Initialize connection to a target IP."]
+    TRY_IPS -> RESPONSE_DOH                 [label="No IPv6s left to try. Sent IPv4 DoH request."]
+    TRY_IPS -> REQUEST_READ                 [label="No IPv4s left to try. Game over."]
+
+    REQUEST_CONNECT -> TRY_IPS              [label="Failed connection to target.\nTry with another IP."]
     REQUEST_CONNECT -> REQUEST_FORWARD      [label="Completed connection to target.\nTraditional method."]
     REQUEST_CONNECT -> CONNECT_RESPONSE     [label="Completed connection to target.\nConnect method."]
 
