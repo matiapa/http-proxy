@@ -15,22 +15,21 @@ else
   CFLAGS += $(UNKNOWN_CXXFLAGS)
 endif
 
-all: httpd client
+PROXY_OBJ = src/httpd/dissector.o src/httpd/doh_client.o src/httpd/main.o src/httpd/proxy_args.o \
+	src/httpd/proxy_stm.o src/httpd/selector.o src/httpd/statistics.o src/lib/address.o \
+	src/lib/buffer.o src/lib/http.o src/lib/logger.o src/lib/stm.o src/lib/tcp.o src/lib/udp.o \
+	src/lib/parser.o src/monitor/monitor.o src/parsers/abnf_chars.o src/parsers/http_message_parser.o \
+	src/parsers/http_request_parser.o src/parsers/http_response_parser.o src/parsers/pop3_parser.o
 
-PROXY_OBJ = src/lib/address.o src/lib/args.o src/lib/buffer.o src/lib/http.o src/lib/logger.o\
- src/lib/selector.o src/lib/pop3_parser.o src/lib/parser/abnf_chars.o src/lib/parser.o\
- src/lib/tcp_utils.o src/lib/udp_utils.o src/lib/statistics.o src/lib/stm.o src/lib/dissector.o\
- src/lib/parser/http_message_parser.o src/lib/parser/http_request_parser.o\
- src/lib/parser/http_response_parser.o src/httpd/main.o src/httpd/monitor.o\
- src/httpd/proxy_stm.o src/httpd/doh_client.o
+CLIENT_OBJ = src/monitor/client_args.o src/monitor/client.o
 
-CLIENT_OBJ = src/lib/client_argc.o src/httpd/httpdctl.o
+all: proxy client
 
-httpd: $(PROXY_OBJ)
-	$(CC) -pthread $(CFLAGS) $(PROXY_OBJ) -o bin/httpd
+proxy: $(PROXY_OBJ)
+	$(CC) -pthread $(CFLAGS) $(PROXY_OBJ) -o bin/proxy
 
 client: $(CLIENT_OBJ)
-	$(CC) -pthread $(CFLAGS) $(CLIENT_OBJ) -o bin/httpdctl
+	$(CC) -pthread $(CFLAGS) $(CLIENT_OBJ) -o bin/client
 
 clean:
-	rm -rf $(PROXY_OBJ) $(CLIENT_OBJ) bin/httpd bin/httpdctl
+	rm -rf $(PROXY_OBJ) $(CLIENT_OBJ) bin/proxy bin/client
