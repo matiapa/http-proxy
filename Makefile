@@ -16,10 +16,11 @@ else
 endif
 
 PROXY_OBJ = src/httpd/dissector.o src/httpd/doh_client.o src/httpd/main.o src/httpd/proxy_args.o \
-	src/httpd/proxy_stm.o src/httpd/selector.o src/httpd/statistics.o src/lib/address.o \
-	src/lib/buffer.o src/lib/http.o src/lib/logger.o src/lib/stm.o src/lib/tcp.o src/lib/udp.o \
-	src/lib/parser.o src/monitor/monitor.o src/parsers/abnf_chars.o src/parsers/http_message_parser.o \
-	src/parsers/http_request_parser.o src/parsers/http_response_parser.o src/parsers/pop3_parser.o
+	src/httpd/selector.o src/httpd/statistics.o src/lib/address.o src/lib/buffer.o src/lib/http.o \
+	src/lib/logger.o src/lib/stm.o src/lib/tcp.o src/lib/udp.o src/lib/parser.o src/monitor/monitor.o \
+	src/parsers/abnf_chars.o src/parsers/http_message_parser.o src/parsers/http_request_parser.o \
+	src/parsers/http_response_parser.o src/parsers/pop3_parser.o src/stm/doh_handlers.o \
+	src/stm/proxy_stm.o src/stm/request_handlers.o src/stm/response_handlers.o
 
 CLIENT_OBJ = src/monitor/client_args.o src/monitor/client.o
 
