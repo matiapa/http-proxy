@@ -1,5 +1,5 @@
-#include <logger.h>
 #include <string.h>
+#include <logger.h>
 
 static char * descriptions[] = {"DEBUG", "INFO", "ERROR", "FATAL"};
 

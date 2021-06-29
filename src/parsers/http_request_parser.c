@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-
 #include <abnf_chars.h>
 #include <parser.h>
 #include <logger.h>

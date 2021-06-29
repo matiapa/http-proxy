@@ -8,16 +8,10 @@
 #include <http_response_parser.h>
 #include <http.h>
 #include <address.h>
-#include <ctype.h>
-#include <proxy_stm.h>
 #include <statistics.h>
 #include <dissector.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <doh_client.h>
 #include <arpa/inet.h>
-
-#include "proxy_stm.h"
+#include <proxy_stm.h>
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 

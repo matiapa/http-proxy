@@ -8,7 +8,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <args.h>
+#include <proxy_args.h>
 #include <address.h>
 #include <sys/time.h>
 

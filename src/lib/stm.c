@@ -3,9 +3,9 @@
  *         del selector.c
  */
 #include <stdlib.h>
-#include "stm.h"
-#include "selector.h"
-#include "logger.h"
+#include <selector.h>
+#include <logger.h>
+#include <stm.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 

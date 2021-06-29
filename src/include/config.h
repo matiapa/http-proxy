@@ -2,7 +2,7 @@
 #define CONFIG_H_
 
 #include <stdbool.h>
-#include <args.h>
+#include <proxy_args.h>
 
 #define VIA_PROXY_NAME_SIZE 128
 #define BLACKLIST_SIZE 1024

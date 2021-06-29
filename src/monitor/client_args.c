@@ -4,8 +4,9 @@
 #include <string.h>
 #include <errno.h>
 #include <getopt.h>
+#include <client_args.h>
 
-#include "../include/client_argc.h"
+#include "../include/client_args.h"
 
 
 static void version(void) {

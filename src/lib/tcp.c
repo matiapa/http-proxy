@@ -2,11 +2,9 @@
 #include <signal.h>
 #include <string.h>
 #include <errno.h>
-
 #include <address.h>
 #include <logger.h>
 #include <selector.h>
-#include <doh_client.h>
 #include <arpa/inet.h>
 #include <tcp_utils.h>
 

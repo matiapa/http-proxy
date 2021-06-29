@@ -1,7 +1,7 @@
 PHONY = clean all
 
 CFLAGS = -I src/include/ -Wall -Wextra -pedantic -pedantic-errors -std=c11 -g\
- -D_POSIX_C_SOURCE=200112L -fcommon
+ -D_POSIX_C_SOURCE=200112L# -fcommon
 
 GCC_CXXFLAGS = -DMESSAGE='"Compiled with GCC"'
 CLANG_CXXFLAGS = -DMESSAGE='"Compiled with Clang"' -Wno-gnu-zero-variadic-macro-arguments

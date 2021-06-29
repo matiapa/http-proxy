@@ -5,11 +5,7 @@
 #include <stdlib.h>
 #include <address.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <errno.h>
 #include <ifaddrs.h>
-
-
 
 int sockaddr_print(const struct sockaddr * address, char * addrBuffer) {
 	void *numericAddress; 

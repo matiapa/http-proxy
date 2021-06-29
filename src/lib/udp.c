@@ -1,17 +1,11 @@
-// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
-// This is a personal academic project. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 #include <netdb.h>
 #include <string.h>
 #include <errno.h>
-#include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-
 #include <address.h>
 #include <logger.h>
 #include <udp_utils.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
 

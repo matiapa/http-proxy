@@ -1,4 +1,3 @@
-#include <statistics.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
@@ -10,9 +9,10 @@
 #include <errno.h>
 #include <config.h>
 #include <time.h>
-#include <unistd.h>
 #include <arpa/inet.h>
-  
+#include <statistics.h>
+
+
 long global_total_connections=0;
 int global_concurent_connections=0;
 

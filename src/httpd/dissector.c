@@ -1,16 +1,8 @@
-
 #include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <logger.h>
 #include <string.h>
-#include <errno.h>
-#include <config.h>
-#include <dissector.h>
 #include <time.h>
 #include <http.h>
-
-
+#include <dissector.h>
 
 void print_credentials(Protocol prot,char * target, int port,char * user, char * pass){
 

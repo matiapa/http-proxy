@@ -4,7 +4,7 @@
 #include <strings.h>
 #include <arpa/inet.h>
 #include <stdio.h>
-#include <client_argc.h>
+#include <client_args.h>
 #include <sys/termios.h>
 
 union format {

@@ -4,8 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include <getopt.h>
-
-#include <args.h>
+#include <proxy_args.h>
 
 
 static void

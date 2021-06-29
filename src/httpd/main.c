@@ -4,8 +4,7 @@
 #include <statistics.h>
 #include <tcp_utils.h>
 #include <logger.h>
-#include <args.h>
-#include <monitor.h>
+#include <proxy_args.h>
 #include <doh_client.h>
 #include <selector_enums.h>
 #include <http_request_parser.h>

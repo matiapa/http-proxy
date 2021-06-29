@@ -1,7 +1,7 @@
-#include <http.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <http.h>
 
 #define HTTP_VERSION "HTTP/1.1"
 

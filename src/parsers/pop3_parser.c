@@ -1,14 +1,12 @@
-#include "pop3_parser.h"
-
-#include<stdio.h>
-#include <stdlib.h>  // malloc
-#include <string.h>  // memset
-#include <ctype.h> //toUpper
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
 #include <pop3_parser.h>
 #include <abnf_chars.h>
 #include <parser.h>
 #include <logger.h>
+#include <pop3_parser.h>
 
 #define PARSE_BUFF_SIZE 1024
 

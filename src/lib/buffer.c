@@ -6,8 +6,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <stdlib.h>
-
-#include "../include/buffer.h"
+#include <buffer.h>
 
 inline void buffer_reset(buffer *b) {
     b->read  = b->data;

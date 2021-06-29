@@ -1,17 +1,14 @@
-#include <doh_client.h>
 #include <http.h>
 #include <arpa/inet.h>
-#include <netinet/in.h>
 #include <stdio.h>
-#include <args.h>
+#include <proxy_args.h>
 #include <logger.h>
 #include <buffer.h>
 #include <http_response_parser.h>
-#include <http_message_parser.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/time.h>
 #include <selector.h>
+#include <doh_client.h>
 
 #define A 1
 #define AAAA 28
