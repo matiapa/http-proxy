@@ -5,17 +5,6 @@
 #include <sys/time.h>
 #include <stdbool.h>
 #include <pthread.h>
-#include "buffer.h"
-#include "http.h"
-#include "stm.h"
-#include "selector_enums.h"
-#include "http_request_parser.h"
-#include "http_response_parser.h"
-#include "pop3_parser.h"
-#include <doh_client.h>
-
-#define MASTER_SOCKET_SIZE 2
-#define UDP_SOCKET_SIZE 2
 
 /**
  * selector.c - un muliplexor de entrada salida
@@ -43,8 +32,8 @@
  * Dicha señalización se realiza mediante señales, y es por eso que al
  * iniciar la librería `selector_init' se debe configurar una señal a utilizar.
  *
- * Todos métodos retornan su estado (éxito / error) de forma uniforme.
- * Puede utilizar `selector_error' para obtener una representación human
+ * Los métodos retornan su estado (éxito / error) de forma uniforme.
+ * Puede utilizar `selector_error' para obtener una representación humana
  * del estado. Si el valor es `SELECTOR_IO' puede obtener información adicional
  * en errno(3).
  *
@@ -52,210 +41,104 @@
  *  - iniciar la libreria `selector_init'
  *  - crear un selector: `selector_new'
  *  - registrar un file descriptor: `selector_register_fd'
- *  - esperar algún evento: `selector_iteratate'
+ *  - esperar algún evento: `selector_iterate'
  *  - destruir los recursos de la librería `selector_close'
  */
 
-#define CONN_BUFFER (1024 * 1024 * 5)
+#define INTEREST_OFF(FLAG, MASK)  ( (FLAG) & ~(MASK) )
 
-#define SELECTOR_TIMEOUT_SECS 60
 
-typedef struct fdselector * fd_selector;
+/** ----------------------- STRUCTURES AND ENUMS ----------------------- */
 
-/** valores de retorno. */
-typedef enum {
-    /** llamada exitosa */
-    SELECTOR_SUCCESS  = 0,
-    /** no pudimos alocar memoria */
-    SELECTOR_ENOMEM   = 1,
-    /** llegamos al límite de descriptores que la plataforma puede manejar */
-    SELECTOR_MAXFD    = 2,
-    /** argumento ilegal */
-    SELECTOR_IARGS    = 3,
-    /** descriptor ya está en uso */
-    SELECTOR_FDINUSE  = 4,
-    /** I/O error check errno */
+typedef struct fdselector fdselector;
+
+/** Function return values */
+typedef enum selector_status {
+    SELECTOR_SUCCESS  = 0,      // Successfull call
+    SELECTOR_ENOMEM   = 1,      // Couldn't allocate memory
+    SELECTOR_MAXFD    = 2,      // Limit of FDs reached
+    SELECTOR_IARGS    = 3,      // Illegal argument
+    SELECTOR_FDINUSE  = 4,      // Already used FD
     SELECTOR_IO       = 5,
 } selector_status;
 
-/**
- * Manejador de los diferentes eventos..
- */
-typedef struct fd_handler
-{
-    void (*handle_block)(struct selector_key *key);
-    void (*handle_create)(struct selector_key *key);
-    void (*handle_close)(struct selector_key *key);
+/** Event handlers receive this structure as argument */
+typedef struct selector_key {
+    fdselector * s;         // The selector that activated the event
+    int fd;                 // The file descriptor that activated the event
+    void * data;            // Optional aditional data
+} selector_key_t;
+
+/** Event handlers for a specific fd */
+typedef struct fd_handler {
+    void (*handle_read)      (selector_key_t *key);
+    void (*handle_write)     (selector_key_t *key);
+    void (*handle_block)    (selector_key_t *key);
+    void (*handle_close)    (selector_key_t *key);
 } fd_handler;
 
-/** retorna una descripción humana del fallo */
-const char *
-selector_error(const selector_status status);
-
-/** opciones de inicialización del selector */
+/** Selector initialization options */
 struct selector_init {
-    /** señal a utilizar para notificaciones internas */
+    /** Internal notification signal */
     const int signal;
-
-    /** tiempo máximo de bloqueo durante `selector_iteratate' */
+    /** Iteration timeout */
     struct timespec select_timeout;
 };
 
-/** inicializa la librería */
-selector_status
-selector_init(const struct selector_init *c);
-
-/** deshace la incialización de la librería */
-selector_status
-selector_close(void);
-
-/* instancia un nuevo selector. returna NULL si no puede instanciar  */
-fd_selector
-selector_new(const size_t initial_elements, const fd_handler *handler);
-
-/** destruye un selector creado por _new. Tolera NULLs */
-void
-selector_destroy(fd_selector s);
-
 /**
- * Quita un interés de una lista de intereses
- */
-#define INTEREST_OFF(FLAG, MASK)  ( (FLAG) & ~(MASK) )
-
-/**
- * Argumento de todas las funciones callback del handler
- */
-struct selector_key {
-    fd_selector s;          // The selector that activated the event
-    int active_fd;          // The file descriptor that activated the event
-    struct item * item;     // The connection item
-};
-
-
-void
-selector_update_fdset(fd_selector s, const struct item * item);
-
-/**
- * registra en el selector `s' un nuevo file descriptor `fd'.
+ * Intereses sobre un file descriptor (quiero leer, quiero escribir, …)
  *
- * Se especifica un `interest' inicial, y se pasa handler que manejará
- * los diferentes eventos. `data' es un adjunto que se pasa a todos
- * los manejadores de eventos.
+ * Son potencias de 2, por lo que se puede requerir una conjunción usando el OR
+ * de bits.
  *
- * No se puede registrar dos veces un mismo fd.
- *
- * @return 0 si fue exitoso el registro.
+ * OP_NOOP es útil para cuando no se tiene ningún interés.
  */
-selector_status
-selector_register(fd_selector s, const int fd, const fd_interest interest, void *data);
 
-selector_status 
-selector_udp_register(fd_selector s, const int fd, const fd_interest interest, void *data);
+typedef enum {
+    OP_NOOP    = 0,
+    OP_READ    = 1 << 0,
+    OP_WRITE   = 1 << 2,
+} fd_interest;
 
-    /**
- * desregistra un file descriptor del selector
- */
-    selector_status
-    selector_unregister_fd(fd_selector s,
-                           const int fd);
+typedef enum {
+    READ_BUFFER   = 1 << 0,
+    WRITE_BUFFER  = 1 << 2
+} rst_buffer;
 
-/** permite cambiar los intereses para un file descriptor */
-selector_status
-selector_set_interest(fd_selector s, int fd, fd_interest i);
+/** ----------------------- METHOD PROTOTYPES ----------------------- */
 
-/** permite cambiar los intereses para un file descriptor */
-selector_status
-selector_set_interest_key(struct selector_key *key, fd_interest i);
+/** Returns a human readable status description */
+const char * selector_error(const selector_status status);
 
+/** Selector library initialization */
+selector_status selector_init(const struct selector_init *c);
 
-/**
- * se bloquea hasta que hay eventos disponible y los despacha.
- * Retorna luego de cada iteración, o al llegar al timeout.
- */
-selector_status
-selector_select(fd_selector s);
+/** Selector library destroy */
+selector_status selector_close(void);
 
-/**
- * Método de utilidad que activa O_NONBLOCK en un fd.
- *
- * retorna -1 ante error, y deja detalles en errno.
- */
-int
-selector_fd_set_nio(const int fd);
+/* Selector instance creation, returns NULL on error  */
+fdselector * selector_new(const size_t initial_elements);
 
-/** notifica que un trabajo bloqueante terminó */
-selector_status
-selector_notify_block(fd_selector s, const int   fd);
+/** Selector instance destruction, accepts NULL */
+void selector_destroy(fdselector * s);
 
-// estructuras internas item_def
-struct item {
-    int                 client_socket;
-    int                 target_socket;
+/** Registers a new file descriptor on selector */
+selector_status selector_register(fdselector * s, const int fd, const fd_handler  *handler,
+    const fd_interest interest, void *data);
 
-    fd_interest         client_interest;
-    fd_interest         target_interest;
-    
-    buffer              read_buffer;
-    buffer              write_buffer;
-    
-    state_machine       stm;
-    http_request_parser req_parser;
-    http_response_parser res_parser;
-    pop3_parser_data    pop3_parser;
-    struct sockaddr_in  client;
-    struct doh_client   doh;
-    
-    time_t              last_activity;
-    struct url          last_target_url;
+/** Unregisters a new file descriptor on selector */
+selector_status selector_unregister_fd(fdselector * s, const int fd);
 
-    int                 master_socket;
+/** Allows changing an fd interests */
+selector_status selector_set_interest(fdselector * s, int fd, fd_interest i);
 
-    void *              data;
-};
+/** Blocks until there is a new event or timeout is reached, then iterates again */
+selector_status selector_select(fdselector * s);
 
-struct fdselector {
-    // almacenamos en una jump table donde la entrada es el file descriptor.
-    // Asumimos que el espacio de file descriptors no va a ser esparso; pero
-    // esto podría mejorarse utilizando otra estructura de datos
-    struct item    *fds; // podría ser estatico de tamaño MAX_CONNECTIONS
-    size_t          fd_size;  // cantidad de elementos posibles de fds
+/** Notifies a blocking job finished */
+selector_status selector_notify_block(fdselector * s, const int fd);
 
-    struct item     *masters[2];
-    size_t          master_size;
-
-    struct item     *udps[2];
-    size_t          udp_size;
-
-    /** fd maximo para usar en select() */
-    int max_fd;  // max(.fds[].fd)
-
-    /** descriptores prototipicos ser usados en select */
-    fd_set master_r, master_w;
-    /** para ser usado en el select() (recordar que select cambia el valor) */
-    fd_set  slave_r,  slave_w;
-
-    /** timeout prototipico para usar en select() */
-    struct timespec master_t;
-    /** tambien select() puede cambiar el valor */
-    struct timespec slave_t;
-
-    // notificaciónes entre blocking jobs y el selector
-    volatile pthread_t      selector_thread;
-    /** protege el acceso a resolutions jobs */
-    pthread_mutex_t         resolution_mutex;
-    /**
-     * lista de trabajos blockeantes que finalizaron y que pueden ser
-     * notificados.
-     */
-    struct blocking_job    *resolution_jobs;
-
-    // handlers a utilizar en los items
-    fd_handler handlers;
-};
-
-/**
- * Mata al item
- */
-void item_kill(fd_selector s, struct item * item);
+/** Sets O_NONBLOCK on fd, returns -1 on error and sets ERRNO */
+int selector_fd_set_nio(const int fd);
 
 #endif

@@ -1,6 +1,12 @@
 #ifndef PROXY_STM_H
 #define PROXY_STM_H
 
+#include <netdb.h>
+
+#include <proxy.h>
+#include <stm.h>
+#include <selector.h>
+
 /* -------------------------------------- PROXY STATES -------------------------------------- */
 
 extern struct state_machine proto_stm;
@@ -189,76 +195,76 @@ enum proxy_state {
 /* ------------------------------------------------------------
   Reads HTTP requests message part from client.
 ------------------------------------------------------------ */
-unsigned request_read_ready(unsigned int state, struct selector_key *key);
+unsigned request_read_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Handles the completion of connection to target.
 ------------------------------------------------------------ */
-unsigned request_connect_write_ready(unsigned int state, struct selector_key *key);
+unsigned request_connect_write_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Forwards HTTP requests message part to target.
 ------------------------------------------------------------ */
-unsigned request_forward_ready(unsigned int state, struct selector_key *key);
+unsigned request_forward_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Reads HTTP requests body part from client.
 ------------------------------------------------------------ */
-unsigned req_body_read_ready(unsigned int state, struct selector_key *key);
+unsigned req_body_read_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Forwards HTTP requests body part to target.
 ------------------------------------------------------------ */
-unsigned req_body_forward_ready(unsigned int state, struct selector_key *key);
+unsigned req_body_forward_ready(unsigned int state, selector_key_t *key);
 
 /* -------------------------------------- DOH HANDLERS -------------------------------------- */
 
 /* ------------------------------------------------------------
   Sends connection response to client.
 ------------------------------------------------------------ */
-unsigned connect_response_ready(unsigned int state, struct selector_key *key);
+unsigned connect_response_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Handles the completion of connection to DoH.
 ------------------------------------------------------------ */
-unsigned doh_connect_write_ready(unsigned int state, struct selector_key *key);
+unsigned doh_connect_write_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Reads DoH response from server.
 ------------------------------------------------------------ */
-unsigned response_doh_read_ready(unsigned int state, struct selector_key *key);
+unsigned response_doh_read_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Tries to connect to a target resolved IP.
 ------------------------------------------------------------ */
-unsigned try_ips_arrival(const unsigned int state, struct selector_key *key);
+unsigned try_ips_arrival(const unsigned int state, selector_key_t *key);
 
 /* -------------------------------------- RESPONSE HANDLERS -------------------------------------- */
 
 /* ------------------------------------------------------------
   Reads HTTP responses message part from target.
 ------------------------------------------------------------ */
-unsigned response_read_ready(unsigned int state, struct selector_key *key);
+unsigned response_read_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Forwards HTTP responses message part to client.
 ------------------------------------------------------------ */
-unsigned response_forward_ready(unsigned int state, struct selector_key *key);
+unsigned response_forward_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Reads HTTP responses body part from target.
 ------------------------------------------------------------ */
-unsigned res_body_read_ready(unsigned int state, struct selector_key *key);
+unsigned res_body_read_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Forwards HTTP responses body part to client.
 ------------------------------------------------------------ */
-unsigned res_body_forward_ready(unsigned int state, struct selector_key *key);
+unsigned res_body_forward_ready(unsigned int state, selector_key_t *key);
 
 /* -------------------------------------- AUXILIARS PROTOTYPES -------------------------------------- */
 
 #define log_error(_description) \
-    log(ERROR, "At state %u: %s", key->item->stm.current->state, _description);
+    log(ERROR, "At state %u: %s", I(key)->stm.current->state, _description);
 
 #define remove_array_elem(array, pos, size) \
   memcpy(array+pos, array+pos+1, size-pos-1)
@@ -268,6 +274,6 @@ unsigned res_body_forward_ready(unsigned int state, struct selector_key *key);
     while(isspace(*--back)); \
     *(back+1) = 0;
 
-unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state);
+unsigned notify_error(selector_key_t *key, int status_code, unsigned next_state);
 
 #endif

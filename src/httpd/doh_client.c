@@ -7,7 +7,7 @@
 #include <http_response_parser.h>
 #include <string.h>
 #include <errno.h>
-#include <selector.h>
+#include <proxy.h>
 #include <doh_client.h>
 
 #define A 1
@@ -80,7 +80,7 @@ void config_doh_client(struct doh * args) {
     memcpy(&configurations, args, sizeof(struct doh));
 }
 
-int doh_client_init(struct selector_key * key) {
+int doh_client_init(selector_key_t * key) {
 
     int s = socket(AF_INET , SOCK_STREAM , IPPROTO_TCP); // Socket para conectarse al DOH Server
     if (s < 0) {
@@ -102,9 +102,9 @@ int doh_client_init(struct selector_key * key) {
 
     // Buffers instantiated
     // TODO: Close this buffers
-    buffer_init(&(key->item->doh.buff), BUFF_SIZE, calloc(1, BUFF_SIZE));
+    buffer_init(&(I(key)->doh.buff), BUFF_SIZE, calloc(1, BUFF_SIZE));
 
-    key->item->doh.server_socket = -1;
+    I(key)->doh.server_socket = -1;
 
     /*--------- Establece la conexón con el servidor ---------*/
     dest.sin_family = AF_INET;
@@ -113,9 +113,9 @@ int doh_client_init(struct selector_key * key) {
 
     if (connect(s, (struct sockaddr *)&dest, sizeof(dest)) == -1) { // Establece la conexión con el servidor DOH
         if (errno == EINPROGRESS) {
-            key->item->target_socket = s;       // Provisional, por compatibilidad con los permisos de la STM
-            key->item->doh.server_socket = s;
-            key->item->doh.family = AF_INET;   // Set to IPv4 first
+            I(key)->target_socket = s;       // Provisional, por compatibilidad con los permisos de la STM
+            I(key)->doh.server_socket = s;
+            I(key)->doh.family = AF_INET;   // Set to IPv4 first
             return 0; // Ok
         } else {
             log(ERROR, "Error in connect")
@@ -127,43 +127,46 @@ int doh_client_init(struct selector_key * key) {
     }
 }
 
-void doh_kill(struct selector_key * key) {
-    FD_CLR(key->item->doh.server_socket, &key->s->master_r);
-    FD_CLR(key->item->doh.server_socket, &key->s->master_w);
-    close(key->item->doh.server_socket);
-    if (key->item->doh.target_address_list != NULL) {
-        free(key->item->doh.target_address_list);
+void doh_kill(selector_key_t * key) {
+    //FD_CLR(I(key)->doh.server_socket, &key->s->master_r);
+    //FD_CLR(I(key)->doh.server_socket, &key->s->master_w);
+    // TODO: Is this ok?
+    selector_set_interest(key->s, I(key)->doh.server_socket, OP_NOOP);
+
+    close(I(key)->doh.server_socket);
+    if (I(key)->doh.target_address_list != NULL) {
+        free(I(key)->doh.target_address_list);
     }
-    free_buffer(&(key->item->doh.buff));
-    memset(&(key->item->doh), 0, sizeof(struct doh_client));
+    free_buffer(&(I(key)->doh.buff));
+    memset(&(I(key)->doh), 0, sizeof(struct doh_client));
 }
 
-int doh_client_read(struct selector_key * key) {
+int doh_client_read(selector_key_t * key) {
     /*----------- Recivo el response DOH -----------*/
     int dim = sizeof(struct sockaddr_in);
     size_t nbyte;
-    buffer_reset(&(key->item->doh.buff));
-    memset(key->item->doh.buff.read, 0, BUFF_SIZE);
-    char *aux_buff = (char *)buffer_write_ptr(&(key->item->doh.buff), &nbyte);
+    buffer_reset(&(I(key)->doh.buff));
+    memset(I(key)->doh.buff.read, 0, BUFF_SIZE);
+    char *aux_buff = (char *)buffer_write_ptr(&(I(key)->doh.buff), &nbyte);
 
     ssize_t read_bytes;
     struct sockaddr_in dest;
-    if ((read_bytes = recvfrom(key->item->doh.server_socket, aux_buff, nbyte, 0, (struct sockaddr *)&dest, (socklen_t *)&dim)) < 0) {
+    if ((read_bytes = recvfrom(I(key)->doh.server_socket, aux_buff, nbyte, 0, (struct sockaddr *)&dest, (socklen_t *)&dim)) < 0) {
         log(ERROR, "Getting response from DOH server")
-        free_buffer(&(key->item->doh.buff));
-        close(key->item->doh.server_socket);
+        free_buffer(&(I(key)->doh.buff));
+        close(I(key)->doh.server_socket);
         return -1;
     }
 
-    buffer_write_adv(&(key->item->doh.buff), read_bytes);
+    buffer_write_adv(&(I(key)->doh.buff), read_bytes);
 
     // Parsing of response
     http_response_parser parser = {0};
     http_response_parser_init(&parser);
-    http_response_parser_parse(&parser, &(key->item->doh.buff), false); // response is parsed
+    http_response_parser_parse(&parser, &(I(key)->doh.buff), false); // response is parsed
     http_response response = parser.response;
 
-    key->item->doh.buff.read = (unsigned char *)response.message.body;
+    I(key)->doh.buff.read = (unsigned char *)response.message.body;
 
     struct DNS_HEADER *dns = calloc(1, sizeof(struct DNS_HEADER));
     if (dns == NULL) {
@@ -171,8 +174,8 @@ int doh_client_read(struct selector_key * key) {
         return -1;
     }
 
-    memcpy(dns, buffer_read_ptr(&(key->item->doh.buff), &nbyte), sizeof(struct DNS_HEADER)); // Obtengo el DNS_HEADER
-    buffer_read_adv(&(key->item->doh.buff), sizeof(struct DNS_HEADER));
+    memcpy(dns, buffer_read_ptr(&(I(key)->doh.buff), &nbyte), sizeof(struct DNS_HEADER)); // Obtengo el DNS_HEADER
+    buffer_read_adv(&(I(key)->doh.buff), sizeof(struct DNS_HEADER));
 
     int ans_count = ntohs(dns->ans_count); // Cantidad de respuestas
     free(dns);
@@ -187,15 +190,15 @@ int doh_client_read(struct selector_key * key) {
         return -1;
     }
 
-    int n = get_name(buffer_read_ptr(&(key->item->doh.buff), &nbyte)) + sizeof(struct QUESTION);
-    buffer_read_adv(&(key->item->doh.buff), n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
+    int n = get_name(buffer_read_ptr(&(I(key)->doh.buff), &nbyte)) + sizeof(struct QUESTION);
+    buffer_read_adv(&(I(key)->doh.buff), n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
     /*----------- Lectura del response DOH -----------*/
-    ans_count = read_response(out, key->item->doh.url.port, key->item->doh.family, ans_count, key->item->doh.buff);
+    ans_count = read_response(out, I(key)->doh.url.port, I(key)->doh.family, ans_count, I(key)->doh.buff);
 
     // Termine
-    key->item->doh.target_address_list = &out->ai;
-    key->item->doh.current_target_addr = key->item->doh.target_address_list;
+    I(key)->doh.target_address_list = &out->ai;
+    I(key)->doh.current_target_addr = I(key)->doh.target_address_list;
     return ans_count;
 }
 
@@ -220,16 +223,16 @@ int create_post(int length, char * body, char * write_buffer, int space) {
     return write_request(&request, write_buffer, space, true);
 }
 
-int send_doh_request(struct selector_key * key, int type) {
-    buffer_reset(&(key->item->doh.buff));
-    memset(key->item->doh.buff.write, 0, BUFF_SIZE);
+int send_doh_request(selector_key_t * key, int type) {
+    buffer_reset(&(I(key)->doh.buff));
+    memset(I(key)->doh.buff.write, 0, BUFF_SIZE);
 
     unsigned char * qname;
     struct QUESTION * qinfo = NULL;
     size_t nbyte;
 
     struct DNS_HEADER *dns;
-    dns = (struct DNS_HEADER *)(char *)buffer_write_ptr(&(key->item->doh.buff), &nbyte);
+    dns = (struct DNS_HEADER *)(char *)buffer_write_ptr(&(I(key)->doh.buff), &nbyte);
     dns->id = id;
     dns->qr = 0; //This is a query
     dns->opcode = 0; //This is a standard query
@@ -245,23 +248,23 @@ int send_doh_request(struct selector_key * key, int type) {
     dns->ans_count = 0;
     dns->auth_count = 0;
     dns->add_count = 0;
-    buffer_write_adv(&(key->item->doh.buff), sizeof(struct DNS_HEADER)); // muevo el buffer despues de haber escrito DNS_HEADER
+    buffer_write_adv(&(I(key)->doh.buff), sizeof(struct DNS_HEADER)); // muevo el buffer despues de haber escrito DNS_HEADER
 
-    qname = (unsigned char *)buffer_write_ptr(&(key->item->doh.buff), &nbyte);
+    qname = (unsigned char *)buffer_write_ptr(&(I(key)->doh.buff), &nbyte);
 
-    int len = change_to_dns_format((char *)qname, key->item->doh.url.hostname); // Mete el host en la posición del qname
-    buffer_write_adv(&(key->item->doh.buff), len);
+    int len = change_to_dns_format((char *)qname, I(key)->doh.url.hostname); // Mete el host en la posición del qname
+    buffer_write_adv(&(I(key)->doh.buff), len);
 
-    qinfo = (struct QUESTION *)buffer_write_ptr(&(key->item->doh.buff), &nbyte);
+    qinfo = (struct QUESTION *)buffer_write_ptr(&(I(key)->doh.buff), &nbyte);
     if (type == AF_INET) {
         qinfo->qtype = htons(A);
     } else {
         qinfo->qtype = htons(AAAA);
     }
     qinfo->qclass = htons(1); // Its internet
-    buffer_write_adv(&(key->item->doh.buff), sizeof(struct QUESTION));
+    buffer_write_adv(&(I(key)->doh.buff), sizeof(struct QUESTION));
 
-    char *aux_buff = (char *)buffer_read_ptr(&(key->item->doh.buff), &nbyte);
+    char *aux_buff = (char *)buffer_read_ptr(&(I(key)->doh.buff), &nbyte);
     
     char * write_buffer = malloc(POST_SIZE);
     if (write_buffer == NULL) {
@@ -271,7 +274,7 @@ int send_doh_request(struct selector_key * key, int type) {
 
     int written = create_post((int)nbyte, aux_buff, write_buffer, POST_SIZE); // crea el http request
 
-    if (send(key->item->doh.server_socket, write_buffer, written, 0) < 0) { // manda el paquete al servidor DOH
+    if (send(I(key)->doh.server_socket, write_buffer, written, 0) < 0) { // manda el paquete al servidor DOH
         log(ERROR, "Sending DOH request")
         return -1;
     }

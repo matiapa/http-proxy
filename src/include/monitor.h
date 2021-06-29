@@ -5,6 +5,6 @@
 
 void * start_monitor(void * port);
 
-void handle_read_monitor(struct selector_key *key);
+void handle_read_monitor(selector_key_t *key);
 
 #endif 

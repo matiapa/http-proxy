@@ -1,7 +1,7 @@
 #ifndef STM_H
 #define STM_H
 
-#include <selector_enums.h>
+#include <selector.h>
 
 /**
  * stm.c - pequeño motor de maquina de estados donde los eventos son los
@@ -36,7 +36,7 @@ typedef struct state_machine {
     const struct state_definition * current;
 } state_machine;
 
-struct selector_key * selector_key;
+selector_key_t * selector_key;
 
 /**
  * definición de un estado de la máquina de estados
@@ -56,19 +56,19 @@ struct state_definition {
     char * description;     // Used for logging
 
     /** ejecutado al arribar al estado */
-    unsigned (*on_arrival)    (const unsigned state, struct selector_key *selector_key);
+    unsigned (*on_arrival)    (const unsigned state, selector_key_t *selector_key);
 
     /** ejecutado al salir del estado */
-    void     (*on_departure)  (const unsigned state, struct selector_key *selector_key);
+    void     (*on_departure)  (const unsigned state, selector_key_t *selector_key);
 
     /** ejecutado cuando hay datos disponibles para ser leidos */
-    unsigned (*on_read_ready) (unsigned int state, struct selector_key *selector_key);
+    unsigned (*on_read_ready) (unsigned int state, selector_key_t *selector_key);
 
     /** ejecutado cuando hay datos disponibles para ser escritos */
-    unsigned (*on_write_ready) (unsigned int state, struct selector_key *selector_key);
+    unsigned (*on_write_ready) (unsigned int state, selector_key_t *selector_key);
     
     /** ejecutado cuando hay un trabajo bloqueante listo */
-    unsigned (*on_block_ready) (struct selector_key *selector_key);
+    unsigned (*on_block_ready) (selector_key_t *selector_key);
 };
 
 
@@ -81,16 +81,16 @@ unsigned stm_state(struct state_machine *stm);
 
 /** indica que ocurrió el evento read. retorna nuevo id de nuevo estado. */
 unsigned
-stm_handler_read(struct state_machine *stm, struct selector_key *selector_key);
+stm_handler_read(struct state_machine *stm, selector_key_t *selector_key);
 
 /** indica que ocurrió el evento write. retorna nuevo id de nuevo estado. */
 unsigned
-stm_handler_write(struct state_machine *stm, struct selector_key *selector_key);
+stm_handler_write(struct state_machine *stm, selector_key_t *selector_key);
 
 /** indica que ocurrió el evento block. retorna nuevo id de nuevo estado. */
-unsigned stm_handler_block(struct state_machine *stm, struct selector_key *selector_key);
+unsigned stm_handler_block(struct state_machine *stm, selector_key_t *selector_key);
 
 /** indica que ocurrió el evento close. retorna nuevo id de nuevo estado. */
-void stm_handler_close(struct state_machine *stm, struct selector_key *selector_key);
+void stm_handler_close(struct state_machine *stm, selector_key_t *selector_key);
 
 #endif

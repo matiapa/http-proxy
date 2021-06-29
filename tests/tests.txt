@@ -1,0 +1,14 @@
+-----------------------------------------------------------------------------
+
+curl -i http://google.com/ --proxy ip6-localhost:1111
+curl -i http://127.0.0.1:2020/ --proxy localhost:8080
+
+time2 curl -s http://127.0.0.1:2020/1.iso | sha256sum
+time2 curl -s http://127.0.0.1:2020/1.iso --proxy localhost:8080 | sha256sum
+
+-----------------------------------------------------------------------------
+
+curl -s --data-binary @/home/matiapa/leet.txt -X POST http://127.0.0.1:2020/api/other | sha256sum
+curl -s --data-binary @/home/matiapa/leet.txt -X POST http://127.0.0.1:2020/api/other --proxy localhost:8080 | sha256sum
+
+-----------------------------------------------------------------------------

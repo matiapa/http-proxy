@@ -6,7 +6,7 @@
 #include <config.h>
 #include <monitor.h>
 #include <statistics.h>
-#include <selector.h>
+#include <proxy.h>
 
 #define BUFFER_SIZE 1024
 
@@ -95,8 +95,8 @@ char res_buffer[BUFFER_SIZE];
 struct sockaddr_storage clientAddress;
 socklen_t clientAddressSize = sizeof(clientAddress);
 
-void handle_read_monitor(struct selector_key * key) {
-    int n = recvfrom(key->item->client_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&clientAddress, &clientAddressSize);
+void handle_read_monitor(selector_key_t * key) {
+    int n = recvfrom(I(key)->client_socket, req_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&clientAddress, &clientAddressSize);
     
     if (n < 0) { // si hubo un error
         log(ERROR, "Receiving request from client")
@@ -110,11 +110,11 @@ void handle_read_monitor(struct selector_key * key) {
         memcpy(request_header, req_buffer, sizeof(struct request_header)); //-V512
 
         if (!validate_client((char *)request_header->pass)){
-            send_no_authorization_message(request_header, key->item->client_socket);
+            send_no_authorization_message(request_header, I(key)->client_socket);
         } else {
-            int status = process_request(req_buffer + sizeof(struct request_header), request_header, key->item->client_socket);
+            int status = process_request(req_buffer + sizeof(struct request_header), request_header, I(key)->client_socket);
             if (status != REQ_SUCCESS)
-                send_error(status, key->item->client_socket);
+                send_error(status, I(key)->client_socket);
         }
         free(request_header);
     }
@@ -269,16 +269,3 @@ void send_success(struct request_header * request_header, int udp_socket) {
         log(ERROR, "Sending client response")
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

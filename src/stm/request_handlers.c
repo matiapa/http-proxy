@@ -24,7 +24,7 @@
 /* ------------------------------------------------------------
   Processes an HTTP request and returns next state.
 ------------------------------------------------------------ */
-static unsigned process_request(struct selector_key * key);
+static unsigned process_request(selector_key_t * key);
 
 /* ------------------------------------------------------------
   Processes request headers according to RFC 7230 specs.
@@ -40,11 +40,11 @@ static int extract_http_credentials(http_request * request);
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
 
-unsigned request_read_ready(unsigned int state, struct selector_key *key) {
+unsigned request_read_ready(unsigned int state, selector_key_t *key) {
 
-    key->item->last_activity = time(NULL);
+    I(key)->last_activity = time(NULL);
 
-    if (! buffer_can_write(&(key->item->read_buffer))) {
+    if (! buffer_can_write(&(I(key)->read_buffer))) {
         log_error("Read buffer limit reached");
         return notify_error(key, PAYLOAD_TOO_LARGE, REQUEST_READ);
     }
@@ -52,8 +52,8 @@ unsigned request_read_ready(unsigned int state, struct selector_key *key) {
     // Read request bytes into read buffer
 
     size_t space;
-    uint8_t * raw_req = buffer_write_ptr(&(key->item->read_buffer), &space);
-    ssize_t readBytes = read(key->item->client_socket, raw_req, space);
+    uint8_t * raw_req = buffer_write_ptr(&(I(key)->read_buffer), &space);
+    ssize_t readBytes = read(I(key)->client_socket, raw_req, space);
 
     if(readBytes <= 0) {
         if(readBytes < 0 && errno != EBADF && errno != EPIPE)
@@ -61,9 +61,9 @@ unsigned request_read_ready(unsigned int state, struct selector_key *key) {
         return CLIENT_CLOSE_CONNECTION;
     }
 
-    buffer_write_adv(&(key->item->read_buffer), readBytes);
+    buffer_write_adv(&(I(key)->read_buffer), readBytes);
 
-    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, key->item->client_socket);
+    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, I(key)->client_socket);
 
     // Calculate statistics
 
@@ -76,33 +76,33 @@ unsigned request_read_ready(unsigned int state, struct selector_key *key) {
 }
 
 
-unsigned request_connect_write_ready(unsigned int state, struct selector_key *key) {
+unsigned request_connect_write_ready(unsigned int state, selector_key_t *key) {
 
     int socket_error;
     socklen_t socket_error_len = sizeof(socket_error);
-    int sock_opt = getsockopt(key->item->target_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
+    int sock_opt = getsockopt(I(key)->target_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
     if (sock_opt != 0) {
-        log(ERROR, "Target getsockopt(%d) failed", key->item->target_socket)
+        log(ERROR, "Target getsockopt(%d) failed", I(key)->target_socket)
         perror("reason");
     }
 
     if (socket_error != 0) {
-        close(key->item->target_socket);
-        if (key->item->doh.server_socket > 0)
+        close(I(key)->target_socket);
+        if (I(key)->doh.server_socket > 0)
             return TRY_IPS;
         else
             return notify_error(key, BAD_GATEWAY, REQUEST_READ);
     } else { // la conexión funciono
-        memcpy(&(key->item->last_target_url), &(key->item->doh.url), sizeof(struct url));
-        if (key->item->doh.server_socket > 0)
+        memcpy(&(I(key)->last_target_url), &(I(key)->doh.url), sizeof(struct url));
+        if (I(key)->doh.server_socket > 0)
             doh_kill(key);
-        // int aux = key->item->doh.target_socket;
-        // key->item->target_socket = aux;
+        // int aux = I(key)->doh.target_socket;
+        // I(key)->target_socket = aux;
     }
 
     // Update last connection
 
-    http_request * request = &(key->item->req_parser.request);
+    http_request * request = &(I(key)->req_parser.request);
 
     // Check for request method
 
@@ -114,14 +114,14 @@ unsigned request_connect_write_ready(unsigned int state, struct selector_key *ke
         // Write response bytes into write buffer
 
         size_t space;
-        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+        char * ptr = (char *) buffer_write_ptr(&(I(key)->write_buffer), &space);
 
         http_response res = { .status = RESPONSE_OK };
         int written = write_response(&res, ptr, space, false);
 
-        buffer_write_adv(&(key->item->write_buffer), written);
+        buffer_write_adv(&(I(key)->write_buffer), written);
 
-        print_Access(inet_ntoa(key->item->client.sin_addr), ntohs(key->item->client.sin_port), key->item->req_parser.request.url, key->item->req_parser.request.method, 200);
+        print_Access(inet_ntoa(I(key)->client.sin_addr), ntohs(I(key)->client.sin_port), I(key)->req_parser.request.url, I(key)->req_parser.request.method, 200);
 
         // Go to send response state
 
@@ -132,7 +132,7 @@ unsigned request_connect_write_ready(unsigned int state, struct selector_key *ke
         // The request method is a traditional one, request shall be proccessed
         // and then forwarded
         
-        if (request->method == OPTIONS && strlen(key->item->last_target_url.path) == 0)
+        if (request->method == OPTIONS && strlen(I(key)->last_target_url.path) == 0)
             sprintf(request->url, "*");
 
         // Process request headers
@@ -144,7 +144,7 @@ unsigned request_connect_write_ready(unsigned int state, struct selector_key *ke
             get_machine_fqdn(proxy_hostname);
         }
         
-        process_request_headers(request, key->item->last_target_url.hostname, proxy_hostname);
+        process_request_headers(request, I(key)->last_target_url.hostname, proxy_hostname);
 
         // Extract credentials if present
 
@@ -154,11 +154,11 @@ unsigned request_connect_write_ready(unsigned int state, struct selector_key *ke
         // Write processed request bytes into write buffer
 
         size_t space;
-        char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+        char * ptr = (char *) buffer_write_ptr(&(I(key)->write_buffer), &space);
 
         int written = write_request(request, ptr, space, false);
 
-        buffer_write_adv(&(key->item->write_buffer), written);
+        buffer_write_adv(&(I(key)->write_buffer), written);
 
         // Go to forward request state
 
@@ -168,16 +168,16 @@ unsigned request_connect_write_ready(unsigned int state, struct selector_key *ke
 }
 
 
-unsigned request_forward_ready(unsigned int state, struct selector_key *key) {
+unsigned request_forward_ready(unsigned int state, selector_key_t *key) {
 
-    if (! buffer_can_read(&(key->item->write_buffer)))
+    if (! buffer_can_read(&(I(key)->write_buffer)))
         return REQUEST_FORWARD;
 
     // Read request bytes from write buffer
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->item->target_socket, ptr, size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
+    ssize_t sentBytes = write(I(key)->target_socket, ptr, size);
 
     if (sentBytes < 0) {
         if(errno != EBADF && errno != EPIPE)
@@ -185,9 +185,9 @@ unsigned request_forward_ready(unsigned int state, struct selector_key *key) {
         return TARGET_CLOSE_CONNECTION;
     }
 
-    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, I(key)->target_socket);
 
     // Calculate statistics
 
@@ -196,35 +196,35 @@ unsigned request_forward_ready(unsigned int state, struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return REQUEST_FORWARD;
  
-    if (key->item->req_parser.request.message.body_length == 0) {
+    if (I(key)->req_parser.request.message.body_length == 0) {
         return RESPONSE_READ;
-    } else if (buffer_can_read(&(key->item->read_buffer))) {
+    } else if (buffer_can_read(&(I(key)->read_buffer))) {
         // Body present, read some bytes
         size_t remaining;
-        buffer_read_ptr(&(key->item->read_buffer), &remaining);
-        key->item->req_parser.message_parser.current_body_length += remaining;
+        buffer_read_ptr(&(I(key)->read_buffer), &remaining);
+        I(key)->req_parser.message_parser.current_body_length += remaining;
         return REQ_BODY_FORWARD;
     } else {
         // Body present, didn't read bytes
-        return key->item->req_parser.request.message.hasExpect
+        return I(key)->req_parser.request.message.hasExpect
             ? TCP_TUNNEL : REQ_BODY_READ;
     }
 
 }
 
 
-unsigned req_body_read_ready(unsigned int state, struct selector_key *key) {
+unsigned req_body_read_ready(unsigned int state, selector_key_t *key) {
 
-    key->item->last_activity = time(NULL);
+    I(key)->last_activity = time(NULL);
 
-    if (! buffer_can_write(&(key->item->read_buffer)))
+    if (! buffer_can_write(&(I(key)->read_buffer)))
         return REQ_BODY_FORWARD;
 
     // Read body bytes into read buffer
 
     size_t space;
-    uint8_t * body = buffer_write_ptr(&(key->item->read_buffer), &space);
-    ssize_t readBytes = read(key->item->client_socket, body, space);
+    uint8_t * body = buffer_write_ptr(&(I(key)->read_buffer), &space);
+    ssize_t readBytes = read(I(key)->client_socket, body, space);
 
     if(readBytes <= 0) {
         if(readBytes < 0 && errno != EBADF && errno != EPIPE)
@@ -232,15 +232,15 @@ unsigned req_body_read_ready(unsigned int state, struct selector_key *key) {
         return CLIENT_CLOSE_CONNECTION;
     }
 
-    buffer_write_adv(&(key->item->read_buffer), readBytes);
+    buffer_write_adv(&(I(key)->read_buffer), readBytes);
 
-    log(DEBUG, "Received %lu body bytes from socket %d", (size_t) readBytes, key->item->client_socket);
+    log(DEBUG, "Received %lu body bytes from socket %d", (size_t) readBytes, I(key)->client_socket);
 
     // Calculate statistics
 
     add_bytes_recieved(readBytes);
 
-    http_request_parser * rp = &(key->item->req_parser);
+    http_request_parser * rp = &(I(key)->req_parser);
 
     if ((rp->message_parser.current_body_length += readBytes) < rp->request.message.body_length)
         return REQ_BODY_READ;
@@ -250,15 +250,15 @@ unsigned req_body_read_ready(unsigned int state, struct selector_key *key) {
 }
 
 
-unsigned req_body_forward_ready(unsigned int state, struct selector_key *key) {
+unsigned req_body_forward_ready(unsigned int state, selector_key_t *key) {
 
     // Will read the content directly from read buffer
 
     // Read body bytes from read buffer
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->read_buffer), &size);
-    ssize_t sentBytes = write(key->item->target_socket, ptr, size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->read_buffer), &size);
+    ssize_t sentBytes = write(I(key)->target_socket, ptr, size);
 
     if (sentBytes < 0) {
         if(errno != EBADF && errno != EPIPE)
@@ -266,15 +266,15 @@ unsigned req_body_forward_ready(unsigned int state, struct selector_key *key) {
         return TARGET_CLOSE_CONNECTION;
     }
 
-    buffer_read_adv(&(key->item->read_buffer), sentBytes);
+    buffer_read_adv(&(I(key)->read_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu body bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu body bytes to socket %d", (size_t) sentBytes, I(key)->target_socket);
 
     // Calculate statistics
 
     add_sent_bytes(sentBytes);
 
-    http_request_parser * rp = &(key->item->req_parser);
+    http_request_parser * rp = &(I(key)->req_parser);
 
     if ((size_t) sentBytes < size)
         return REQ_BODY_FORWARD;
@@ -286,16 +286,16 @@ unsigned req_body_forward_ready(unsigned int state, struct selector_key *key) {
 }
 
 
-unsigned connect_response_ready(unsigned int state, struct selector_key *key) {
+unsigned connect_response_ready(unsigned int state, selector_key_t *key) {
 
-    if (! buffer_can_read(&(key->item->write_buffer)))
+    if (! buffer_can_read(&(I(key)->write_buffer)))
         return CONNECT_RESPONSE;
 
     // write response bytes to socket
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
+    ssize_t sentBytes = write(I(key)->client_socket, ptr, size);
 
     if (sentBytes < 0) {
         if(errno != EBADF && errno != EPIPE)
@@ -303,9 +303,9 @@ unsigned connect_response_ready(unsigned int state, struct selector_key *key) {
         return END;
     }
 
-    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, I(key)->client_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -313,8 +313,8 @@ unsigned connect_response_ready(unsigned int state, struct selector_key *key) {
     if ((size_t) sentBytes < size)
         return CONNECT_RESPONSE;
 
-    memset(&(key->item->pop3_parser), 0, sizeof(pop3_parser_data));
-    pop3_parser_init(&(key->item->pop3_parser));
+    memset(&(I(key)->pop3_parser), 0, sizeof(pop3_parser_data));
+    pop3_parser_init(&(I(key)->pop3_parser));
 
     return TCP_TUNNEL;
 
@@ -324,26 +324,26 @@ unsigned connect_response_ready(unsigned int state, struct selector_key *key) {
 /* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
 
 
-static unsigned process_request(struct selector_key * key) {
+static unsigned process_request(selector_key_t * key) {
 
     // Parse the request and check for pending and failure cases
 
     parse_state parser_state = http_request_parser_parse(
-        &(key->item->req_parser), &(key->item->read_buffer)
+        &(I(key)->req_parser), &(I(key)->read_buffer)
     );
 
     if (parser_state == PENDING)
         return REQUEST_READ;
         
     if (parser_state == FAILED)
-        return notify_error(key, key->item->req_parser.error_code, REQUEST_READ);
+        return notify_error(key, I(key)->req_parser.error_code, REQUEST_READ);
 
-    http_request * request = &(key->item->req_parser.request);
+    http_request * request = &(I(key)->req_parser.request);
 
     // Parse the request target URL
 
-    memset(&(key->item->doh), 0, sizeof(struct doh_client));
-    int r = parse_url(request->url, &(key->item->doh.url));
+    memset(&(I(key)->doh), 0, sizeof(struct doh_client));
+    int r = parse_url(request->url, &(I(key)->doh.url));
     // TODO: Move parsed URL to another structure
 
     if (r < 0)
@@ -357,23 +357,23 @@ static unsigned process_request(struct selector_key * key) {
 
     // Log the access of the client
 
-    log_client_access(key->item->client_socket, request->url);
+    log_client_access(I(key)->client_socket, request->url);
 
     // If there is an established connection close it
     // TODO: Close the connection on a previous stage
 
-    if (key->item->target_socket > 0) {
-        close(key->item->target_socket);
+    if (I(key)->target_socket > 0) {
+        close(I(key)->target_socket);
     }
 
     // Prepare to connect to new target
 
-    log(DEBUG, "Connection requested to %s:%d", key->item->doh.url.hostname, key->item->doh.url.port);
+    log(DEBUG, "Connection requested to %s:%d", I(key)->doh.url.hostname, I(key)->doh.url.port);
 
     // Check that target is not blacklisted
 
-    if (strstr(proxy_conf.targetBlacklist, key->item->doh.url.hostname) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", key->item->doh.url.hostname);
+    if (strstr(proxy_conf.targetBlacklist, I(key)->doh.url.hostname) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", I(key)->doh.url.hostname);
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 
@@ -381,9 +381,9 @@ static unsigned process_request(struct selector_key * key) {
 
     /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
     struct addrinfo * addrinfo;
-    if (resolve_string(&(addrinfo), key->item->doh.url.hostname, key->item->doh.url.port) >= 0) {
+    if (resolve_string(&(addrinfo), I(key)->doh.url.hostname, I(key)->doh.url.port) >= 0) {
 
-        if (is_proxy_host(addrinfo->ai_addr) && key->item->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
+        if (is_proxy_host(addrinfo->ai_addr) && I(key)->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
             log(INFO, "Prevented proxy loop")
             free(addrinfo);
             return notify_error(key, FORBIDDEN, REQUEST_READ);
@@ -398,7 +398,7 @@ static unsigned process_request(struct selector_key * key) {
 
         if (connect(sock, addrinfo->ai_addr, addrinfo->ai_addrlen) == -1) {
             if (errno == EINPROGRESS) {
-                key->item->target_socket = sock;
+                I(key)->target_socket = sock;
                 free(addrinfo);
                 return REQUEST_CONNECT;
             } else {

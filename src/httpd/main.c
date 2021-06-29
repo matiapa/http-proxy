@@ -1,43 +1,36 @@
 #include <signal.h>
-#include <arpa/inet.h>
 #include <string.h>
-#include <statistics.h>
-#include <tcp_utils.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+
 #include <logger.h>
 #include <proxy_args.h>
+#include <statistics.h>
 #include <doh_client.h>
-#include <selector_enums.h>
-#include <http_request_parser.h>
-#include <http_response_parser.h>
-#include <proxy_stm.h>
+#include <tcp_utils.h>
 #include <udp_utils.h>
+#include <proxy_stm.h>
+#include <monitor.h>
 
-void handle_creates(struct selector_key *key);
-
-void handle_creates(struct selector_key *key);
-
-void handle_close(struct selector_key * key);
 
 void sigpipe_handler(int signum);
-
 
 void sigterm_handler(int signal);
 
 
 int main(int argc, char **argv) {
 
-    // Read arguments and close stdin
+    close(0);
+
+    // Read arguments
 
     struct proxy_args args;
     parse_args(argc, argv, &args);
-
     proxy_conf.proxyArgs = args;
-
-    close(0);
 
     log(INFO, "Welcome to HTTP Proxy!");
 
-    // Register handlers for closing program appropiately
+    // Register process signal handlers
 
     signal(SIGTERM, sigterm_handler);
     signal(SIGINT,  sigterm_handler);
@@ -47,14 +40,18 @@ int main(int argc, char **argv) {
 
     config_doh_client(&(args.doh));
 
-    // Initialize
+    // Initialize statistics
 
     initialize_statistics();
 
-    // Start accepting connections
+    // Create passive sockets
 
-    int master_sockets[MASTER_SOCKET_SIZE] = {-1, -1};
-    int i = 0;
+    int passive_sockets[4] = {-1};
+    fd_handler * handlers[4];
+    int size = 0;
+
+    // Check for proxy IPV4/IPV6 settings
+
     char *ipv4_addr, *ipv6_addr;
     if (args.proxy_addr == NULL) {
         ipv4_addr = "0.0.0.0";
@@ -73,29 +70,29 @@ int main(int argc, char **argv) {
     char proxy_port[6] = {0};
     snprintf(proxy_port, 6, "%d", args.proxy_port);
 
+    // Create proxy IPV4/IPV6 sockets
+
+    fd_handler proxy_handler = { .handle_read = proxy_passive_accept };
+
     if (ipv4_addr != NULL) {
-        master_sockets[i] = create_tcp_server(ipv4_addr, proxy_port);
-        if(master_sockets[i] < 0) {
-            log(ERROR, "Creating passive socket ipv4");
-            exit(EXIT_FAILURE);
-        }
-        i++;
+        passive_sockets[size] = create_tcp_server(ipv4_addr, proxy_port);
+        if(passive_sockets[size] < 0)
+            goto error;
+        handlers[size] = &proxy_handler;
+        size++;
     }
 
     if (ipv6_addr != NULL) {
-        master_sockets[i] = create_tcp6_server(ipv6_addr, proxy_port);
-        if(master_sockets[i] < 0) {
-            log(ERROR, "Creating passive socket ipv6");
-            exit(EXIT_FAILURE);
-        }
+        passive_sockets[size] = create_tcp6_server(ipv6_addr, proxy_port);
+        if(passive_sockets[size] < 0)
+            goto error;
+        handlers[size] = &proxy_handler;
+        size++;
     }
 
-    // Start monitor
+    // Check for monitor IPV4/IPV6 settings
 
-    int udp_sockets[MASTER_SOCKET_SIZE] = {-1, -1};
-    i = 0;
-    ipv4_addr = NULL;
-    ipv6_addr = NULL;
+    ipv4_addr = NULL; ipv6_addr = NULL;
     if (args.mng_addr == NULL) {
         ipv4_addr = "127.0.0.1";
         ipv6_addr = "::1";
@@ -110,98 +107,53 @@ int main(int argc, char **argv) {
         ipv6_addr = listen_addr->ai_family == AF_INET6 ? args.proxy_addr : NULL;
     }
 
+    // Create monitor IPV4/IPV6 sockets
+
+    fd_handler monitor_handler = { .handle_read = handle_read_monitor };
+
     if (ipv4_addr != NULL) {
-        udp_sockets[i] = create_udp_server(ipv4_addr, proxy_conf.proxyArgs.mng_port);
-        if (udp_sockets[i] < 0) {
-            log(ERROR, "Creating passive socket ipv4");
-            exit(EXIT_FAILURE);
-        }
-        i++;
+        passive_sockets[size] = create_udp_server(ipv4_addr, proxy_conf.proxyArgs.mng_port);
+        if(passive_sockets[size] < 0)
+            goto error;
+        handlers[size] = &monitor_handler;
+        size++;
     }
 
     if (ipv6_addr != NULL) {
-        udp_sockets[i] = create_udp6_server(ipv6_addr, proxy_conf.proxyArgs.mng_port);
-        if (udp_sockets[i] < 0) {
-            log(ERROR, "Creating passive socket ipv6");
-            exit(EXIT_FAILURE);
-        }
+        passive_sockets[size] = create_udp6_server(ipv6_addr, proxy_conf.proxyArgs.mng_port);
+        if(passive_sockets[size] < 0)
+            goto error;
+        handlers[size] = &monitor_handler;
+        size++;
     }
 
-    // Start handling connections
-    int res = handle_connections(master_sockets, udp_sockets, handle_creates);
-    if(res < 0) {
-        log(ERROR, "Handling connections");
-        close(master_sockets[0]);
-        close(master_sockets[1]);
-        close(udp_sockets[0]);
-        close(udp_sockets[1]);
-        exit(EXIT_FAILURE);
-    }
+    // Start handling passive sockets
 
-    close(master_sockets[0]);
-    close(master_sockets[1]);
-    close(udp_sockets[0]);
-    close(udp_sockets[1]);
+    handle_passive_sockets(passive_sockets, handlers, size);
+
+    for(int i=0; i<size; i++)
+        if (passive_sockets[i] != -1)
+            close(passive_sockets[i]);
 
     return EXIT_SUCCESS;
-    
-}
 
+error:
+    for(int i=0; i<size; i++)
+        if (passive_sockets[i] != -1)
+            close(passive_sockets[i]);
 
-void handle_creates(struct selector_key *key) {
-
-    struct sockaddr_in address;
-    int addrlen = sizeof(struct sockaddr_in);
-
-    int masterSocket = key->item->master_socket;
-
-    // Accept the client connection
-
-    int clientSocket = accept(masterSocket, (struct sockaddr *) &address, (socklen_t *) &addrlen);
-    if (clientSocket < 0) {
-        log(FATAL, "Accepting new connection")
-    }
-    add_connection();
-
-    key->item->client_socket = clientSocket;
-    key->item->last_activity = time(NULL);
-    key->item->client=address;
-
-    log(INFO, "Accepted client %s:%d (FD: %d)", inet_ntoa(address.sin_addr),
-        ntohs(address.sin_port), clientSocket);
-
-    if (strstr(proxy_conf.clientBlacklist, inet_ntoa(address.sin_addr)) != NULL) {
-        log(INFO, "Rejecting %s due to client blacklist", inet_ntoa(address.sin_addr));
-        item_kill(key->s, key->item);
-    }
-
-    // Initialize connection buffers, state machine and HTTP parser
-
-    buffer_init(&(key->item->read_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
-    buffer_init(&(key->item->write_buffer), CONN_BUFFER, malloc(CONN_BUFFER));
-
-    memcpy(&(key->item->stm), &proto_stm, sizeof(proto_stm));
-    stm_init(&(key->item->stm));
-
-    http_request_parser_init(&(key->item->req_parser));
-    http_response_parser_init(&(key->item->res_parser));
-    pop3_parser_init(&(key->item->pop3_parser));
-
-    // Set initial interests
-
-    key->item->client_interest = OP_READ;
-    key->item->target_interest = OP_NOOP;
-    selector_update_fdset(key->s, key->item);
+    return EXIT_FAILURE;
 
 }
+
 
 void sigterm_handler(int signal) {
+    // TODO: Handle properly
     printf("signal %d, cleaning up selector and exiting\n",signal);
-    selector_destroy(selector_fd); // destruyo al selector
     _exit(EXIT_SUCCESS);
 }
+
 
 void sigpipe_handler(int signum) {
     printf("Caught signal SIGPIPE %d\n",signum);
 }
-

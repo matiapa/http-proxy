@@ -1,21 +1,20 @@
-/*
+/**
  * selector.c - un muliplexor de entrada salida
  */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <errno.h>
+#include <stdio.h>  // perror
+#include <stdlib.h> // malloc
+#include <string.h> // memset
+#include <assert.h> // :)
+#include <errno.h>  // :)
 #include <pthread.h>
+
+#include <stdint.h> // SIZE_MAX
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <stdint.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <sys/select.h>
-#include <signal.h>
-#include <logger.h>
-#include <config.h>
-#include <monitor.h>
+#include <sys/signal.h>
 #include <selector.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
@@ -23,7 +22,8 @@
 #define ERROR_DEFAULT_MSG "something failed"
 
 /** retorna una descripción humana del fallo */
-const char * selector_error(const selector_status status) {
+const char *
+selector_error(const selector_status status) {
     const char *msg;
     switch(status) {
         case SELECTOR_SUCCESS:
@@ -56,7 +56,8 @@ static void wake_handler(const int signal) {
 struct selector_init conf;
 static sigset_t emptyset, blockset;
 
-selector_status selector_init(const struct selector_init  *c) {
+selector_status
+selector_init(const struct selector_init  *c) {
     memcpy(&conf, c, sizeof(conf));
 
     // inicializamos el sistema de comunicación entre threads y el selector
@@ -86,23 +87,30 @@ selector_status selector_init(const struct selector_init  *c) {
         goto finally;
     }
     sigemptyset(&emptyset);
-    
+
 finally:
     return ret;
 }
 
-selector_status selector_close(void) {
+selector_status
+selector_close(void) {
     // Nada para liberar.
     // TODO(juan): podriamos reestablecer el handler de la señal.
     return SELECTOR_SUCCESS;
 }
 
-
+// estructuras internas
+struct item {
+   int                 fd;
+   fd_interest         interest;
+   const fd_handler   *handler;
+   void *              data;
+};
 
 /* tarea bloqueante */
 struct blocking_job {
     /** selector dueño de la resolucion */
-    fd_selector  s;
+    fdselector *  s;
     /** file descriptor dueño de la resolucion */
     int fd;
 
@@ -113,12 +121,42 @@ struct blocking_job {
     struct blocking_job *next;
 };
 
-/** marca para usar en item->client_socket para saber que no está en uso */
+/** marca para usar en item->fd para saber que no está en uso */
 static const int FD_UNUSED = -1;
 
 /** verifica si el item está usado */
-#define ITEM_USED(i) ( ( FD_UNUSED != (i)->client_socket) )
+#define ITEM_USED(i) ( ( FD_UNUSED != (i)->fd) )
 
+struct fdselector {
+    // almacenamos en una jump table donde la entrada es el file descriptor.
+    // Asumimos que el espacio de file descriptors no va a ser esparso; pero
+    // esto podría mejorarse utilizando otra estructura de datos
+    struct item    *fds;
+    size_t          fd_size;  // cantidad de elementos posibles de fds
+
+    /** fd maximo para usar en select() */
+    int max_fd;  // max(.fds[].fd)
+
+    /** descriptores prototipicos ser usados en select */
+    fd_set master_r, master_w;
+    /** para ser usado en el select() (recordar que select cambia el valor) */
+    fd_set  slave_r,  slave_w;
+
+    /** timeout prototipico para usar en select() */
+    struct timespec master_t;
+    /** tambien select() puede cambiar el valor */
+    struct timespec slave_t;
+
+    // notificaciónes entre blocking jobs y el selector
+    volatile pthread_t      selector_thread;
+    /** protege el acceso a resolutions jobs */
+    pthread_mutex_t         resolution_mutex;
+    /**
+     * lista de trabajos blockeantes que finalizaron y que pueden ser
+     * notificados.
+     */
+    struct blocking_job    *resolution_jobs;
+};
 
 /** cantidad máxima de file descriptors que la plataforma puede manejar */
 #define ITEMS_MAX_SIZE      FD_SETSIZE
@@ -129,7 +167,8 @@ static const int FD_UNUSED = -1;
  * determina el tamaño a crecer, generando algo de slack para no tener
  * que realocar constantemente.
  */
-static size_t next_capacity(const size_t n) {
+static
+size_t next_capacity(const size_t n) {
     unsigned bits = 0;
     size_t tmp = n;
     while(tmp != 0) {
@@ -146,16 +185,17 @@ static size_t next_capacity(const size_t n) {
     return tmp + 1;
 }
 
-static inline void item_init(struct item *item) {
-    item->client_socket = FD_UNUSED;
-    item->target_socket = FD_UNUSED;
+static inline void
+item_init(struct item *item) {
+    item->fd = FD_UNUSED;
 }
 
 /**
  * inicializa los nuevos items. `last' es el indice anterior.
  * asume que ya está blanqueada la memoria.
  */
-static void items_init(fd_selector s, const size_t last) {
+static void
+items_init(fdselector * s, const size_t last) {
     assert(last <= s->fd_size);
     for(size_t i = last; i < s->fd_size; i++) {
         item_init(s->fds + i);
@@ -163,73 +203,45 @@ static void items_init(fd_selector s, const size_t last) {
 }
 
 /**
- * Mata el item
- */
-void item_kill(fd_selector s, struct item * item) {
-    struct sockaddr_in address;
-    int addrlen = sizeof(struct sockaddr_in);
-
-    if (item->client_socket !=  s->fds[0].client_socket) {
-        if (getpeername(item->client_socket, (struct sockaddr*) &address, (socklen_t*) &addrlen) == 0) {
-            char * ip_str = inet_ntoa(address.sin_addr);
-            if (ip_str == NULL)
-                return;
-            log(INFO, "Disconnected client: %s:%d (FD: %d)", inet_ntoa(address.sin_addr),
-                ntohs(address.sin_port), item->client_socket);
-        }
-    }
-    
-    // cuando no es el master socket
-    if (item->read_buffer.write != NULL && item->read_buffer.read != NULL) {
-        buffer_reset(&(item->read_buffer));
-        buffer_reset(&(item->write_buffer));
-
-        
-        close(item->target_socket);
-
-        // Release connection buffers
-
-        free_buffer(&item->read_buffer);
-        free_buffer(&item->write_buffer);
-        free_buffer(&item->req_parser.parse_buffer);
-
-       
-        // Marks item as unused
-        FD_CLR(item->target_socket, &s->master_r);
-        FD_CLR(item->target_socket, &s->master_w);
-
-        
-    }
-
-    close(item->client_socket);
-
-    // Marks item as unused
-    FD_CLR(item->client_socket, &s->master_r);
-    FD_CLR(item->client_socket, &s->master_w);
-
-    item->client_socket = FD_UNUSED;
-    item->target_socket = FD_UNUSED;
-    
-}
-
-/**
  * calcula el fd maximo para ser utilizado en select()
  */
-static int items_max_fd(fd_selector s) {
+static int
+items_max_fd(fdselector * s) {
     int max = 0;
     for(int i = 0; i <= s->max_fd; i++) {
         struct item *item = s->fds + i;
         if(ITEM_USED(item)) {
-            if(item->client_socket > max) {
-                max = item->client_socket;
+            if(item->fd > max) {
+                max = item->fd;
             }
         }
     }
     return max;
 }
 
+static void
+items_update_fdset_for_fd(fdselector * s, const struct item * item) {
+    FD_CLR(item->fd, &s->master_r);
+    FD_CLR(item->fd, &s->master_w);
 
-static selector_status ensure_capacity(fd_selector s, const size_t n) {
+    if(ITEM_USED(item)) {
+        if(item->interest & OP_READ) {
+            FD_SET(item->fd, &(s->master_r));
+        }
+
+        if(item->interest & OP_WRITE) {
+            FD_SET(item->fd, &(s->master_w));
+        }
+    }
+}
+
+/**
+ * garantizar cierta cantidad de elemenos en `fds'.
+ * Se asegura de que `n' sea un número que la plataforma donde corremos lo
+ * soporta
+ */
+static selector_status
+ensure_capacity(fdselector * s, const size_t n) {
     selector_status ret = SELECTOR_SUCCESS;
 
     const size_t element_size = sizeof(*s->fds);
@@ -253,7 +265,7 @@ static selector_status ensure_capacity(fd_selector s, const size_t n) {
     } else {
         // hay que agrandar...
         const size_t new_size = next_capacity(n);
-        if (new_size > SIZE_MAX/element_size) { //-V547
+        if (new_size > SIZE_MAX/element_size) { // ver MEM07-C
             ret = SELECTOR_ENOMEM;
         } else {
             struct item *tmp = realloc(s->fds, new_size * element_size);
@@ -272,10 +284,10 @@ static selector_status ensure_capacity(fd_selector s, const size_t n) {
     return ret;
 }
 
-
-fd_selector selector_new(const size_t initial_elements, const fd_handler *handler) {
+fdselector *
+selector_new(const size_t initial_elements) {
     size_t size = sizeof(struct fdselector);
-    fd_selector ret = malloc(size);
+    fdselector * ret = malloc(size);
     if(ret != NULL) {
         memset(ret, 0x00, size);
         ret->master_t.tv_sec  = conf.select_timeout.tv_sec;
@@ -287,27 +299,24 @@ fd_selector selector_new(const size_t initial_elements, const fd_handler *handle
             selector_destroy(ret);
             ret = NULL;
         }
-        ret->handlers = *handler;
-        ret->master_size = 0;
     }
     return ret;
 }
 
-
-void selector_destroy(fd_selector s) {
+void
+selector_destroy(fdselector * s) {
     // lean ya que se llama desde los casos fallidos de _new.
     if(s != NULL) {
         if(s->fds != NULL) {
             for(size_t i = 0; i < s->fd_size ; i++) {
                 if(ITEM_USED(s->fds + i)) {
-                    selector_unregister_fd(s, (int)i);
+                    selector_unregister_fd(s, i);
                 }
             }
             pthread_mutex_destroy(&s->resolution_mutex);
-            for(struct blocking_job *j = s->resolution_jobs; j != NULL; ) {
-                struct blocking_job * aux = j->next;
+            for(struct blocking_job *j = s->resolution_jobs; j != NULL;
+                j = j->next) {
                 free(j);
-                j = aux;
             }
             free(s->fds);
             s->fds     = NULL;
@@ -319,149 +328,52 @@ void selector_destroy(fd_selector s) {
 
 #define INVALID_FD(fd)  ((fd) < 0 || (fd) >= ITEMS_MAX_SIZE)
 
+selector_status
+selector_register(fdselector *        s,
+                     const int          fd,
+                     const fd_handler  *handler,
+                     const fd_interest  interest,
+                     void *data) {
+    selector_status ret = SELECTOR_SUCCESS;
+    // 0. validación de argumentos
+    if(s == NULL || INVALID_FD(fd) || handler == NULL) {
+        ret = SELECTOR_IARGS;
+        goto finally;
+    }
+    // 1. tenemos espacio?
+    size_t ufd = (size_t)fd;
+    if(ufd > s->fd_size) {
+        ret = ensure_capacity(s, ufd);
+        if(SELECTOR_SUCCESS != ret) {
+            goto finally;
+        }
+    }
 
-/***************************************************************
-  Configures fdset based on item permissions
-****************************************************************/
-void selector_update_fdset(fd_selector s, const struct item * item) {
+    // 2. registración
+    struct item * item = s->fds + ufd;
     if(ITEM_USED(item)) {
-
-        // Check that client socket is set
-
-        if (item->client_socket != 0) {
-            // log(DEBUG, "Updating fd_sets for client %d", item->client_socket)
-
-            FD_CLR(item->client_socket, &(s->master_r));
-            FD_CLR(item->client_socket, &(s->master_w));
-
-            if(item->client_interest & OP_READ)
-                FD_SET(item->client_socket, &(s->master_r));                 
-            
-            if(item->client_interest & OP_WRITE)
-                FD_SET(item->client_socket, &(s->master_w));  
-        }
-
-        // Check that target socket is set
-
-        if (item->target_socket != 0) {
-            // log(DEBUG, "Updating fd_sets for target %d", item->target_socket)
-
-            FD_CLR(item->target_socket, &(s->master_w));
-            FD_CLR(item->target_socket, &(s->master_r));
-
-            if(item->target_interest & OP_READ)
-                FD_SET(item->target_socket, &(s->master_r));             
-
-            if(item->target_interest & OP_WRITE)
-                FD_SET(item->target_socket, &(s->master_w));   
-        }
-
-        // log(DEBUG, "New sets: read_fd[0] = %d | read_fd[4] = %d | read_fd[5] = %d",
-        //     FD_ISSET(0, &(s->master_r)), FD_ISSET(4, &(s->master_r)), FD_ISSET(5, &(s->master_r)));
-        // log(DEBUG, "New sets: write_fd[0] = %d | write_fd[4] = %d | write_fd[5] = %d",
-        //     FD_ISSET(0, &(s->master_w)), FD_ISSET(4, &(s->master_w)), FD_ISSET(5, &(s->master_w)));
-
-    }
-}
-
-
-/***************************************************************
-  Registers a new fd, in the proxy case, the passive socket
-****************************************************************/
-selector_status selector_register(fd_selector s, const int fd, const fd_interest interest, void *data) {
-                         
-    selector_status ret = SELECTOR_SUCCESS;
-
-    if (s == NULL || INVALID_FD(fd)) {
-        ret = SELECTOR_IARGS;
+        ret = SELECTOR_FDINUSE;
         goto finally;
-    }
+    } else {
+        item->fd       = fd;
+        item->handler  = handler;
+        item->interest = interest;
+        item->data     = data;
 
-    for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
-        struct item * item = s->fds + i;
-        if (ITEM_USED(item)) {
-            ret = SELECTOR_FDINUSE;
-            continue;
-        } else {
-            item->client_socket   = fd;
-            item->client_interest = interest;
-            item->data   = data;
-
-            log(DEBUG, "Registered socket %d with interests %d", fd, interest);
-
-            if(fd > s->max_fd)
-                s->max_fd = fd;
-
-            FD_CLR(item->client_socket, &(s->master_r));
-            FD_CLR(item->client_socket, &(s->master_w));
-
-            if(item->client_interest & OP_READ)
-                FD_SET(item->client_socket, &(s->master_r));
-
-            if(item->client_interest & OP_WRITE)
-                FD_SET(item->client_socket, &(s->master_w));
-
-            ret = SELECTOR_SUCCESS;
-            s->masters[s->master_size++] = item;
-            goto finally;
+        // actualizo colaterales
+        if(fd > s->max_fd) {
+            s->max_fd = fd;
         }
+        items_update_fdset_for_fd(s, item);
     }
 
 finally:
     return ret;
-
 }
 
-selector_status selector_udp_register(fd_selector s, const int fd, const fd_interest interest, void *data) {
-                         
-    selector_status ret = SELECTOR_SUCCESS;
-
-    if (s == NULL || INVALID_FD(fd)) {
-        ret = SELECTOR_IARGS;
-        goto finally;
-    }
-
-    for (int i = MASTER_SOCKET_SIZE; i < MASTER_SOCKET_SIZE + UDP_SOCKET_SIZE; i++) {
-        struct item * item = s->fds + i;
-        if (ITEM_USED(item)) {
-            ret = SELECTOR_FDINUSE;
-            continue;
-        } else {
-            item->client_socket   = fd;
-            item->client_interest = interest;
-            item->data   = data;
-
-            log(DEBUG, "Registered socket %d with interests %d", fd, interest);
-
-            if (fd > s->max_fd)
-                s->max_fd = fd;
-
-            FD_CLR(item->client_socket, &(s->master_r));
-            FD_CLR(item->client_socket, &(s->master_w));
-
-            if(item->client_interest & OP_READ)
-                FD_SET(item->client_socket, &(s->master_r));
-
-            if(item->client_interest & OP_WRITE)
-                FD_SET(item->client_socket, &(s->master_w));
-
-            ret = SELECTOR_SUCCESS;
-            s->udps[s->udp_size++] = item;
-            goto finally;
-        }
-    }
-
-finally:
-    return ret;
-
-}
-
-
-/***************************************************************
-  Unregisters a fd, in the proxy case, the passive socket
-****************************************************************/
-selector_status selector_unregister_fd(fd_selector s, const int fd) {
-
+selector_status
+selector_unregister_fd(fdselector *       s,
+                       const int         fd) {
     selector_status ret = SELECTOR_SUCCESS;
 
     if(NULL == s || INVALID_FD(fd)) {
@@ -475,16 +387,17 @@ selector_status selector_unregister_fd(fd_selector s, const int fd) {
         goto finally;
     }
 
-    if (s->handlers.handle_close != NULL) {
-        struct selector_key key = {
+    if(item->handler->handle_close != NULL) {
+        selector_key_t key = {
             .s    = s,
-            .item = item
+            .fd   = item->fd,
+            .data = item->data,
         };
-        s->handlers.handle_close(&key);
+        item->handler->handle_close(&key);
     }
 
-    item->client_interest = OP_NOOP;
-    selector_update_fdset(s, item);
+    item->interest = OP_NOOP;
+    items_update_fdset_for_fd(s, item);
 
     memset(item, 0x00, sizeof(*item));
     item_init(item);
@@ -492,157 +405,105 @@ selector_status selector_unregister_fd(fd_selector s, const int fd) {
 
 finally:
     return ret;
-
 }
 
-/***************************************************************
-  Handles the result of pselect, ie. availables reads/writes
-****************************************************************/
-static void handle_iteration(fd_selector s) {
+selector_status
+selector_set_interest(fdselector * s, int fd, fd_interest i) {
+    selector_status ret = SELECTOR_SUCCESS;
 
-    // Check for item timeouts
-
-    for (size_t i = MASTER_SOCKET_SIZE + UDP_SOCKET_SIZE; i < proxy_conf.maxClients; i++) {
-        struct item * item = s->fds + i;
-
-        if(!ITEM_USED(item))
-            continue;
-
-        int delta = time(NULL) - item->last_activity;
-        if(proxy_conf.connectionTimeout > 0 && proxy_conf.connectionTimeout < delta){
-            log(INFO, "Kicking %d due to timeout", item->client_socket);
-            item_kill(s, item);
-        }
+    if(NULL == s || INVALID_FD(fd)) {
+        ret = SELECTOR_IARGS;
+        goto finally;
     }
-    
+    struct item *item = s->fds + fd;
+    if(!ITEM_USED(item)) {
+        ret = SELECTOR_IARGS;
+        goto finally;
+    }
+    item->interest = i;
+    items_update_fdset_for_fd(s, item);
+finally:
+    return ret;
+}
+
+selector_status
+selector_set_interest_key(selector_key_t *key, fd_interest i) {
+    selector_status ret;
+
+    if(NULL == key || NULL == key->s || INVALID_FD(key->fd)) {
+        ret = SELECTOR_IARGS;
+    } else {
+        ret = selector_set_interest(key->s, key->fd, i);
+    }
+
+    return ret;
+}
+
+/**
+ * se encarga de manejar los resultados del select.
+ * se encuentra separado para facilitar el testing
+ */
+static void
+handle_iteration(fdselector * s) {
     int n = s->max_fd;
-    int flag = 0;
+    selector_key_t key = {
+        .s = s,
+    };
 
-    struct selector_key key = { .s = s };
-
-    for (size_t i = 0; i < s->master_size && !flag; i++) {
-        int master_socket = s->masters[i]->client_socket;
-        if (FD_ISSET(s->masters[i]->client_socket, &s->slave_r)) {
-            for (size_t j = MASTER_SOCKET_SIZE; j < proxy_conf.maxClients; j++) {
-                struct item *item = s->fds + j;
-
-                if (ITEM_USED(item))
-                    continue;
-
-                key.item = item;
-                item->master_socket = master_socket;
-
-                s->handlers.handle_create(&key);
-
-                s->max_fd = item->client_socket > item->target_socket
-                                ? item->client_socket
-                                : item->target_socket;
-                break;
+    for (int i = 0; i <= n; i++) {
+        struct item *item = s->fds + i;
+        if(ITEM_USED(item)) {
+            key.fd   = item->fd;
+            key.data = item->data;
+            if(FD_ISSET(item->fd, &s->slave_r)) {
+                if(OP_READ & item->interest) {
+                    if(0 == item->handler->handle_read) {
+                        assert(("OP_READ arrived but no handler. bug!" == 0));
+                    } else {
+                        item->handler->handle_read(&key);
+                    }
+                }
             }
-            flag = 1;
-        }
-    }
-
-    flag = 0;
-    for (size_t i = 0; i < s->udp_size && !flag; i++) {
-        if (FD_ISSET(s->udps[i]->client_socket, &s->slave_r)) {
-            key.item = s->udps[i];
-            handle_read_monitor(&key);
-            selector_update_fdset(s, s->udps[i]);
-            flag = 1;
-        }
-    }
-
-    if (!flag) {
-
-        // A client/target demands attention
-
-        for (int i = MASTER_SOCKET_SIZE + UDP_SOCKET_SIZE; i <= n; i++) {
-            struct item *item = s->fds + i;
-            key.item = item;
-
-            if (ITEM_USED(item)) {
-                
-                // There is an initialized connection on this item
-
-                key.s = s;
-
-                // Check read operations
-
-                if(FD_ISSET(item->client_socket, &s->slave_r)) {
-                    log(DEBUG, "Client %d has read available", item->client_socket)
-                    if(OP_READ & item->client_interest) {
-                        key.active_fd = item->client_socket;
-                        stm_handler_read(&(item->stm), &key);
-                        continue;
+            if(FD_ISSET(i, &s->slave_w)) {
+                if(OP_WRITE & item->interest) {
+                    if(0 == item->handler->handle_write) {
+                        assert(("OP_WRITE arrived but no handler. bug!" == 0));
+                    } else {
+                        item->handler->handle_write(&key);
                     }
                 }
-
-                if(FD_ISSET(item->target_socket, &s->slave_r)) {
-                    log(DEBUG, "Target %d has read available", item->target_socket)
-                    if(OP_READ & item->target_interest) {
-                        key.active_fd = item->target_socket;
-                        stm_handler_read(&(item->stm), &key);
-                        continue;
-                    }
-                }
-
-                // Check write operations
-
-                if(FD_ISSET(item->client_socket, &s->slave_w)) {
-                    log(DEBUG, "Client %d has write available", item->client_socket)
-                    if(OP_WRITE & item->client_interest) {
-                        key.active_fd = item->client_socket;
-                        stm_handler_write(&(item->stm), &key);
-                        continue;
-                    }
-                }
-
-                if(FD_ISSET(item->target_socket, &s->slave_w)) {
-                    log(DEBUG, "Target %d has write available", item->target_socket)
-                    if(OP_WRITE & item->target_interest) {
-                        key.active_fd = item->target_socket;
-                        stm_handler_write(&(item->stm), &key);
-                        continue;
-                    }
-                }
-
             }
         }
     }
-
 }
 
-
-static void handle_block_notifications(fd_selector s) {
-    struct selector_key key = {
+static void
+handle_block_notifications(fdselector * s) {
+    selector_key_t key = {
         .s = s,
     };
     pthread_mutex_lock(&s->resolution_mutex);
-    for(struct blocking_job *j = s->resolution_jobs; j != NULL ;) {
+    for(struct blocking_job *j = s->resolution_jobs;
+        j != NULL ;
+        j  = j->next) {
 
-        struct item * item;
-        for (int i = 0; i <= s->max_fd; i++) {
-            item = s->fds + i;
-            if (item->client_socket == j->fd)
-                break;
-        }
-
+        struct item *item = s->fds + j->fd;
         if(ITEM_USED(item)) {
-            key.item = item;
-            stm_handler_block(&(item->stm), &key);
+            key.fd   = item->fd;
+            key.data = item->data;
+            item->handler->handle_block(&key);
         }
-        struct blocking_job * aux = j->next;
+
         free(j);
-        j = aux;
     }
     s->resolution_jobs = 0;
     pthread_mutex_unlock(&s->resolution_mutex);
 }
 
 
-selector_status selector_notify_block(fd_selector s, const int fd) {
-
+selector_status
+selector_notify_block(fdselector *  s,
+                 const int    fd) {
     selector_status ret = SELECTOR_SUCCESS;
 
     // TODO(juan): usar un pool
@@ -665,67 +526,55 @@ selector_status selector_notify_block(fd_selector s, const int fd) {
 
 finally:
     return ret;
-
 }
 
-
-/***************************************************************
-  Begins the iteration awaiting for available reads/writes
-****************************************************************/
-selector_status selector_select(fd_selector s) {
+selector_status
+selector_select(fdselector * s) {
     selector_status ret = SELECTOR_SUCCESS;
 
     memcpy(&s->slave_r, &s->master_r, sizeof(s->slave_r));
     memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
     memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
-    // Calculate max socket
-
-    int maxSocket = 0;
-    for (size_t i = 0; i < proxy_conf.maxClients; i++) {
-        struct item * item = s->fds + i;
-
-        if(!ITEM_USED(item))
-            continue;
-
-        int localMax = item->client_socket > item->target_socket ? item->client_socket : item->target_socket;
-        maxSocket = localMax > maxSocket ? localMax : maxSocket;
-    }
-
-    s->max_fd = maxSocket;
-        
-    struct timespec t = { .tv_sec = SELECTOR_TIMEOUT_SECS };
-
     s->selector_thread = pthread_self();
-    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &t, &emptyset); // sacar el NULL despues
 
-    log(DEBUG, "Exited pselect() with %d", fds);
-
+    int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &s->slave_t,
+                      &emptyset);
     if(-1 == fds) {
         switch(errno) {
             case EAGAIN:
             case EINTR:
-                log(DEBUG,"interrupted pselect");
+                // si una señal nos interrumpio. ok!
+                break;
+            case EBADF:
+                // ayuda a encontrar casos donde se cierran los fd pero no
+                // se desregistraron
+                for(int i = 0 ; i < s->max_fd; i++) {
+                    if(FD_ISSET(i, &s->master_r)|| FD_ISSET(i, &s->master_w)) {
+                        if(-1 == fcntl(i, F_GETFD, 0)) {
+                            fprintf(stderr, "Bad descriptor detected: %d\n", i);
+                        }
+                    }
+                }
+                ret = SELECTOR_IO;
                 break;
             default:
-                printf("%s\n", strerror(errno));
                 ret = SELECTOR_IO;
                 goto finally;
 
         }
     } else {
-        log(DEBUG, "Handling iteration")
         handle_iteration(s);
     }
-    
-    handle_block_notifications(s);
-
+    if(ret == SELECTOR_SUCCESS) {
+        handle_block_notifications(s);
+    }
 finally:
     return ret;
 }
 
-
-int selector_fd_set_nio(const int fd) {
+int
+selector_fd_set_nio(const int fd) {
     int ret = 0;
     int flags = fcntl(fd, F_GETFD, 0);
     if(flags == -1) {

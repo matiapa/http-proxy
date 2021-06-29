@@ -22,32 +22,32 @@
 /* ------------------------------------------------------------
   Reads TCP traffic from client or target. 
 ------------------------------------------------------------ */
-unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key);
+unsigned tcp_tunnel_read_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Forwards TCP traffic to corresponding peer.
 ------------------------------------------------------------ */
-unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key);
+unsigned tcp_tunnel_forward_ready(unsigned int state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Sends last messages from client to target then closes connection
 ------------------------------------------------------------ */
-unsigned client_close_connection_arrival(const unsigned state, struct selector_key *key);
+unsigned client_close_connection_arrival(const unsigned state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Sends last messages from target to client then closes connection
 ------------------------------------------------------------ */
-unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key);
+unsigned target_close_connection_arrival(const unsigned state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Trap state handler
 ------------------------------------------------------------ */
-unsigned end_arrival(const unsigned state, struct selector_key *key);
+unsigned end_arrival(const unsigned state, selector_key_t *key);
 
 /* ------------------------------------------------------------
   Notifies proxy errors.
 ------------------------------------------------------------ */
-unsigned error_write_ready(unsigned int state, struct selector_key *key);
+unsigned error_write_ready(unsigned int state, selector_key_t *key);
 
 
 /* -------------------------------------- AUXILIARS PROTOTYPES -------------------------------------- */
@@ -56,7 +56,7 @@ unsigned error_write_ready(unsigned int state, struct selector_key *key);
 /* ------------------------------------------------------------
   Writes error information on buffer and returns error state.
 ------------------------------------------------------------ */
-unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state);
+unsigned notify_error(selector_key_t *key, int status_code, unsigned next_state);
 
 
 /* -------------------------------------- STATE MACHINE DEFINITION -------------------------------------- */
@@ -205,25 +205,25 @@ state_machine proto_stm = {
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
 
-unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key) {
+unsigned tcp_tunnel_read_ready(unsigned int state, selector_key_t *key) {
 
     // On this context: read_buffer = client_buffer, write_buffer = target_buffer
 
     // Choose peer socket buffer for writing to it
 
-    int peer_fd = key->active_fd == key->item->client_socket
-        ? key->item->target_socket : key->item->client_socket;
+    int peer_fd = key->fd == I(key)->client_socket
+        ? I(key)->target_socket : I(key)->client_socket;
 
-    buffer * buffer = peer_fd == key->item->client_socket
-        ? &(key->item->read_buffer) : &(key->item->write_buffer);
+    buffer * buffer = peer_fd == I(key)->client_socket
+        ? &(I(key)->read_buffer) : &(I(key)->write_buffer);
 
     // If the buffer is full wait for it to be consumed
 
     if (! buffer_can_write(buffer)) {
-        if (key->active_fd == key->item->client_socket)
-            key->item->client_interest &= ~OP_READ;
+        if (key->fd == I(key)->client_socket)
+            selector_set_interest(key->s, I(key)->client_socket, OP_NOOP);
         else
-            key->item->target_interest &= ~OP_READ;
+            selector_set_interest(key->s, I(key)->target_socket, OP_NOOP);
         return TCP_TUNNEL;
     }
 
@@ -231,7 +231,7 @@ unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key) {
 
     size_t space;
     uint8_t * ptr = buffer_write_ptr(buffer, &space);
-    ssize_t readBytes = read(key->active_fd, ptr, space);
+    ssize_t readBytes = read(key->fd, ptr, space);
 
     if (readBytes < 0) {
         if(errno != EBADF && errno != EPIPE)
@@ -244,24 +244,24 @@ unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key) {
 
     buffer_write_adv(buffer, readBytes);
 
-    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, key->active_fd);
+    log(DEBUG, "Received %lu bytes from socket %d", (size_t) readBytes, key->fd);
 
     struct buffer aux_buffer;
     memcpy(&aux_buffer, buffer, sizeof(struct buffer));
 
     if (proxy_conf.disectorsEnabled) {
-        pop3_state state = pop3_parse(&aux_buffer, &(key->item->pop3_parser));
+        pop3_state state = pop3_parse(&aux_buffer, &(I(key)->pop3_parser));
 
         if (state == POP3_SUCCESS) {
-            if (key->item->pop3_parser.user [0]!= 0 && key->item->pop3_parser.pass [0]!= 0) {
-                log(DEBUG, "User: %s", key->item->pop3_parser.user);
-                log(DEBUG, "Pass: %s", key->item->pop3_parser.pass);
+            if (I(key)->pop3_parser.user [0]!= 0 && I(key)->pop3_parser.pass [0]!= 0) {
+                log(DEBUG, "User: %s", I(key)->pop3_parser.user);
+                log(DEBUG, "Pass: %s", I(key)->pop3_parser.pass);
                 print_credentials(
-                    POP3,key->item->last_target_url.hostname, key->item->last_target_url.port,
-                    key->item->pop3_parser.user, key->item->pop3_parser.pass
+                    POP3,I(key)->last_target_url.hostname, I(key)->last_target_url.port,
+                    I(key)->pop3_parser.user, I(key)->pop3_parser.pass
                 );
-                memset(key->item->pop3_parser.user, 0, MAX_USER_LENGTH);
-                memset(key->item->pop3_parser.pass, 0, MAX_PASS_LENGTH);
+                memset(I(key)->pop3_parser.user, 0, MAX_USER_LENGTH);
+                memset(I(key)->pop3_parser.pass, 0, MAX_PASS_LENGTH);
             }            
         }
     }
@@ -272,25 +272,23 @@ unsigned tcp_tunnel_read_ready(unsigned int state, struct selector_key *key) {
 
     // Declare interest on writing to peer and return
 
-    if (key->active_fd == key->item->client_socket)
-        key->item->target_interest |= OP_WRITE;
+    if (key->fd == I(key)->client_socket)
+        selector_set_interest(key->s, I(key)->target_socket, OP_WRITE);
     else
-        key->item->client_interest |= OP_WRITE;
-
-    selector_update_fdset(key->s, key->item);
+        selector_set_interest(key->s, I(key)->client_socket, OP_WRITE);
 
     return TCP_TUNNEL;
 }
 
 
-unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key) {
+unsigned tcp_tunnel_forward_ready(unsigned int state, selector_key_t *key) {
 
     // On this context: read_buffer = client_buffer, write_buffer = target_buffer
 
     // Choose active socket buffer for reading from it
 
-    buffer * buffer = key->active_fd == key->item->client_socket
-        ? &(key->item->read_buffer) : &(key->item->write_buffer);
+    buffer * buffer = key->fd == I(key)->client_socket
+        ? &(I(key)->read_buffer) : &(I(key)->write_buffer);
 
     // If the buffer is empty wait for it to be filled
 
@@ -301,7 +299,7 @@ unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key) 
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(buffer, &size);
-    ssize_t sentBytes = write(key->active_fd, ptr, size);
+    ssize_t sentBytes = write(key->fd, ptr, size);
 
     if (sentBytes < 0) {
         if(errno != EBADF && errno != EPIPE)
@@ -311,7 +309,7 @@ unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key) 
 
     buffer_read_adv(buffer, sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->active_fd);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->fd);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -319,34 +317,32 @@ unsigned tcp_tunnel_forward_ready(unsigned int state, struct selector_key *key) 
     // If write is over turn off interest on writing on active socket, then return
 
     if (((size_t) sentBytes) == size) {
-        if (key->active_fd == key->item->client_socket)
-            key->item->client_interest &= ~OP_WRITE;
+        if (key->fd == I(key)->client_socket)
+            selector_set_interest(key->s, I(key)->client_socket, OP_NOOP);
         else
-            key->item->target_interest &= ~OP_WRITE;
-
-        selector_update_fdset(key->s, key->item);
+            selector_set_interest(key->s, I(key)->target_socket, OP_NOOP);
     }
 
-    key->item->client_interest |= OP_READ;
-    key->item->target_interest |= OP_READ;
+    selector_set_interest(key->s, I(key)->client_socket, OP_READ);
+    selector_set_interest(key->s, I(key)->client_socket, OP_READ);
 
     return TCP_TUNNEL;
 
 }
 
 
-unsigned error_write_ready(unsigned int state, struct selector_key *key) {
+unsigned error_write_ready(unsigned int state, selector_key_t *key) {
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
+    ssize_t sentBytes = write(I(key)->client_socket, ptr, size);
 
     if (sentBytes < 0) {
         log(ERROR, "Failed to notify error to client");
         return END;
     }
 
-    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -355,28 +351,28 @@ unsigned error_write_ready(unsigned int state, struct selector_key *key) {
         return ERROR_STATE;
 
     #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
-    return (unsigned) key->item->data;
+    return (unsigned) I(key)->data;
 
 }
 
 
-unsigned client_close_connection_arrival(const unsigned state, struct selector_key *key) {
+unsigned client_close_connection_arrival(const unsigned state, selector_key_t *key) {
 
-    log(DEBUG, "Client closed connection from socket %d", key->item->client_socket);
+    log(DEBUG, "Client closed connection from socket %d", I(key)->client_socket);
 
     // Read last bytes from write buffer
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->write_buffer), &size);
-    ssize_t sentBytes = write(key->item->target_socket, ptr, size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
+    ssize_t sentBytes = write(I(key)->target_socket, ptr, size);
 
     if (sentBytes < 0){
         return END;
     }
 
-    buffer_read_adv(&(key->item->write_buffer), sentBytes);
+    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->target_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, I(key)->target_socket);
 
     //statistics
     add_sent_bytes(sentBytes);
@@ -389,22 +385,22 @@ unsigned client_close_connection_arrival(const unsigned state, struct selector_k
 }
 
 
-unsigned target_close_connection_arrival(const unsigned state, struct selector_key *key) {
+unsigned target_close_connection_arrival(const unsigned state, selector_key_t *key) {
 
-    log(DEBUG, "Target Closed connection from socket %d", key->item->target_socket);
+    log(DEBUG, "Target Closed connection from socket %d", I(key)->target_socket);
 
     // Read last bytes from write buffer
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(key->item->read_buffer), &size);
-    ssize_t sentBytes = write(key->item->client_socket, ptr, size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->read_buffer), &size);
+    ssize_t sentBytes = write(I(key)->client_socket, ptr, size);
 
     if (sentBytes < 0){
         return END;
     }
-    buffer_read_adv(&(key->item->read_buffer), sentBytes);
+    buffer_read_adv(&(I(key)->read_buffer), sentBytes);
 
-    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, key->item->client_socket);
+    log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, I(key)->client_socket);
     
     //statistics
     add_sent_bytes(sentBytes);
@@ -418,9 +414,10 @@ unsigned target_close_connection_arrival(const unsigned state, struct selector_k
 }
 
 
-unsigned end_arrival(const unsigned state, struct selector_key *key){
+unsigned end_arrival(const unsigned state, selector_key_t *key){
 
-    item_kill(key->s, key->item);
+    // TODO: Handle properly
+    //item_kill(key->s, I(key));
     remove_conection();
     return END;
     
@@ -430,22 +427,22 @@ unsigned end_arrival(const unsigned state, struct selector_key *key){
 /* -------------------------------------- AUXILIARS IMPLEMENTATIONS -------------------------------------- */
 
 
-unsigned notify_error(struct selector_key *key, int status_code, unsigned next_state) {
+unsigned notify_error(selector_key_t *key, int status_code, unsigned next_state) {
     
-    print_Access(inet_ntoa(key->item->client.sin_addr),ntohs(key->item->client.sin_port), key->item->req_parser.request.url,  key->item->req_parser.request.method,status_code);
-    http_request_parser_reset(&(key->item->req_parser));
-    http_response_parser_reset(&(key->item->res_parser));
+    print_Access(inet_ntoa(I(key)->client.sin_addr),ntohs(I(key)->client.sin_port), I(key)->req_parser.request.url,  I(key)->req_parser.request.method,status_code);
+    http_request_parser_reset(&(I(key)->req_parser));
+    http_response_parser_reset(&(I(key)->res_parser));
 
     size_t space;
-    char * ptr = (char *) buffer_write_ptr(&(key->item->write_buffer), &space);
+    char * ptr = (char *) buffer_write_ptr(&(I(key)->write_buffer), &space);
 
     http_response res = { .status = status_code };
     int written = write_response(&res, ptr, space, false);
 
-    buffer_write_adv(&(key->item->write_buffer), written);
+    buffer_write_adv(&(I(key)->write_buffer), written);
 
     #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
-    key->item->data = (void *) next_state;
+    I(key)->data = (void *) next_state;
 
     return ERROR_STATE;
 

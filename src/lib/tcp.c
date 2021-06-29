@@ -7,13 +7,11 @@
 #include <selector.h>
 #include <arpa/inet.h>
 #include <tcp_utils.h>
+#include <proxy.h>
 
 #define MAX_PENDING_CONN 5
 #define ADDR_BUFFER_SIZE 128
 
-void handle_close(struct selector_key * key);
-
-fd_selector selector_fd;
 
 void print_address(int servSock) {
     struct sockaddr_storage localAddr;
@@ -84,6 +82,7 @@ int create_tcp_server(const char *ip, const char *port) {
 
 }
 
+
 int create_tcp6_server(const char *ip, const char *port) {
 
     struct addrinfo addrCriteria;
@@ -143,16 +142,14 @@ int create_tcp6_server(const char *ip, const char *port) {
 
 }
 
-int handle_connections(int master_sockets[MASTER_SOCKET_SIZE], int udp_sockets[MASTER_SOCKET_SIZE], void (*handle_creates) (struct selector_key *key)) {
+
+int handle_passive_sockets(int sockets[], fd_handler ** handlers, int size) {
 
     // Initialize selector library
 
     const struct selector_init conf = {
         .signal = SIGCONT,
-        .select_timeout = {
-            .tv_sec  = 10,
-            .tv_nsec = 0
-        }
+        .select_timeout = { .tv_sec  = 10, .tv_nsec = 0 }
     };
 
     if(selector_init(&conf) != 0) {
@@ -160,56 +157,30 @@ int handle_connections(int master_sockets[MASTER_SOCKET_SIZE], int udp_sockets[M
         return -1;
     }
 
-    // Fill in handlers
-
-    const struct fd_handler handlers = {
-        .handle_create = handle_creates,
-        .handle_close = handle_close,
-        .handle_block = NULL};
-
     // Create new selector
 
-    selector_fd = selector_new(proxy_conf.maxClients, &handlers);
+    fdselector * selector_fd = selector_new(proxy_conf.maxClients);
     if(selector_fd == NULL) {
         log(ERROR, "Creating new selector");
         selector_close();
         return -1;
     }
 
-
-    // Register master socket
+    // Register passive sockets
 
     selector_status ss = SELECTOR_SUCCESS;
 
-    for (int i = 0; i < MASTER_SOCKET_SIZE; i++) {
-        if (master_sockets[i] != -1) {
-            if (selector_fd_set_nio(master_sockets[i]) == -1){
+    for (int i = 0; i < size; i++) {
+        if (sockets[i] != -1) {
+            if (selector_fd_set_nio(sockets[i]) == -1){
                 log(ERROR, "Setting master socket flags");
                 return -1;
             }
             
-            ss = selector_register(selector_fd, master_sockets[i], OP_READ + OP_WRITE, NULL);
+            ss = selector_register(selector_fd, sockets[i], handlers[i], OP_READ, NULL);
 
             if (ss != SELECTOR_SUCCESS) {
                 log(ERROR, "Registering master socket on selector");
-                selector_destroy(selector_fd);
-                selector_close();
-                return -1;
-            }
-        }
-    }
-
-    for (int i = 0; i < UDP_SOCKET_SIZE; i++) {
-        if (udp_sockets[i] != -1) {
-            if (selector_fd_set_nio(udp_sockets[i]) == -1){
-                log(ERROR, "Setting master socket flags")
-                return -1;
-            }
-
-            ss = selector_udp_register(selector_fd, udp_sockets[i], OP_READ, NULL);
-
-            if (ss != SELECTOR_SUCCESS) {
-                log(ERROR, "Registering master socket on selector")
                 selector_destroy(selector_fd);
                 selector_close();
                 return -1;
@@ -230,9 +201,4 @@ int handle_connections(int master_sockets[MASTER_SOCKET_SIZE], int udp_sockets[M
         }
     }
 
-}
-
-void handle_close(struct selector_key * key) {
-    log(DEBUG, "Destroying item with client socket %d", key->item->client_socket);
-    item_kill(key->s, key->item);
 }

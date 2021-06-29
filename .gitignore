@@ -1,6 +1,7 @@
 # Project related
 bin/*
 logs/*
+.data/*
 *.log
 *.o
 

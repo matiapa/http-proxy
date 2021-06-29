@@ -15,13 +15,13 @@
 /* -------------------------------------- HANDLERS IMPLEMENTATIONS -------------------------------------- */
 
 
-unsigned doh_connect_write_ready(unsigned int state, struct selector_key *key) {
+unsigned doh_connect_write_ready(unsigned int state, selector_key_t *key) {
 
     int socket_error;
     socklen_t socket_error_len = sizeof(socket_error);
-    int sock_opt = getsockopt(key->item->doh.server_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
+    int sock_opt = getsockopt(I(key)->doh.server_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
     if(sock_opt != 0){
-        log(ERROR, "DoH server getsockopt(%d) failed", key->item->doh.server_socket)
+        log(ERROR, "DoH server getsockopt(%d) failed", I(key)->doh.server_socket)
         perror("reason");
     }
 
@@ -30,7 +30,7 @@ unsigned doh_connect_write_ready(unsigned int state, struct selector_key *key) {
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
     }
 
-    if (send_doh_request(key, key->item->doh.family) < 0) {
+    if (send_doh_request(key, I(key)->doh.family) < 0) {
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
     }
     
@@ -39,7 +39,7 @@ unsigned doh_connect_write_ready(unsigned int state, struct selector_key *key) {
 }
 
 
-unsigned response_doh_read_ready(unsigned int state, struct selector_key *key) {
+unsigned response_doh_read_ready(unsigned int state, selector_key_t *key) {
 
     int ans_count = doh_client_read(key);
     if (ans_count == -1) {
@@ -48,11 +48,11 @@ unsigned response_doh_read_ready(unsigned int state, struct selector_key *key) {
         return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
 
     } else if (ans_count == 0) {
-        if (key->item->doh.family == AF_INET) {
-            free(key->item->doh.target_address_list);
-            key->item->doh.family = AF_INET6;
+        if (I(key)->doh.family == AF_INET) {
+            free(I(key)->doh.target_address_list);
+            I(key)->doh.family = AF_INET6;
 
-            if (send_doh_request(key, key->item->doh.family) < 0)
+            if (send_doh_request(key, I(key)->doh.family) < 0)
                 return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
             return RESPONSE_DOH;
         } else {
@@ -68,16 +68,16 @@ unsigned response_doh_read_ready(unsigned int state, struct selector_key *key) {
 }
 
 
-unsigned try_ips_arrival(const unsigned int state, struct selector_key *key) {
+unsigned try_ips_arrival(const unsigned int state, selector_key_t *key) {
     char addrBuffer[ADDR_BUFFER_SIZE];
 
-    struct addrinfo * current_addr = key->item->doh.current_target_addr;
-    struct addrinfo * address_list = key->item->doh.target_address_list;
+    struct addrinfo * current_addr = I(key)->doh.current_target_addr;
+    struct addrinfo * address_list = I(key)->doh.target_address_list;
 
     // Try to connect to an address
     int target_socket = -1;
     while (current_addr != NULL && target_socket == -1) {
-        if (is_proxy_host(current_addr->ai_addr) && key->item->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
+        if (is_proxy_host(current_addr->ai_addr) && I(key)->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
             log(INFO, "Prevented proxy loop")
             free(address_list);
             return notify_error(key, FORBIDDEN, REQUEST_READ);
@@ -109,16 +109,16 @@ unsigned try_ips_arrival(const unsigned int state, struct selector_key *key) {
 
     // Release address resource
 
-    key->item->doh.current_target_addr = current_addr;
+    I(key)->doh.current_target_addr = current_addr;
 
     if (target_socket < 0) {
-        if (key->item->doh.family == AF_INET) {
+        if (I(key)->doh.family == AF_INET) {
             free(address_list);
-            key->item->doh.family = AF_INET6;
-            key->item->target_socket = key->item->doh.server_socket; 
+            I(key)->doh.family = AF_INET6;
+            I(key)->target_socket = I(key)->doh.server_socket; 
             // Esto último es provisional, por compatibilidad con los permisos de la STM
 
-            if (send_doh_request(key, key->item->doh.family) < 0)
+            if (send_doh_request(key, I(key)->doh.family) < 0)
                 return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
 
             return RESPONSE_DOH;
@@ -128,7 +128,7 @@ unsigned try_ips_arrival(const unsigned int state, struct selector_key *key) {
             return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
         }
     } else {
-        key->item->target_socket = target_socket;
+        I(key)->target_socket = target_socket;
         return REQUEST_CONNECT;
     }
 }
