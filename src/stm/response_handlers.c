@@ -303,8 +303,6 @@ static void process_response_headers(http_response * res, char * proxy_host) {
         sprintf(res->message.headers[res->message.header_count - 1][1], "1.1 %s", proxy_host);
     }
 
-    /// TODO: Handle close detected
-
     if (close_detected) {
         log(DEBUG, "Should close connection");
     }

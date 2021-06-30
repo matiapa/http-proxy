@@ -425,8 +425,6 @@ selector_set_interest(fdselector * s, int fd, fd_interest i) {
     items_update_fdset_for_fd(s, item);
 
 finally:
-    if (ret != SELECTOR_SUCCESS)
-        log(ERROR, "%s", selector_error(ret));
     return ret;
 }
 

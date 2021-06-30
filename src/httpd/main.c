@@ -17,6 +17,8 @@ void sigpipe_handler(int signum);
 
 void sigterm_handler(int signal);
 
+fdselector * selector_fd;
+
 
 int main(int argc, char **argv) {
 
@@ -28,7 +30,7 @@ int main(int argc, char **argv) {
     parse_args(argc, argv, &args);
     proxy_conf.proxyArgs = args;
 
-    log(INFO, "Welcome to HTTP Proxy!");
+    clog(INFO, GREEN, "Welcome to HTTP Proxy!");
 
     // Register process signal handlers
 
@@ -42,8 +44,7 @@ int main(int argc, char **argv) {
 
     // Initialize statistics
 
-    // TODO: Reenable this
-    // initialize_statistics();
+    initialize_statistics();
 
     // Create passive sockets
 
@@ -147,10 +148,13 @@ error:
 
 }
 
-
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 void sigterm_handler(int signal) {
-    // TODO: Handle properly
-    printf("signal %d, cleaning up selector and exiting\n",signal);
+    printf("Cleaning up selector and exiting...\n");
+
+    selector_destroy(selector_fd);
+    selector_close();
+
     _exit(EXIT_SUCCESS);
 }
 

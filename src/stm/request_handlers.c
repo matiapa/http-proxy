@@ -486,8 +486,6 @@ static void process_request_headers(http_request * req, char * target_host, char
         sprintf(req->message.headers[req->message.header_count - 1][1], " 1.1 %s", proxy_host);
     }
 
-    /// TODO: Handle close detected
-
     if (close_detected) {
         log(DEBUG, "Should close connection");
     }

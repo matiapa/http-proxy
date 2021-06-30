@@ -72,19 +72,6 @@ void send_no_authorization_message(struct request_header * req, int udp_socket);
 
 void send_error(int status, int udp_socket);
 
-Config proxy_conf = {
-    .maxClients = 512,
-    .connectionTimeout = -1,
-    .statisticsFrequency = 3600,
-
-    .disectorsEnabled = true,
-
-    .viaProxyName = "",
-    .clientBlacklist = "",
-    .targetBlacklist = "",
-    .logLevel = DEBUG
-};
-
 int validate_client(char * pass) {
     return strcmp(pass, PASSWORD) == 0;
 }

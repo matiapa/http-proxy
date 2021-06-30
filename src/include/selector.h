@@ -47,6 +47,7 @@
 
 #define INTEREST_OFF(FLAG, MASK)  ( (FLAG) & ~(MASK) )
 
+#define SELECTOR_TIMEOUT 60
 
 /** ----------------------- STRUCTURES AND ENUMS ----------------------- */
 

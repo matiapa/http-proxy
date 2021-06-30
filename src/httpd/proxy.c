@@ -18,6 +18,18 @@
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
+Config proxy_conf = {
+    .maxClients = 512,
+    .connectionTimeout = -1,
+    .statisticsFrequency = 3600,
+
+    .disectorsEnabled = true,
+
+    .viaProxyName = "",
+    .clientBlacklist = "",
+    .targetBlacklist = "",
+    .logLevel = INFO
+};
 
 proxy_item * items;
 
@@ -63,6 +75,7 @@ static struct proxy_item * proxy_item_new(int client_fd) {
 finally:
     return new_item;
 }
+
 
 static void proxy_item_destroy(selector_key_t* key) {
     proxy_item * item = I(key);

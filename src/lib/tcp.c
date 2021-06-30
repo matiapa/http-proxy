@@ -147,10 +147,9 @@ int handle_passive_sockets(int sockets[], fd_handler ** handlers, int size) {
 
     // Initialize selector library
 
-    // TODO: Move selector timeout
     const struct selector_init conf = {
         .signal = SIGCONT,
-        .select_timeout = { .tv_sec  = 60, .tv_nsec = 0 }
+        .select_timeout = { .tv_sec  = SELECTOR_TIMEOUT, .tv_nsec = 0 }
     };
 
     if(selector_init(&conf) != 0) {
@@ -160,7 +159,9 @@ int handle_passive_sockets(int sockets[], fd_handler ** handlers, int size) {
 
     // Create new selector
 
-    fdselector * selector_fd = selector_new(proxy_conf.maxClients);
+    extern fdselector * selector_fd;
+
+    selector_fd = selector_new(proxy_conf.maxClients);
     if(selector_fd == NULL) {
         log(ERROR, "Creating new selector");
         selector_close();
