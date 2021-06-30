@@ -257,7 +257,7 @@ unsigned tcp_tunnel_read_ready(unsigned int state, selector_key_t *key) {
                 log(DEBUG, "User: %s", I(key)->pop3_parser.user);
                 log(DEBUG, "Pass: %s", I(key)->pop3_parser.pass);
                 print_credentials(
-                    POP3,I(key)->last_target_url.hostname, I(key)->last_target_url.port,
+                    POP3,I(key)->target_url.hostname, I(key)->target_url.port,
                     I(key)->pop3_parser.user, I(key)->pop3_parser.pass
                 );
                 memset(I(key)->pop3_parser.user, 0, MAX_USER_LENGTH);

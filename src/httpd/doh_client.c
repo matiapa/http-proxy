@@ -206,7 +206,7 @@ int doh_client_read(selector_key_t * key) {
     buffer_read_adv(&(I(key)->doh.buff), n); // comienzo de las answers, me salteo la estructura QUESTION porque no me interesa
 
     /*----------- Lectura del response DOH -----------*/
-    ans_count = read_response(out, I(key)->doh.url.port, I(key)->doh.family, ans_count, I(key)->doh.buff);
+    ans_count = read_response(out, I(key)->target_url.port, I(key)->doh.family, ans_count, I(key)->doh.buff);
 
     // Termine
     I(key)->doh.target_address_list = &out->ai;
@@ -266,7 +266,7 @@ int send_doh_request(selector_key_t * key, int type) {
 
     qname = (unsigned char *)buffer_write_ptr(&(I(key)->doh.buff), &nbyte);
 
-    int len = change_to_dns_format((char *)qname, I(key)->doh.url.hostname); // Mete el host en la posición del qname
+    int len = change_to_dns_format((char *)qname, I(key)->target_url.hostname); // Mete el host en la posición del qname
     buffer_write_adv(&(I(key)->doh.buff), len);
 
     qinfo = (struct QUESTION *)buffer_write_ptr(&(I(key)->doh.buff), &nbyte);

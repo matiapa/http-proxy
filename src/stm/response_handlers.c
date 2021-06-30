@@ -223,7 +223,7 @@ static unsigned process_response(selector_key_t * key) {
         return notify_error(key, BAD_GATEWAY, REQUEST_READ);
     }
 
-    print_Access(inet_ntoa(I(key)->client.sin_addr), ntohs(I(key)->client.sin_port), I(key)->req_parser.request.url, 
+    print_Access(inet_ntoa(I(key)->client_addr.sin_addr), ntohs(I(key)->client_addr.sin_port), I(key)->req_parser.request.url, 
     I(key)->req_parser.request.method, I(key)->res_parser.response.status);
 
     http_response * response = &(I(key)->res_parser.response);

@@ -155,7 +155,7 @@ void proxy_passive_accept(selector_key_t * key) {
     if(item == NULL)
         goto fail;
     
-    memcpy(&item->client, &client_addr, client_addr_len);
+    memcpy(&item->client_addr, &client_addr, client_addr_len);
 
     item->last_activity = time(NULL);
 

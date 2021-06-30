@@ -97,7 +97,7 @@ int is_number(const char * str) {
     return i > 0 ? 1 : 0;
 }
 
-int parse_url(char * text, struct url * url) {
+int parse_url(char * text, url_t * url) {
 	char * aux = malloc(strlen(text)+1);
 	if (aux == NULL)
 		return -1;

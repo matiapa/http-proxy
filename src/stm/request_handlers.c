@@ -80,6 +80,7 @@ unsigned request_connect_write_ready(unsigned int state, selector_key_t *key) {
 
     int socket_error;
     socklen_t socket_error_len = sizeof(socket_error);
+
     int sock_opt = getsockopt(I(key)->target_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
     if (sock_opt != 0) {
         log(ERROR, "Target getsockopt(%d) failed", I(key)->target_socket)
@@ -87,17 +88,16 @@ unsigned request_connect_write_ready(unsigned int state, selector_key_t *key) {
     }
 
     if (socket_error != 0) {
+        selector_unregister_fd(key->s, I(key)->target_socket);
         close(I(key)->target_socket);
+
         if (I(key)->doh.server_socket > 0)
             return TRY_IPS;
         else
             return notify_error(key, BAD_GATEWAY, REQUEST_READ);
-    } else { // la conexión funciono
-        memcpy(&(I(key)->last_target_url), &(I(key)->doh.url), sizeof(struct url));
+    } else {
         if (I(key)->doh.server_socket > 0)
             doh_kill(key);
-        // int aux = I(key)->doh.target_socket;
-        // I(key)->target_socket = aux;
     }
 
     // Update last connection
@@ -121,7 +121,7 @@ unsigned request_connect_write_ready(unsigned int state, selector_key_t *key) {
 
         buffer_write_adv(&(I(key)->write_buffer), written);
 
-        print_Access(inet_ntoa(I(key)->client.sin_addr), ntohs(I(key)->client.sin_port), I(key)->req_parser.request.url, I(key)->req_parser.request.method, 200);
+        print_Access(inet_ntoa(I(key)->client_addr.sin_addr), ntohs(I(key)->client_addr.sin_port), I(key)->req_parser.request.url, I(key)->req_parser.request.method, 200);
 
         // Go to send response state
 
@@ -132,7 +132,7 @@ unsigned request_connect_write_ready(unsigned int state, selector_key_t *key) {
         // The request method is a traditional one, request shall be proccessed
         // and then forwarded
         
-        if (request->method == OPTIONS && strlen(I(key)->last_target_url.path) == 0)
+        if (request->method == OPTIONS && strlen(I(key)->target_url.path) == 0)
             sprintf(request->url, "*");
 
         // Process request headers
@@ -144,7 +144,7 @@ unsigned request_connect_write_ready(unsigned int state, selector_key_t *key) {
             get_machine_fqdn(proxy_hostname);
         }
         
-        process_request_headers(request, I(key)->last_target_url.hostname, proxy_hostname);
+        process_request_headers(request, I(key)->target_url.hostname, proxy_hostname);
 
         // Extract credentials if present
 
@@ -343,8 +343,7 @@ static unsigned process_request(selector_key_t * key) {
     // Parse the request target URL
 
     memset(&(I(key)->doh), 0, sizeof(struct doh_client));
-    int r = parse_url(request->url, &(I(key)->doh.url));
-    // TODO: Move parsed URL to another structure
+    int r = parse_url(request->url, &(I(key)->target_url));
 
     if (r < 0)
         return notify_error(key, BAD_REQUEST, REQUEST_READ);
@@ -361,12 +360,12 @@ static unsigned process_request(selector_key_t * key) {
 
     // Prepare to connect to new target
 
-    log(DEBUG, "Connection requested to %s:%d", I(key)->doh.url.hostname, I(key)->doh.url.port);
+    log(DEBUG, "Connection requested to %s:%d", I(key)->target_url.hostname, I(key)->target_url.port);
 
     // Check that target is not blacklisted
 
-    if (strstr(proxy_conf.targetBlacklist, I(key)->doh.url.hostname) != NULL) {
-        log(INFO, "Rejected connection to %s due to target blacklist", I(key)->doh.url.hostname);
+    if (strstr(proxy_conf.targetBlacklist, I(key)->target_url.hostname) != NULL) {
+        log(INFO, "Rejected connection to %s due to target blacklist", I(key)->target_url.hostname);
         return notify_error(key, FORBIDDEN, REQUEST_READ);
     }
 
@@ -374,9 +373,9 @@ static unsigned process_request(selector_key_t * key) {
 
     /*--------- Chequeo si el target esta en formato IP o es Localhost ---------*/
     struct addrinfo * addrinfo;
-    if (resolve_string(&(addrinfo), I(key)->doh.url.hostname, I(key)->doh.url.port) >= 0) {
+    if (resolve_string(&(addrinfo), I(key)->target_url.hostname, I(key)->target_url.port) >= 0) {
 
-        if (is_proxy_host(addrinfo->ai_addr) && I(key)->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
+        if (is_proxy_host(addrinfo->ai_addr) && I(key)->target_url.port == proxy_conf.proxyArgs.proxy_port) {
             log(INFO, "Prevented proxy loop")
             free(addrinfo);
             return notify_error(key, FORBIDDEN, REQUEST_READ);
@@ -543,7 +542,7 @@ static int extract_http_credentials(http_request * request) {
         }
         strcpy(pass,(char*)&user_pass[j]);
         
-        struct url url;
+        url_t url;
         parse_url(request->url, &url);
         print_credentials(HTTP,url.hostname, url.port,user,pass);
     }

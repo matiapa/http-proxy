@@ -15,7 +15,10 @@
 
 typedef struct proxy_item {
     int                 client_socket;
+    struct sockaddr_in  client_addr;
+
     int                 target_socket;
+    url_t               target_url;
 
     buffer              read_buffer;
     buffer              write_buffer;
@@ -23,15 +26,12 @@ typedef struct proxy_item {
     state_machine       stm;
     doh_client          doh;
 
-    http_request_parser req_parser;
+    http_request_parser  req_parser;
     http_response_parser res_parser;
-    pop3_parser_data    pop3_parser;
+    pop3_parser_data     pop3_parser;
 
-    struct sockaddr_in  client;
-    
     time_t              last_activity;
-    struct url          last_target_url;
-
+    
     int                 references;
     void                * data;
     struct proxy_item   * next;

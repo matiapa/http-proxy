@@ -17,7 +17,6 @@ typedef struct doh_client {
     int                 family;
     struct addrinfo *   target_address_list;
     struct addrinfo *   current_target_addr;
-    struct url          url;
     int                 server_socket;
     buffer              buff;
 } doh_client;

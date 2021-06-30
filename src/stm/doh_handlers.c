@@ -82,7 +82,7 @@ unsigned try_ips_arrival(const unsigned int state, selector_key_t *key) {
 
         // Avoid connection loop
 
-        if (is_proxy_host(current_addr->ai_addr) && I(key)->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
+        if (is_proxy_host(current_addr->ai_addr) && I(key)->target_url.port == proxy_conf.proxyArgs.proxy_port) {
             log(INFO, "Prevented proxy loop")
             free(address_list);
             return notify_error(key, FORBIDDEN, REQUEST_READ);
