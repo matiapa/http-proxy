@@ -19,6 +19,7 @@ unsigned doh_connect_write_ready(unsigned int state, selector_key_t *key) {
 
     int socket_error;
     socklen_t socket_error_len = sizeof(socket_error);
+
     int sock_opt = getsockopt(I(key)->doh.server_socket, SOL_SOCKET, SO_ERROR, &socket_error, &socket_error_len);
     if(sock_opt != 0){
         log(ERROR, "DoH server getsockopt(%d) failed", I(key)->doh.server_socket)
@@ -75,13 +76,19 @@ unsigned try_ips_arrival(const unsigned int state, selector_key_t *key) {
     struct addrinfo * address_list = I(key)->doh.target_address_list;
 
     // Try to connect to an address
+
     int target_socket = -1;
     while (current_addr != NULL && target_socket == -1) {
+
+        // Avoid connection loop
+
         if (is_proxy_host(current_addr->ai_addr) && I(key)->doh.url.port == proxy_conf.proxyArgs.proxy_port) {
             log(INFO, "Prevented proxy loop")
             free(address_list);
             return notify_error(key, FORBIDDEN, REQUEST_READ);
         }
+
+        // Create socket and set O_NONBLOCK
 
         target_socket = socket(current_addr->ai_family, current_addr->ai_socktype, current_addr->ai_protocol);
 
@@ -94,8 +101,21 @@ unsigned try_ips_arrival(const unsigned int state, selector_key_t *key) {
             continue;
         }
 
+        // Register socket at selector
+
+        extern const struct fd_handler proxy_handlers;
+
+        if(selector_register(key->s, target_socket, &proxy_handlers, OP_WRITE, key->data) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to register origin socket %d at selector", target_socket);
+            return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+        }
+
+        // Connect to target
+
         if (connect(target_socket, current_addr->ai_addr, current_addr->ai_addrlen) == -1) {
             if (errno == EINPROGRESS) {
+                I(key)->target_socket = target_socket;
+                I(key)->references++;
                 current_addr = current_addr->ai_next;
                 break;
             } else {
@@ -103,32 +123,38 @@ unsigned try_ips_arrival(const unsigned int state, selector_key_t *key) {
                 continue;
             }
         } else {
-            abort(); // Such a thing can't happen!
+            abort();
         }
+
     }
 
-    // Release address resource
+    // Update tried address
 
     I(key)->doh.current_target_addr = current_addr;
 
     if (target_socket < 0) {
         if (I(key)->doh.family == AF_INET) {
+            // IPv4 failed, try with IPv6
+
             free(address_list);
             I(key)->doh.family = AF_INET6;
-            I(key)->target_socket = I(key)->doh.server_socket; 
-            // Esto último es provisional, por compatibilidad con los permisos de la STM
 
             if (send_doh_request(key, I(key)->doh.family) < 0)
                 return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
 
             return RESPONSE_DOH;
         } else {
+            // IPv6 failed, nothing to do
             doh_kill(key);
             log(ERROR, "Connecting to target")
+
             return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
         }
-    } else {
-        I(key)->target_socket = target_socket;
-        return REQUEST_CONNECT;
     }
+
+    // Everything went ok
+
+    doh_kill(key);
+
+    return REQUEST_CONNECT;
 }

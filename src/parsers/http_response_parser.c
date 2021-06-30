@@ -229,9 +229,7 @@ void http_response_parser_reset(http_response_parser * parser){
 void http_response_parser_destroy(http_response_parser * parser){
     parser_destroy(parser->parser);
     http_message_parser_destroy(&(parser->message_parser));
-
     free(parser->parse_buffer.data);
-    free(parser);
 }
 
 

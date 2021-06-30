@@ -100,17 +100,24 @@ unsigned response_forward_ready(unsigned int state, selector_key_t *key) {
        
     if (I(key)->res_parser.response.message.body_length == 0) {
         // No body
+
         http_request_parser_reset(&(I(key)->req_parser));
         http_response_parser_reset(&(I(key)->res_parser));
+        
+        proxy_item_reset(key);
+        
         return REQUEST_READ;
     } else if (buffer_can_read(&(I(key)->read_buffer))) {
         // Body present, read some bytes
+
         size_t remaining;
         buffer_read_ptr(&(I(key)->read_buffer), &remaining);
         I(key)->res_parser.message_parser.current_body_length += remaining;
+
         return RES_BODY_FORWARD;
     } else {
         // Body present, didn't read bytes
+
         return RES_BODY_READ;
     }
     

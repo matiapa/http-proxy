@@ -175,7 +175,6 @@ void pop3_parser_reset(pop3_parser_data * data){
 void pop3_parser_destroy(pop3_parser_data * data){
     parser_destroy(data->parser);
     free(data->popBuffer.data);
-    free(data);
 }
 
 void assign_cmd(pop3_parser_data * data){

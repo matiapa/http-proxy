@@ -275,7 +275,6 @@ void http_message_parser_reset(http_message_parser * parser){
 void http_message_parser_destroy(http_message_parser * parser){
     parser_destroy(parser->parser);
     free(parser->parse_buffer.data);
-    free(parser);
 }
 
 

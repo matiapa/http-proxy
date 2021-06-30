@@ -50,6 +50,7 @@ struct state_definition {
 
     fd_interest client_interest;
     fd_interest target_interest;
+    fd_interest doh_interest;
 
     rst_buffer rst_buffer;
 

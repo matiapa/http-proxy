@@ -82,7 +82,7 @@ Config proxy_conf = {
     .viaProxyName = "",
     .clientBlacklist = "",
     .targetBlacklist = "",
-    .logLevel = INFO
+    .logLevel = DEBUG
 };
 
 int validate_client(char * pass) {

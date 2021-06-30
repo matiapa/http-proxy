@@ -76,49 +76,62 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, s
 struct doh configurations;
 int id = 0;
 
+
 void config_doh_client(struct doh * args) {
     memcpy(&configurations, args, sizeof(struct doh));
 }
 
+
 int doh_client_init(selector_key_t * key) {
 
-    int s = socket(AF_INET , SOCK_STREAM , IPPROTO_TCP); // Socket para conectarse al DOH Server
+    // Create DoH client socket and set O_NONBLOCK
+
+    int s = socket(AF_INET , SOCK_STREAM , IPPROTO_TCP);
     if (s < 0) {
-        log(ERROR, "Socket failed to create")
+        log(ERROR, "Failed to create DoH client socket")
         return -1;
     }
+
+    selector_fd_set_nio(s);
 
     struct timeval timeout;
     timeout.tv_sec = 10;
     timeout.tv_usec = 0;
 
-    selector_fd_set_nio(s);
-    
     if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char *)&timeout, sizeof(int)) < 0) {
-        log(ERROR, "set DoH socket options SO_REUSEADDR failed %s ", strerror(errno))
+        log(ERROR, "Failed to set DoH client socket options SO_REUSEADDR: %s ", strerror(errno))
     }
 
-    struct sockaddr_in dest;
+    // Register socket at selector
 
-    // Buffers instantiated
-    // TODO: Close this buffers
+    extern const struct fd_handler proxy_handlers;
+
+    if(selector_register(key->s, s, &proxy_handlers, OP_WRITE, key->data) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to register DoH client socket %d at selector", s);
+        return -1;
+    }
+
+    // Set up item elements
+
     buffer_init(&(I(key)->doh.buff), BUFF_SIZE, calloc(1, BUFF_SIZE));
 
     I(key)->doh.server_socket = -1;
 
-    /*--------- Establece la conexón con el servidor ---------*/
+    // Connect to server
+
+    struct sockaddr_in dest;
     dest.sin_family = AF_INET;
     dest.sin_port = htons(configurations.port);
     dest.sin_addr.s_addr = inet_addr(configurations.ip);
 
-    if (connect(s, (struct sockaddr *)&dest, sizeof(dest)) == -1) { // Establece la conexión con el servidor DOH
+    if (connect(s, (struct sockaddr *)&dest, sizeof(dest)) == -1) {
         if (errno == EINPROGRESS) {
-            I(key)->target_socket = s;       // Provisional, por compatibilidad con los permisos de la STM
             I(key)->doh.server_socket = s;
             I(key)->doh.family = AF_INET;   // Set to IPv4 first
-            return 0; // Ok
+            I(key)->references++;
+            return 0;
         } else {
-            log(ERROR, "Error in connect")
+            log(ERROR, "Failed to initiate connection to DoH server")
             doh_kill(key);
             return -1;
         }
@@ -127,19 +140,18 @@ int doh_client_init(selector_key_t * key) {
     }
 }
 
-void doh_kill(selector_key_t * key) {
-    //FD_CLR(I(key)->doh.server_socket, &key->s->master_r);
-    //FD_CLR(I(key)->doh.server_socket, &key->s->master_w);
-    // TODO: Is this ok?
-    selector_set_interest(key->s, I(key)->doh.server_socket, OP_NOOP);
 
+void doh_kill(selector_key_t * key) {
+    selector_unregister_fd(key->s, I(key)->doh.server_socket);
     close(I(key)->doh.server_socket);
-    if (I(key)->doh.target_address_list != NULL) {
+
+    if (I(key)->doh.target_address_list != NULL)
         free(I(key)->doh.target_address_list);
-    }
+    
     free_buffer(&(I(key)->doh.buff));
     memset(&(I(key)->doh), 0, sizeof(struct doh_client));
 }
+
 
 int doh_client_read(selector_key_t * key) {
     /*----------- Recivo el response DOH -----------*/
@@ -202,6 +214,7 @@ int doh_client_read(selector_key_t * key) {
     return ans_count;
 }
 
+
 int create_post(int length, char * body, char * write_buffer, int space) {
     int header_count = 4;
     http_request request = {
@@ -222,6 +235,7 @@ int create_post(int length, char * body, char * write_buffer, int space) {
 
     return write_request(&request, write_buffer, space, true);
 }
+
 
 int send_doh_request(selector_key_t * key, int type) {
     buffer_reset(&(I(key)->doh.buff));
@@ -283,6 +297,7 @@ int send_doh_request(selector_key_t * key, int type) {
     return 0;
 }
 
+
 int read_response(struct aibuf * out, int sin_port, int family, int ans_count, struct buffer buff) {
 
     int sin_family, cant = 0;
@@ -337,6 +352,7 @@ int read_response(struct aibuf * out, int sin_port, int family, int ans_count, s
     return cant;
 }
 
+
 int resolve_string(struct addrinfo ** addrinfo, const char * target, int port) {
     struct aibuf * out = calloc(1, sizeof(*out) + 1);
     if (out == NULL) {
@@ -377,6 +393,7 @@ int resolve_string(struct addrinfo ** addrinfo, const char * target, int port) {
     }
 }
 
+
 int change_to_dns_format(char* dns, const char * host) {
     int len = (int)strlen(host);
     memcpy(dns, ".", 1);
@@ -394,6 +411,7 @@ int change_to_dns_format(char* dns, const char * host) {
     dns[len + 1] = 0;
     return len + 2;
 }
+
 
 int get_name(unsigned char * body) {
     if (*body & 0xC0) { // Chequeo si no esta en formato comprimido

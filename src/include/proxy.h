@@ -31,13 +31,17 @@ typedef struct proxy_item {
     
     time_t              last_activity;
     struct url          last_target_url;
-    int                 references;
 
+    int                 references;
     void                * data;
     struct proxy_item   * next;
 } proxy_item;
 
 void proxy_passive_accept(selector_key_t *key);
+
+void proxy_item_reset(selector_key_t * key);
+
+void proxy_item_finish(selector_key_t * key);
 
 #define I(key) ((proxy_item *) key->data)
 

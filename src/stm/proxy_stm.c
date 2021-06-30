@@ -66,7 +66,6 @@ const struct state_definition state_defs[] = {
     {
         .state            = REQUEST_READ,
         .client_interest  = OP_READ,
-        .target_interest  = OP_NOOP,
         .rst_buffer       = READ_BUFFER | WRITE_BUFFER,
         .description      = "REQUEST_READ",
         .on_read_ready    = request_read_ready,
@@ -74,27 +73,28 @@ const struct state_definition state_defs[] = {
     {
         .state            = DOH_CONNECT,
         .client_interest  = OP_NOOP,
-        .target_interest  = OP_WRITE,
+        .doh_interest     = OP_WRITE,
         .description      = "DOH_CONNECT",
         .on_write_ready   = doh_connect_write_ready,
     },
     {
         .state            = RESPONSE_DOH,
         .client_interest  = OP_NOOP,
-        .target_interest  = OP_READ,
+        .doh_interest     = OP_READ,
         .description      = "RESPONSE_DOH",
         .on_read_ready    = response_doh_read_ready,
     },
     {
         .state            = TRY_IPS,
         .client_interest  = OP_NOOP,
-        .target_interest  = OP_NOOP,
+        .doh_interest     = OP_NOOP,
         .description      = "TRY_IPS",
         .on_arrival       = try_ips_arrival,
     },
     {
         .state            = REQUEST_CONNECT,
         .client_interest  = OP_NOOP,
+        .doh_interest     = OP_NOOP,
         .target_interest  = OP_WRITE,
         .description      = "REQUEST_CONNECT",
         .on_write_ready   = request_connect_write_ready
@@ -331,50 +331,22 @@ unsigned tcp_tunnel_forward_ready(unsigned int state, selector_key_t *key) {
 }
 
 
-unsigned error_write_ready(unsigned int state, selector_key_t *key) {
-
-    size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
-    ssize_t sentBytes = write(I(key)->client_socket, ptr, size);
-
-    if (sentBytes < 0) {
-        log(ERROR, "Failed to notify error to client");
-        return END;
-    }
-
-    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
-
-    //statistics
-    add_sent_bytes(sentBytes);
-
-    if ((size_t) sentBytes < size)
-        return ERROR_STATE;
-
-    #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
-    return (unsigned) I(key)->data;
-
-}
-
-
 unsigned client_close_connection_arrival(const unsigned state, selector_key_t *key) {
 
     log(DEBUG, "Client closed connection from socket %d", I(key)->client_socket);
 
-    // Read last bytes from write buffer
+    // Send buffered bytes to target socket
 
     size_t size;
     uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
     ssize_t sentBytes = write(I(key)->target_socket, ptr, size);
 
-    if (sentBytes < 0){
+    if (sentBytes < 0)
         return END;
-    }
 
     buffer_read_adv(&(I(key)->write_buffer), sentBytes);
 
     log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, I(key)->target_socket);
-
-    //statistics
     add_sent_bytes(sentBytes);
 
     if ((size_t) sentBytes < size)
@@ -387,24 +359,21 @@ unsigned client_close_connection_arrival(const unsigned state, selector_key_t *k
 
 unsigned target_close_connection_arrival(const unsigned state, selector_key_t *key) {
 
-    log(DEBUG, "Target Closed connection from socket %d", I(key)->target_socket);
+    log(DEBUG, "Target closed connection from socket %d", I(key)->target_socket);
 
-    // Read last bytes from write buffer
+    // Send buffered bytes to client socket
 
     size_t size;
-    uint8_t *ptr = buffer_read_ptr(&(I(key)->read_buffer), &size);
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
     ssize_t sentBytes = write(I(key)->client_socket, ptr, size);
 
-    if (sentBytes < 0){
+    if (sentBytes < 0)
         return END;
-    }
-    buffer_read_adv(&(I(key)->read_buffer), sentBytes);
+    
+    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
 
     log(DEBUG, "Sent %lu bytes to socket %d", (size_t) sentBytes, I(key)->client_socket);
-    
-    //statistics
     add_sent_bytes(sentBytes);
-
 
     if ((size_t) sentBytes < size)
         return TARGET_CLOSE_CONNECTION;
@@ -414,11 +383,44 @@ unsigned target_close_connection_arrival(const unsigned state, selector_key_t *k
 }
 
 
+unsigned error_write_ready(unsigned int state, selector_key_t *key) {
+
+    // Read error message from buffer and send it to client
+
+    size_t size;
+    uint8_t *ptr = buffer_read_ptr(&(I(key)->write_buffer), &size);
+    ssize_t sentBytes = write(I(key)->client_socket, ptr, size);
+
+    if (sentBytes < 0) {
+        log(ERROR, "Failed to notify error to client");
+        return END;
+    }
+
+    buffer_read_adv(&(I(key)->write_buffer), sentBytes);
+
+    add_sent_bytes(sentBytes);
+
+    if ((size_t) sentBytes < size)
+        return ERROR_STATE;
+
+    #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
+
+    // If next state is REQUEST_READ reset item
+
+    if (((unsigned) I(key)->data) == REQUEST_READ)
+        proxy_item_reset(key);
+
+    return (unsigned) I(key)->data;
+
+}
+
+
 unsigned end_arrival(const unsigned state, selector_key_t *key){
 
-    // TODO: Handle properly
-    //item_kill(key->s, I(key));
     remove_conection();
+
+    proxy_item_finish(key);
+
     return END;
     
 }
@@ -429,9 +431,7 @@ unsigned end_arrival(const unsigned state, selector_key_t *key){
 
 unsigned notify_error(selector_key_t *key, int status_code, unsigned next_state) {
     
-    print_Access(inet_ntoa(I(key)->client.sin_addr),ntohs(I(key)->client.sin_port), I(key)->req_parser.request.url,  I(key)->req_parser.request.method,status_code);
-    http_request_parser_reset(&(I(key)->req_parser));
-    http_response_parser_reset(&(I(key)->res_parser));
+    // Write error notification message into buffer
 
     size_t space;
     char * ptr = (char *) buffer_write_ptr(&(I(key)->write_buffer), &space);
@@ -440,6 +440,8 @@ unsigned notify_error(selector_key_t *key, int status_code, unsigned next_state)
     int written = write_response(&res, ptr, space, false);
 
     buffer_write_adv(&(I(key)->write_buffer), written);
+
+    // Attach next state as item data and go to error state
 
     #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
     I(key)->data = (void *) next_state;

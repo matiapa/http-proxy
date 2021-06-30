@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/signal.h>
+#include <logger.h>
 #include <selector.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
@@ -422,7 +423,10 @@ selector_set_interest(fdselector * s, int fd, fd_interest i) {
     }
     item->interest = i;
     items_update_fdset_for_fd(s, item);
+
 finally:
+    if (ret != SELECTOR_SUCCESS)
+        log(ERROR, "%s", selector_error(ret));
     return ret;
 }
 
@@ -450,6 +454,8 @@ handle_iteration(fdselector * s) {
         .s = s,
     };
 
+    log(DEBUG, "Exited from pselect");
+
     for (int i = 0; i <= n; i++) {
         struct item *item = s->fds + i;
         if(ITEM_USED(item)) {
@@ -460,6 +466,7 @@ handle_iteration(fdselector * s) {
                     if(0 == item->handler->handle_read) {
                         assert(("OP_READ arrived but no handler. bug!" == 0));
                     } else {
+                        log(DEBUG, "Read available from %d", key.fd);
                         item->handler->handle_read(&key);
                     }
                 }
@@ -469,6 +476,7 @@ handle_iteration(fdselector * s) {
                     if(0 == item->handler->handle_write) {
                         assert(("OP_WRITE arrived but no handler. bug!" == 0));
                     } else {
+                        log(DEBUG, "Write available from %d", key.fd);
                         item->handler->handle_write(&key);
                     }
                 }

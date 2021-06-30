@@ -147,9 +147,10 @@ int handle_passive_sockets(int sockets[], fd_handler ** handlers, int size) {
 
     // Initialize selector library
 
+    // TODO: Move selector timeout
     const struct selector_init conf = {
         .signal = SIGCONT,
-        .select_timeout = { .tv_sec  = 10, .tv_nsec = 0 }
+        .select_timeout = { .tv_sec  = 60, .tv_nsec = 0 }
     };
 
     if(selector_init(&conf) != 0) {

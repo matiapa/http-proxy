@@ -359,13 +359,6 @@ static unsigned process_request(selector_key_t * key) {
 
     log_client_access(I(key)->client_socket, request->url);
 
-    // If there is an established connection close it
-    // TODO: Close the connection on a previous stage
-
-    if (I(key)->target_socket > 0) {
-        close(I(key)->target_socket);
-    }
-
     // Prepare to connect to new target
 
     log(DEBUG, "Connection requested to %s:%d", I(key)->doh.url.hostname, I(key)->doh.url.port);
@@ -396,9 +389,17 @@ static unsigned process_request(selector_key_t * key) {
         if (sock < 0) 
             return notify_error(key, BAD_GATEWAY, REQUEST_READ);
 
+        extern const struct fd_handler proxy_handlers;
+
+        if(selector_register(key->s, sock, &proxy_handlers, OP_WRITE, key->data) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to register origin socket %d at selector", sock);
+            return notify_error(key, INTERNAL_SERVER_ERROR, REQUEST_READ);
+        }
+            
         if (connect(sock, addrinfo->ai_addr, addrinfo->ai_addrlen) == -1) {
             if (errno == EINPROGRESS) {
                 I(key)->target_socket = sock;
+                I(key)->references++;
                 free(addrinfo);
                 return REQUEST_CONNECT;
             } else {

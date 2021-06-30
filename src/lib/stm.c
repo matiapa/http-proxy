@@ -30,9 +30,6 @@ handle_first(struct state_machine *stm, selector_key_t *key) {
     if(stm->current == NULL) {
         stm->current = stm->states + stm->initial;
 
-        selector_set_interest(key->s, I(key)->client_socket, stm->current->client_interest);
-        selector_set_interest(key->s, I(key)->target_socket, stm->current->target_interest);
-
         if(NULL != stm->current->on_arrival) {
             stm->current->on_arrival(stm->current->state, key);
         }
@@ -50,8 +47,14 @@ void jump(struct state_machine *stm, unsigned next, selector_key_t *key) {
         }
         stm->current = stm->states + next;
 
-        selector_set_interest(key->s, I(key)->client_socket, stm->current->client_interest);
-        selector_set_interest(key->s, I(key)->target_socket, stm->current->target_interest);
+        if (I(key)->client_socket != -1)
+            selector_set_interest(key->s, I(key)->client_socket, stm->current->client_interest);
+
+        if (I(key)->target_socket != -1)
+            selector_set_interest(key->s, I(key)->target_socket, stm->current->target_interest);
+
+        if (I(key)->doh.server_socket != -1)
+            selector_set_interest(key->s, I(key)->doh.server_socket, stm->current->doh_interest);
 
         if(stm->current->rst_buffer & READ_BUFFER)
             buffer_reset(&(I(key)->read_buffer));

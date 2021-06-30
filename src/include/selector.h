@@ -62,17 +62,19 @@ typedef enum selector_status {
     SELECTOR_IO       = 5,
 } selector_status;
 
+struct proxy_item;
+
 /** Event handlers receive this structure as argument */
 typedef struct selector_key {
     fdselector * s;         // The selector that activated the event
     int fd;                 // The file descriptor that activated the event
-    void * data;            // Optional aditional data
+    struct proxy_item * data;            // Optional aditional data
 } selector_key_t;
 
 /** Event handlers for a specific fd */
 typedef struct fd_handler {
-    void (*handle_read)      (selector_key_t *key);
-    void (*handle_write)     (selector_key_t *key);
+    void (*handle_read)     (selector_key_t *key);
+    void (*handle_write)    (selector_key_t *key);
     void (*handle_block)    (selector_key_t *key);
     void (*handle_close)    (selector_key_t *key);
 } fd_handler;

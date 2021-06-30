@@ -42,7 +42,8 @@ int main(int argc, char **argv) {
 
     // Initialize statistics
 
-    initialize_statistics();
+    // TODO: Reenable this
+    // initialize_statistics();
 
     // Create passive sockets
 
